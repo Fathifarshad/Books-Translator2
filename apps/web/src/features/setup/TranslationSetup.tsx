@@ -1,6 +1,8 @@
 import {
   type BookBundle,
   type BookRecord,
+  isProviderId,
+  PIPELINE_ENGINES,
   PIPELINE_TASKS,
   type PipelineEngine,
   QUALITY_PROFILES,
@@ -14,10 +16,11 @@ import { Link } from 'react-router';
 import { LangText } from '../../components/Bdi';
 import { Button } from '../../components/ui';
 import { booksKey } from '../../data/books';
-import { api } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 import { fmtNum, languageName } from '../../lib/format';
 import { AgentHint } from '../pipeline/AgentHint';
 import { glossaryKey, pipelineKey, targetOf, useBookLiveUpdates, usePipeline } from '../pipeline/live';
+import { useProviders } from '../settings/engines';
 
 type Settings = Omit<TranslationSettings, 'priorityNodeIds'> & { priorityNodeIds: string[] };
 
@@ -86,9 +89,31 @@ function SettingsStep({
   const chapters = useMemo(() => bundle.nodes.filter((n) => n.kind === 'chapter' && !n.skip), [bundle.nodes]);
   const titleOf = (headingId?: string, fallback?: string) =>
     bundle.segments.find((seg) => seg.id === headingId)?.src ?? fallback ?? '';
+  const providers = useProviders().data?.providers;
+  const readyProviders = (providers ?? []).filter((p) => p.ready).map((p) => p.id);
+  // Untouched defaults (all Claude Code) switch to the first connected free provider.
+  const firstReady = readyProviders[0];
+  useEffect(() => {
+    if (!firstReady) return;
+    setS((x) =>
+      PIPELINE_TASKS.every((k) => x.engines[k] === 'agent') &&
+      PIPELINE_TASKS.every((k) => initial.engines[k] === 'agent')
+        ? { ...x, engines: { brief: firstReady, glossary: firstReady, translate: firstReady, edit: firstReady } }
+        : x,
+    );
+  }, [firstReady, initial]);
   const estimate = useQuery({
-    queryKey: ['estimate', book.id, lang, s.profile],
-    queryFn: () => api.estimate(book.id, lang, { profile: s.profile }),
+    queryKey: ['estimate', book.id, lang, s.profile, s.engines.translate, s.engines.edit],
+    queryFn: () => api.estimate(book.id, lang, { profile: s.profile, engines: s.engines }),
+  });
+  const engineOptions = PIPELINE_ENGINES.map((engine) => {
+    const offline = isProviderId(engine) && !readyProviders.includes(engine);
+    return (
+      <option key={engine} value={engine} disabled={offline}>
+        {t(`setup.engines.${engine}`)}
+        {offline ? ` ${t('setup.notConnected')}` : ''}
+      </option>
+    );
   });
   const start = useMutation({
     mutationFn: () => api.startPipeline(book.id, lang, s),
@@ -158,14 +183,36 @@ function SettingsStep({
                   className={`${field} flex-1`}
                   data-testid={`engine-${task}`}
                 >
-                  <option value="agent">{t('setup.engines.agent')}</option>
-                  <option value="mock">{t('setup.engines.mock')}</option>
-                  <option value="api" disabled>
-                    {t('setup.engines.api')}
-                  </option>
+                  {engineOptions}
                 </select>
               </label>
             ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2">
+              <span>{t('setup.allTasks')}</span>
+              <select
+                value={PIPELINE_TASKS.every((k) => s.engines[k] === s.engines.translate) ? s.engines.translate : ''}
+                onChange={(ev) => {
+                  const engine = ev.target.value as PipelineEngine;
+                  if (engine)
+                    setS((x) => ({
+                      ...x,
+                      engines: { brief: engine, glossary: engine, translate: engine, edit: engine },
+                    }));
+                }}
+                className={field}
+                data-testid="engine-all"
+              >
+                <option value="" disabled>
+                  —
+                </option>
+                {engineOptions}
+              </select>
+            </label>
+            <Link to="/settings?tab=engines" className="text-sm text-accent underline underline-offset-4">
+              {t('setup.connectEngines')}
+            </Link>
           </div>
         </fieldset>
 
@@ -282,7 +329,13 @@ function SettingsStep({
       </div>
       {start.isError ? (
         <p role="alert" className="mt-3 text-sm text-danger">
-          {t('setup.actionFailed')}
+          {start.error instanceof ApiError && start.error.code === 'PROVIDER_NOT_READY'
+            ? t('setup.providerNotReady', {
+                names: ((start.error.details.providers as string[] | undefined) ?? [])
+                  .map((id) => t(`engines.names.${id}`))
+                  .join(t('glossary.listSeparator')),
+              })
+            : t('setup.actionFailed')}
         </p>
       ) : null}
     </section>

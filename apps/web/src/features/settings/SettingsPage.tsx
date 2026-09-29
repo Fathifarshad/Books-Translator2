@@ -4,8 +4,9 @@ import { Link } from 'react-router';
 import { Icon } from '../../components/Icon';
 import { languageName } from '../../lib/format';
 import { DisplaySettingsForm } from './DisplaySettingsForm';
+import { EnginesSection } from './EnginesSection';
 
-/** Settings «تنظیمات» (SPEC §13.7). Engine keys and connection tests arrive with the API engines (Phase 4). */
+/** Settings «تنظیمات» (SPEC §13.7): display, AI engines (free providers, keys stay on the server), languages. */
 export function SettingsPage() {
   const { t } = useTranslation();
   return (
@@ -21,10 +22,7 @@ export function SettingsPage() {
         <DisplaySettingsForm />
       </section>
 
-      <section className="mt-6 rounded-2xl border border-border bg-surface p-5">
-        <h2 className="mb-2 text-lg font-bold">{t('settings.engines')}</h2>
-        <p className="text-sm leading-7 text-muted">{t('settings.engineInfo')}</p>
-      </section>
+      <EnginesSection />
 
       <section className="mt-6 rounded-2xl border border-border bg-surface p-5">
         <h2 className="mb-2 text-lg font-bold">{t('settings.languages')}</h2>

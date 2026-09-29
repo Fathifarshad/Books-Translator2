@@ -195,3 +195,52 @@ Format for each entry:
 - **Decision:** light/sepia `--warning` is #8a5a0f (≈ 5.9:1 on white); dark theme gets #e0a44a (≈ 6.7:1 on the dark
   surface).
 - **Consequences:** warning chips and texts pass WCAG AA in every theme.
+
+## ADR-025 — Free providers first, through one OpenAI-compatible client (2026-09-29)
+- **Context:** the owner asked for free methods; Claude Code needs a Pro/Max plan. Gemini (free tier), OpenRouter
+  (free models) and Ollama (local) all speak the OpenAI chat API.
+- **Decision:** one fetch-based client (`packages/ai/src/engine/providers.ts`) with presets per provider; engines
+  `gemini`, `ollama`, `openrouter` join `agent` and `mock` per task. The paid `anthropic` / `openai` engines fit the
+  same `Engine` interface and are deferred.
+- **Consequences:** no SDK dependencies; tests use a fake server; model ids and free limits are settings, not code.
+
+## ADR-026 — API keys encrypted on the server, write-only (2026-09-29)
+- **Context:** SPEC §16: keys never reach clients. Users should not need to configure a secret to start.
+- **Decision:** AES-256-GCM with a key from `APP_SECRET` (when set to a real value) or a random `data/secret.key`
+  created once (mode 600). The API stores the sealed key in `app_settings` and returns only «…last4».
+- **Consequences:** a changed `APP_SECRET` makes stored keys unreadable — the settings page asks to enter them again.
+
+## ADR-027 — One-click OpenRouter connection with OAuth PKCE (2026-09-29)
+- **Context:** the owner asked for connecting «by clicking a link». OpenRouter supports OAuth PKCE and localhost
+  callbacks on any port; Gemini and Ollama have no equivalent (Gemini: link to AI Studio + paste; Ollama: no key).
+- **Decision:** `GET /settings/providers/openrouter/connect` creates a verifier + state (memory, single use,
+  10 minutes) and redirects to OpenRouter; the callback URL goes through the origin the page used
+  (`/api/v1/settings/providers/openrouter/callback/<state>`), the server exchanges the code for a key, stores it,
+  picks a free model and redirects back only to the app's own origins.
+- **Consequences:** works on `localhost` and `https`; a restart during the flow asks the user to click again.
+
+## ADR-028 — Free-tier limits: wait, never burn attempts (2026-09-29)
+- **Context:** free tiers answer 429 often; a daily quota can run out mid-book.
+- **Decision:** a limiter per provider (per minute and per day, persisted in `app_settings`), blocked until the
+  provider's `retry-after`. Jobs of a provider that must wait are not claimed; rate limits and outages re-queue the
+  job without using an attempt; a rejected key or unknown model pauses the provider until its settings change;
+  only bad answers (after one repair round) count as failures.
+- **Consequences:** a long book continues by itself the next day; the dashboard shows usage, waits and problems.
+
+## ADR-029 — Ollama through its native API (2026-09-29)
+- **Context:** the OpenAI-compatible layer of Ollama cannot set the context size; the default is too small for a
+  prompt, the style guide and a chunk of text, and small models drift from JSON.
+- **Decision:** Ollama calls use `/api/chat` with `num_ctx` 16k and `format` = the task's JSON schema; translate
+  chunks are 500 words and edit units 700 words for Ollama; longer timeouts (15 min per request).
+- **Consequences:** works out of the box on a stock Ollama install, at the cost of more requests per book.
+
+## ADR-030 — The browser builds the tutor context; the API streams the provider's answer (2026-09-29)
+- **Context:** the reader already holds the whole book and the Phase 1 context/citation code; keys must stay on the
+  server.
+- **Decision:** the browser sends the tutor input (passages, glossary, history, question) to `POST /assist/tutor`,
+  validated and size-bounded; the server renders prompts/tutor.md, wraps book text in `<book_context>` (data, not
+  instructions) and streams ChatEvents over SSE; citations are resolved in the browser against the labels it sent.
+  Summaries and quizzes use `/assist/summary` and `/assist/quiz` with the same validation as agent results.
+- **Consequences:** conversations stay in the browser for now (server-side conversations come with multi-user,
+  Phase 6); one engine setting drives tutor, summaries and quizzes («موتور مدرس، چکیده و آزمونک»), mock by default.
+

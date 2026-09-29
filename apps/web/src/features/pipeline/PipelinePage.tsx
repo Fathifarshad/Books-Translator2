@@ -1,4 +1,4 @@
-import type { PipelineStatus } from '@dozabaneh/shared';
+import type { PipelineProviderStatus, PipelineStatus } from '@dozabaneh/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertDialog } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ import { Icon } from '../../components/Icon';
 import { Button, ProgressBar } from '../../components/ui';
 import { api } from '../../lib/api';
 import { fmtNum, fmtPct } from '../../lib/format';
+import { ProblemLine, UsageLine } from '../settings/EnginesSection';
 import { AgentHint } from './AgentHint';
 import { pipelineKey, targetOf, useBookLiveUpdates, usePipeline } from './live';
 
@@ -124,6 +125,7 @@ export function PipelinePage() {
           <Stepper status={p} />
 
           {p.agent.pending > 0 && p.state !== 'paused' ? <AgentHint count={p.agent.pending} className="mt-5" /> : null}
+          {p.providers.length ? <ProvidersPanel providers={p.providers} /> : null}
 
           <section className="mt-5 rounded-2xl border border-border bg-surface p-5" data-testid="pipeline-counter">
             <div className="mb-2 flex flex-wrap items-baseline gap-2">
@@ -172,17 +174,19 @@ export function PipelinePage() {
             </section>
 
             <div className="space-y-5">
-              <section className="rounded-2xl border border-border bg-surface p-5" data-testid="agent-batches">
-                <h2 className="mb-3 font-bold">{t('pipeline.batches')}</h2>
-                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {(['pending', 'leased', 'imported', 'rejected'] as const).map((k) => (
-                    <div key={k} className="rounded-xl bg-panel px-3 py-2">
-                      <dt className="text-xs text-muted">{t(`pipeline.batchCounts.${k}`)}</dt>
-                      <dd className="text-lg font-bold">{fmtNum(p.agent[k])}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
+              {usesAgent(p) ? (
+                <section className="rounded-2xl border border-border bg-surface p-5" data-testid="agent-batches">
+                  <h2 className="mb-3 font-bold">{t('pipeline.batches')}</h2>
+                  <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {(['pending', 'leased', 'imported', 'rejected'] as const).map((k) => (
+                      <div key={k} className="rounded-xl bg-panel px-3 py-2">
+                        <dt className="text-xs text-muted">{t(`pipeline.batchCounts.${k}`)}</dt>
+                        <dd className="text-lg font-bold">{fmtNum(p.agent[k])}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ) : null}
 
               <section className="rounded-2xl border border-border bg-surface p-5">
                 <h2 className="mb-3 font-bold">{t('pipeline.errors')}</h2>
@@ -316,4 +320,40 @@ function useDoneNotification(status: PipelineStatus | undefined, title: string):
       new Notification(t('pipeline.doneNotification', { title }));
     }
   }, [status, title, t]);
+}
+
+/** The Claude Code batch counters matter only when a task runs on the agent (or batches exist). */
+function usesAgent(p: PipelineStatus): boolean {
+  return Object.values(p.settings.engines).includes('agent') || Object.values(p.agent).some((n) => n > 0);
+}
+
+/** Free providers used by this book: model, today's quota use, waits and problems (with a way to fix them). */
+function ProvidersPanel({ providers }: { providers: PipelineProviderStatus[] }) {
+  const { t } = useTranslation();
+  return (
+    <section className="mt-5 rounded-2xl border border-border bg-surface p-5" data-testid="pipeline-providers">
+      <h2 className="font-bold">{t('pipeline.providers.title')}</h2>
+      <ul className="mt-2 flex flex-col gap-3">
+        {providers.map((p) => (
+          <li key={p.id} className="text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <bdi className="font-medium">{t(`engines.names.${p.id}`)}</bdi>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${p.ready ? 'bg-accent-soft text-accent' : 'bg-danger-soft text-danger'}`}
+              >
+                {t(p.ready ? 'engines.status.ready' : 'engines.status.problem')}
+              </span>
+              {!p.ready || p.problem ? (
+                <Link to="/settings?tab=engines" className="ms-auto text-accent underline underline-offset-4">
+                  {t('pipeline.providers.fix')}
+                </Link>
+              ) : null}
+            </div>
+            <UsageLine view={p} />
+            {p.problem ? <ProblemLine problem={p.problem} /> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

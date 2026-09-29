@@ -4,6 +4,9 @@ import { defineConfig, devices } from '@playwright/test';
 const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
 const PORT = 4173;
 const API_PORT = 8797;
+/** Fake OpenAI-compatible provider (Gemini, Ollama, OpenRouter + its OAuth page) for the Phase 4 specs. */
+const FAKE_PORT = 8798;
+const FAKE = `http://127.0.0.1:${FAKE_PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,7 +23,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /(screens|mobile)\.spec\.ts/,
+      testIgnore: /(screens|mobile|providers)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     {
@@ -33,8 +36,23 @@ export default defineConfig({
       testMatch: /screens\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // Connecting providers changes server-wide settings (e.g. the tutor engine): runs after the other e2e projects
+      // (`pnpm e2e`); `pnpm screens` runs on its own.
+      name: 'providers',
+      testMatch: /providers\.spec\.ts/,
+      dependencies: ['desktop', 'mobile'],
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
   ],
   webServer: [
+    {
+      command: 'pnpm --filter @dozabaneh/api fake-provider',
+      url: `${FAKE}/__health`,
+      env: { FAKE_PROVIDER_PORT: String(FAKE_PORT) },
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
     {
       // The API with a throw-away data folder (sample book auto-seeded).
       command: 'pnpm --filter @dozabaneh/api start',
@@ -45,6 +63,11 @@ export default defineConfig({
         E2E_RESET: '1',
         LOG_LEVEL: 'warn',
         WEB_ORIGIN: `http://localhost:${PORT}`,
+        GEMINI_BASE_URL: `${FAKE}/gemini`,
+        OLLAMA_BASE_URL: `${FAKE}/ollama/v1`,
+        OPENROUTER_BASE_URL: `${FAKE}/openrouter/api/v1`,
+        OPENROUTER_AUTH_URL: `${FAKE}/openrouter/auth`,
+        TUTOR_ENGINE: 'local',
       },
       reuseExistingServer: false,
       timeout: 120_000,

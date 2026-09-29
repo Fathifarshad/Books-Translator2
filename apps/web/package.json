@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "e2e": "playwright test --project=desktop --project=mobile",
+    "e2e": "playwright test --project=desktop --project=mobile --project=providers",
     "screens": "playwright test --project=screens"
   },
   "dependencies": {

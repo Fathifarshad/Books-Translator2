@@ -6,7 +6,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
 - [~] `pnpm install && pnpm dev` works on a clean machine (Windows included) — verified on Linux (Node 22.22, pnpm 10.33):
   API `/api/v1/health` + web on :5173. Scripts are cross-platform (no shell syntax); Windows not yet tried.
 - [x] Quality gate green (≥ 1 unit test, ≥ 1 Playwright test) — `pnpm lint && pnpm typecheck && pnpm test && pnpm e2e`:
-  393 unit tests, 33 e2e tests (desktop 1440×900 + mobile 390×844, axe included) as of Phase 3.
+  442 unit tests, 36 e2e tests (desktop 1440×900 + mobile 390×844 + providers against a fake server, axe included)
+  as of Phase 4.
 - [x] No Persian literals in components (i18n only) — enforced by `apps/web/src/guards.test.ts` (also: logical CSS only,
   every `t('…')` key exists).
 
@@ -111,10 +112,53 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
   loading if profiling asks for it (ADR-013).
 - The mock engine writes pseudo-Persian (fixed word mapping) — for demos and tests only.
 
-## Phase 4 — API engines & real-time tutor
-- [ ] Any task switchable between agent / anthropic / openai / mock without code changes
-- [ ] With a key: automatic chapter translation; streamed tutor answers with valid citations; retry after network drop; costs recorded
-- [ ] Without a key: local tutor mode + «ارسال برای پاسخ با Claude Code» work end-to-end
+## Phase 4 — AI engines (free providers first) & real-time tutor
+Scope agreed with the owner: **free methods first** — Google Gemini (free tier), OpenRouter (free models, one-click
+connection) and Ollama (local), all through one OpenAI-compatible client; the paid `anthropic` / `openai` engines fit
+the same interface and are deferred (ADR-025). Verified against a fake provider server (unit, API integration, e2e);
+the sandbox has no access to the real services, so the first real connection is the owner's (see GUIDE.fa.md §7).
+
+- [x] Any task switchable between agent / mock / gemini / ollama / openrouter without code changes — per task in
+  wizard step 4 («همه‌ی کارها با» for all four), `PipelineEngineSchema`; the runner picks the engine per job
+  (`apps/api/src/jobs/runner.ts`); starting with a provider that is not connected answers `PROVIDER_NOT_READY`.
+- [x] With a (free) key: automatic chapter translation; streamed tutor answers with valid citation chips; usage
+  recorded — `apps/api/src/providers.test.ts` (fixture books translated on Gemini and Ollama, 429 waited out without
+  using attempts, rejected key pauses the provider and resumes after the fix, repair round, tutor SSE, summaries,
+  validated quizzes), e2e `providers.spec.ts` (paste a Gemini key → tested; OpenRouter «اتصال با یک کلیک» through its
+  «Authorize» page; Ollama detected; tutor/summary/quiz on Gemini; a book translated on Gemini with the quota on the
+  dashboard). Tokens are recorded per job (`tokens_in/out`); free providers cost $0, so no cost/budget UI yet.
+  A dropped stream keeps the partial answer and «تلاش دوباره» regenerates the same message (same client path as
+  Phase 1, now fed by the API's typed error events).
+- [~] Without a key: the offline tutor (mock) stays the default and works; **«ارسال برای پاسخ با Claude Code»
+  (deferred tutor answers through the agent) is open** — schemas and validation exist (`tutor_answer`), the
+  agent/API wiring is left for a follow-up.
+
+### Phase 4 — what exists (summary)
+- `packages/ai`: fetch-based provider client (Gemini and OpenRouter over the OpenAI-compatible API, Ollama over its
+  native `/api/chat` with a 16k context and the task's JSON schema enforced), typed provider errors, rate limiter
+  (per minute / per day, blocks after 429, persistable), provider engine (prompts/ as system prompt + JSON schema,
+  same validation as agent results, one repair round), provider tutor engine (delimited book context, history,
+  typed chat errors), default-model picker, quiz domain checks.
+- `apps/api`: `app_settings` table; keys sealed with AES-256-GCM (`APP_SECRET` or a generated `data/secret.key`),
+  write-only; `/settings/providers` (list, update, test, models), OpenRouter OAuth PKCE `connect` + `callback`,
+  `/settings/assistant`; `/assist/tutor` (SSE), `/assist/summary`, `/assist/quiz`; runner runs provider jobs, waits
+  for limits and outages by re-queueing, pauses a provider whose key/model is rejected; smaller chunks for Ollama;
+  provider block in the pipeline status; a fake OpenAI-compatible provider for tests and e2e.
+- `apps/web`: Settings → «موتور هوش مصنوعی» (Gemini: key link + paste + automatic test; OpenRouter: one click;
+  Ollama: detection, pull command, model choice; limits, model and address under «تنظیمات بیشتر»; assistant engine
+  for tutor/summary/quiz), wizard engine choices with «(وصل نیست)», default to the first connected free provider,
+  dashboard panel with today's usage, waits and problems; tutor, summary card and chapter quiz follow the assistant
+  engine. Screens: `docs/screens/phase-4/`.
+
+### Known limitations (Phase 4)
+- Paid `anthropic` / `openai` engines, cost estimates, budget cap and Message-Batches mode: not built (free-first
+  scope, ADR-025); tokens are already recorded per job.
+- Deferred tutor answers via Claude Code: open (see above). Tutor conversations stay in the browser (Phase 1 store);
+  the API streams answers for the context the browser sends (ADR-030).
+- Free-tier limits are defaults (Gemini 10/min · 400/day, OpenRouter 15/min · 45/day) — providers change them; the
+  limiter adapts after a 429 and the numbers are editable.
+- The one-click OpenRouter connection needs the app on `localhost` or `https` (OpenRouter's callback rule).
+- The back-translation check of «بهترین» (ADR-023) is still open.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

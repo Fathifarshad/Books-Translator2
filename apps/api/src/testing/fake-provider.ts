@@ -27,7 +27,7 @@ export interface FakeProvider {
   close(): Promise<void>;
 }
 
-export const FAKE_KEY = 'fake-key-0123456789';
+export const FAKE_KEY = 'fake-gemini-key-0123456789abcdef';
 
 const MODELS = {
   gemini: [{ id: 'models/gemini-flash-lite-latest' }, { id: 'models/gemini-pro-latest' }],
