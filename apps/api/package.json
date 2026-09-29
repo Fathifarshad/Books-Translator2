@@ -9,20 +9,22 @@
     "typecheck": "tsc -p tsconfig.json",
     "db:migrate": "tsx src/cli/migrate.ts",
     "db:seed": "tsx src/cli/seed.ts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "agent": "tsx src/cli/agent.ts"
   },
   "dependencies": {
-    "@dozabaneh/shared": "workspace:*",
-    "@fastify/cors": "^11.3.0",
-    "fastify": "^5.12.5",
-    "zod": "^4.6.5",
+    "@dozabaneh/ai": "workspace:*",
     "@dozabaneh/core": "workspace:*",
     "@dozabaneh/pdf": "workspace:*",
+    "@dozabaneh/shared": "workspace:*",
     "@dozabaneh/text": "workspace:*",
+    "@fastify/cors": "^11.3.0",
     "@fastify/multipart": "^10.1.2",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.3",
-    "ulid": "^3.0.2"
+    "fastify": "^5.12.5",
+    "ulid": "^3.0.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

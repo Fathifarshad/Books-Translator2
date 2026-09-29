@@ -36,13 +36,17 @@ export function enqueue(
 export function claimNext(db: Db, stages?: Stage[]): JobRow | undefined {
   const now = iso();
   const stageFilter = stages?.length ? `AND stage IN (${stages.map(() => '?').join(',')})` : '';
+  // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded.
   const row = db.$client
     .prepare(
       `UPDATE jobs SET status = 'running', attempts = attempts + 1, lease_until = ?, started_at = COALESCE(started_at, ?)
         WHERE id = (
-          SELECT id FROM jobs
-           WHERE (status = 'queued' OR (status = 'running' AND lease_until < ?)) ${stageFilter}
-           ORDER BY priority DESC, created_at ASC LIMIT 1)
+          SELECT j.id FROM jobs j
+           WHERE (j.status = 'queued' OR (j.status = 'running' AND j.lease_until < ?)) ${stageFilter.replace('stage', 'j.stage')}
+             AND j.engine <> 'agent'
+             AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(j.depends_on, '[]')) d
+                               JOIN jobs p ON p.id = d.value WHERE p.status <> 'succeeded')
+           ORDER BY j.priority DESC, j.seq ASC, j.created_at ASC LIMIT 1)
         RETURNING id`,
     )
     .get(iso(Date.now() + LEASE_MS), now, now, ...(stages ?? [])) as { id: string } | undefined;

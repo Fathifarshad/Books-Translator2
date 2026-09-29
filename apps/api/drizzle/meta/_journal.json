@@ -15,6 +15,13 @@
       "when": 1790708472450,
       "tag": "0001_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790711833048,
+      "tag": "0002_pipeline",
+      "breakpoints": true
     }
   ]
 }

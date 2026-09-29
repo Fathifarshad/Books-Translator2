@@ -19,7 +19,12 @@
     "fixtures:pdf": "pnpm --filter @dozabaneh/pdf fixtures",
     "pdf:inspect": "pnpm --filter @dozabaneh/pdf inspect",
     "db:migrate": "pnpm --filter @dozabaneh/api db:migrate",
-    "db:seed": "pnpm --filter @dozabaneh/api db:seed"
+    "db:seed": "pnpm --filter @dozabaneh/api db:seed",
+    "agent:status": "pnpm --silent --filter @dozabaneh/api agent status",
+    "agent:next": "pnpm --silent --filter @dozabaneh/api agent next",
+    "agent:submit": "pnpm --silent --filter @dozabaneh/api agent submit",
+    "agent:validate": "pnpm --silent --filter @dozabaneh/api agent validate",
+    "agent:release": "pnpm --silent --filter @dozabaneh/api agent release"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

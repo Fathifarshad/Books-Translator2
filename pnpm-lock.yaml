@@ -26,6 +26,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@dozabaneh/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@dozabaneh/core':
         specifier: workspace:*
         version: link:../../packages/core

@@ -7,12 +7,17 @@ import type { Config } from './config';
 import { type Db, openDb } from './db/client';
 import { ensureLocalUser, seedBundle } from './db/repo';
 import { EventBus } from './events';
-import { JobRunner } from './jobs/runner';
+import { JobRunner, pipelineCtx } from './jobs/runner';
+import { advanceAll } from './pipeline/advance';
+import { NotificationPoller } from './pipeline/notify';
 import { bookRoutes } from './routes/books';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
+import { glossaryRoutes } from './routes/glossary';
 import { healthRoutes } from './routes/health';
+import { pipelineRoutes } from './routes/pipeline';
 import { searchRoutes } from './routes/search';
+import { segmentRoutes } from './routes/segments';
 import { structureRoutes } from './routes/structure';
 
 export interface AppContext {
@@ -80,10 +85,20 @@ export async function buildApp(
   await app.register(structureRoutes, { ctx });
   await app.register(searchRoutes, { ctx });
   await app.register(eventRoutes, { ctx });
+  await app.register(pipelineRoutes, { ctx });
+  await app.register(glossaryRoutes, { ctx });
+  await app.register(segmentRoutes, { ctx });
 
-  if (opts.startRunner !== false) ctx.runner.start();
+  // Events written by the agent CLI (another process) reach open pages through the notifications table.
+  const poller = new NotificationPoller(db, bus, () => ctx.runner.kick());
+  if (opts.startRunner !== false) {
+    advanceAll(pipelineCtx(ctx));
+    ctx.runner.start();
+    poller.start();
+  }
   app.addHook('onClose', async () => {
     ctx.runner.stop();
+    poller.stop();
     db.$client.close();
   });
   return Object.assign(app, { ctx }) as unknown as FastifyInstance & { ctx: AppContext };

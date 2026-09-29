@@ -4,7 +4,14 @@ import { EventEmitter } from 'node:events';
 export type BookEvent =
   | { type: 'progress'; stage: string; done: number; total: number }
   | { type: 'job'; jobId: string; stage: string; status: string; error?: string }
-  | { type: 'book'; status: string };
+  | { type: 'book'; status: string }
+  /** Translations of these segments changed (reader refreshes progressively). */
+  | { type: 'segment'; lang: string; ids: string[] }
+  /** Pipeline state, counters or log changed (dashboard refresh). */
+  | { type: 'pipeline'; lang: string }
+  /** Agent batches were created, leased or imported. */
+  | { type: 'agent'; pending: number; leased: number }
+  | { type: 'glossary'; lang: string };
 
 /** In-process pub/sub per book. (Phase 6 with several API instances swaps this for a shared broker.) */
 export class EventBus {

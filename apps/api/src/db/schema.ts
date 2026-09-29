@@ -142,9 +142,29 @@ export const translations = sqliteTable(
       .notNull()
       .default([]),
     version: integer('version').notNull().default(1),
+    /** A newer engine result for a user-edited segment: shown as a suggestion, never applied automatically. */
+    suggestion: text('suggestion'),
+    promptVersion: text('prompt_version'),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ columns: [t.segmentId, t.lang] })],
+  (t) => [primaryKey({ columns: [t.segmentId, t.lang] }), index('translations_status').on(t.lang, t.status)],
+);
+
+export const translationRevisions = sqliteTable(
+  'translation_revisions',
+  {
+    id: text('id').primaryKey(),
+    segmentId: text('segment_id')
+      .notNull()
+      .references(() => segments.id, { onDelete: 'cascade' }),
+    lang: text('lang').notNull(),
+    before: text('before'),
+    after: text('after').notNull(),
+    actor: text('actor', { enum: ['engine', 'user'] }).notNull(),
+    reason: text('reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('revisions_segment').on(t.segmentId, t.lang, t.createdAt)],
 );
 
 export const glossaryTerms = sqliteTable('glossary_terms', {
@@ -161,6 +181,7 @@ export const glossaryTerms = sqliteTable('glossary_terms', {
   status: text('status', { enum: ['proposed', 'approved', 'locked'] }).notNull(),
   occurrences: integer('occurrences').notNull().default(0),
   notes: text('notes'),
+  confidence: real('confidence'),
 });
 
 export const jobs = sqliteTable(
@@ -199,9 +220,49 @@ export const jobs = sqliteTable(
     tokensIn: integer('tokens_in').notNull().default(0),
     tokensOut: integer('tokens_out').notNull().default(0),
     costUsd: real('cost_usd').notNull().default(0),
+    /** Document order of the job's scope within its book (queue tiebreaker). */
+    seq: integer('seq').notNull().default(0),
     createdAt: createdAt(),
     startedAt: text('started_at'),
     finishedAt: text('finished_at'),
   },
-  (t) => [index('jobs_queue').on(t.status, t.priority, t.createdAt)],
+  (t) => [index('jobs_queue').on(t.status, t.priority, t.createdAt), index('jobs_book').on(t.bookId, t.stage)],
 );
+
+/** Work handed to an agent (Claude Code) as JSON files (SPEC §10.3). */
+export const agentBatches = sqliteTable(
+  'agent_batches',
+  {
+    id: text('id').primaryKey(),
+    bookId: text('book_id')
+      .notNull()
+      .references(() => books.id, { onDelete: 'cascade' }),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => jobs.id, { onDelete: 'cascade' }),
+    task: text('task').notNull(),
+    targetLang: text('target_lang').notNull(),
+    filePath: text('file_path').notNull(),
+    resultPath: text('result_path').notNull(),
+    /** Short key → entity id (segment or candidate). */
+    keyMap: text('key_map', { mode: 'json' }).$type<Record<string, string>>().notNull(),
+    status: text('status', { enum: ['pending', 'leased', 'submitted', 'rejected', 'imported', 'cancelled'] }).notNull(),
+    priority: integer('priority').notNull().default(0),
+    seq: integer('seq').notNull().default(0),
+    leasedAt: text('leased_at'),
+    leaseUntil: text('lease_until'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    importedAt: text('imported_at'),
+  },
+  (t) => [index('agent_batches_queue').on(t.status, t.priority, t.seq), index('agent_batches_book').on(t.bookId)],
+);
+
+/** Cross-process change feed: the agent CLI writes here, the running API forwards the events over SSE. */
+export const notifications = sqliteTable('notifications', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  bookId: text('book_id').notNull(),
+  event: text('event', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  createdAt: createdAt(),
+});
