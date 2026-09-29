@@ -184,6 +184,9 @@ importers:
       '@dozabaneh/text':
         specifier: workspace:*
         version: link:../text
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/core:
     dependencies:
