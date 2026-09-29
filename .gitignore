@@ -7,8 +7,8 @@ build/
 *.tsbuildinfo
 .vite/
 
-# local data: uploads, database, agent exchange, private PDFs
-data/
+# local data (repo root only): uploads, database, agent exchange, private PDFs
+/data/
 
 # environment
 .env
