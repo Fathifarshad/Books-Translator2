@@ -77,3 +77,61 @@ Format for each entry:
   «می/نمی»; elsewhere a ZWNJ counts as a space. «آ» folds to «ا», Arabic ي/ك to ی/ک, digits to Latin.
 - **Consequences:** a spelling written without any separator («جستوجو») does not match a spaced one; acceptable for
   search, revisit with FTS5 in Phase 2.
+
+## ADR-011 — PDF extraction with pdf.js 6 in a worker thread (2026-09-29)
+- **Context:** SPEC §8 needs positions, font names and the outline; MuPDF is AGPL (not allowed without approval);
+  extraction of a large book must not block the API.
+- **Decision:** `pdfjs-dist` 6 legacy build (Apache-2.0) in a `worker_threads` worker. pdf.js 6 removed the
+  `isEvalSupported` option (it no longer evaluates code from PDFs); we pass `enableXfa: false` and never render
+  annotations/JS. Font names come from `page.commonObjs` after `getOperatorList()`. In development the worker boots
+  through `worker-boot.mjs`, which registers `tsx` so it can import the TypeScript sources; built code loads `worker.js`.
+- **Consequences:** the 320-page synthetic book takes about 4 s; scanned pages are reported (`pagesWithoutText`) and wait for OCR
+  (Phase 5).
+
+## ADR-012 — Book text is stored as ordered segments with stable ids; structure edits only move boundaries (2026-09-29)
+- **Context:** translations, notes, tutor citations and deep links reference segments; structure review happens after
+  extraction.
+- **Decision:** `segments` keep ulid ids (`sg_…`) and an `ord` across the book; `toc_nodes` hold `firstSegmentId`,
+  `lastSegmentId`, depth and kind. Rename/skip/promote/demote/merge/split (`packages/core/src/structure-edit.ts`) change
+  nodes only. A node's title is its heading segment (ADR-006) or, when the title came from the outline/Contents page and
+  no heading segment exists, `toc_nodes.title`.
+- **Consequences:** re-running structure review never loses work; a chapter without children is readable itself
+  (`isReadable(node, hasChildren)`).
+
+## ADR-013 — The reader loads one bundle per book (2026-09-29)
+- **Context:** Phase 1 components expect the whole `Book` in memory (TOC counters, search, tutor context).
+- **Decision:** `GET /api/v1/books/:id/bundle` returns book + nodes (document order) + segments + glossary +
+  translations; the web keeps it in TanStack Query. A 300-page book is a few MB of JSON.
+- **Consequences:** simple and fast for normal books; virtualization and per-chapter loading come with Phase 5 if
+  profiling needs them.
+
+## ADR-014 — FTS5 with normalized text and prefix queries (2026-09-29)
+- **Context:** Persian search must ignore ZWNJ/diacritics/letter variants (ADR-010) and be fast on large books.
+- **Decision:** two FTS5 tables (`segments_fts` for the source, `translations_fts` per language; `unicode61
+  remove_diacritics 2`) are filled with `normalizeForSearch()` output; queries are normalized the same way and every
+  term becomes a prefix query (`"term"*`). FTS5 only picks candidate segments; exact match ranges, grouping by section
+  and glossary hits reuse the shared `searchBook()` from `packages/core` on that subset, so web and API agree.
+- **Consequences:** local edits that live only in the browser are not searchable until Phase 3 moves edits to the API.
+
+## ADR-015 — DB-backed job queue with leases (2026-09-29)
+- **Context:** ingestion (and later translation batches) must survive restarts without Redis.
+- **Decision:** `jobs` rows with `status`, `lease_until` and `attempts`; one in-process runner claims the next queued
+  job — or a running job whose lease expired because its process died — in one `UPDATE … RETURNING`, renews the lease
+  on every progress report, and retries failures up to a maximum number of attempts. Progress goes to an in-memory
+  event bus → SSE (`/books/:id/events`, 15 s heartbeat). `WORKER_MODE=separate` is reserved for a standalone worker.
+- **Consequences:** single-process deployments need nothing else; Postgres (Phase 6) can use `FOR UPDATE SKIP LOCKED`.
+
+## ADR-016 — better-sqlite3 + Drizzle (2026-09-29)
+- **Context:** local-first storage that also works on Windows without build tools.
+- **Decision:** `better-sqlite3` (prebuilt binaries for Windows/macOS/Linux) in WAL mode with `busy_timeout`, Drizzle
+  ORM for queries, SQL migrations in `apps/api/drizzle/` (FTS5 as a hand-written migration). Data lives in `DATA_DIR`
+  (default `./data`, git-ignored), resolved against the repository root.
+- **Consequences:** `pnpm db:migrate` / `pnpm db:seed` work from any folder; the API auto-seeds the sample book into an
+  empty database (`AUTO_SEED=1`).
+
+## ADR-017 — End-to-end tests run against a real API with a throw-away data folder (2026-09-29)
+- **Context:** Phase 2 e2e must cover upload → extraction → structure review → reader.
+- **Decision:** Playwright starts the API on port 8797 with `DATA_DIR=./data/e2e` and `E2E_RESET=1` (the folder is
+  deleted at startup) and the built web app on 4173 with `/api` proxied to it. The uploaded PDF is the synthetic
+  `no-outline.pdf` fixture.
+- **Consequences:** tests are hermetic and never touch the developer's own `data/` folder.
