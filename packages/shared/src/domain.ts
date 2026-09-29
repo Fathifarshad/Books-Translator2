@@ -70,6 +70,8 @@ export interface TocNodeRecord {
   kind: NodeKind;
   numberLabel?: string;
   headingSegmentId?: string;
+  /** Title for nodes without a heading segment (e.g. cover pages before the first outline entry). */
+  title?: string;
   pageStart: number;
   pageEnd: number;
   skip: boolean;

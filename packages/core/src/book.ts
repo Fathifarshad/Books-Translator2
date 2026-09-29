@@ -36,9 +36,16 @@ export interface BookIndex {
 
 const tKey = (segmentId: string, lang: string) => `${segmentId}|${lang}`;
 
-export function isReadable(node: TocNodeRecord): boolean {
-  return READABLE.has(node.kind) && !node.skip;
+/**
+ * Readable nodes hold text: front/back matter, chapter intros, sections — and chapters or parts that
+ * have no child nodes (a chapter without sections is read as one unit).
+ */
+export function isReadable(node: TocNodeRecord, hasChildren = false): boolean {
+  if (node.skip) return false;
+  return READABLE.has(node.kind) || ((node.kind === 'chapter' || node.kind === 'part') && !hasChildren);
 }
+
+const hasKids = (index: Pick<BookIndex, 'childrenOf'>, id: string) => (index.childrenOf.get(id)?.length ?? 0) > 0;
 
 /**
  * Builds lookup maps for a book. `overrides` (user edits, live pipeline updates) replace the bundle's
@@ -69,7 +76,7 @@ export function createBookIndex(bundle: BookBundle, overrides: TranslationRecord
   const readingOrder: TocNodeRecord[] = [];
   const walk = (parentId: string | null) => {
     for (const n of childrenOf.get(parentId) ?? []) {
-      if (isReadable(n)) readingOrder.push(n);
+      if (isReadable(n, (childrenOf.get(n.id)?.length ?? 0) > 0)) readingOrder.push(n);
       walk(n.id);
     }
   };
@@ -113,9 +120,8 @@ export interface Title {
 }
 
 export function nodeTitle(index: BookIndex, node: TocNodeRecord, lang: string): Title {
-  if (!node.headingSegmentId) return { src: '' };
-  const seg = index.segmentById.get(node.headingSegmentId);
-  if (!seg) return { src: '' };
+  const seg = node.headingSegmentId ? index.segmentById.get(node.headingSegmentId) : undefined;
+  if (!seg) return { src: node.title ?? '' };
   const tgt = visibleTranslation(index, seg.id, lang);
   return tgt ? { src: seg.src, tgt } : { src: seg.src };
 }
@@ -124,7 +130,7 @@ export function nodeTitle(index: BookIndex, node: TocNodeRecord, lang: string): 
 export function firstReadable(index: BookIndex, nodeId: string): TocNodeRecord | undefined {
   const node = index.nodeById.get(nodeId);
   if (!node) return undefined;
-  if (isReadable(node)) return node;
+  if (isReadable(node, hasKids(index, node.id))) return node;
   for (const child of index.childrenOf.get(node.id) ?? []) {
     const found = firstReadable(index, child.id);
     if (found) return found;
@@ -206,7 +212,7 @@ export function buildToc(index: BookIndex, lang: string): TocEntry[] {
           ...(n.numberLabel ? { numberLabel: n.numberLabel } : {}),
           title: nodeTitle(index, n, lang),
           status: nodeStatus(index, n.id, lang),
-          readable: isReadable(n),
+          readable: isReadable(n, hasKids(index, n.id)),
           ...(target ? { targetId: target.id } : {}),
           children: build(n.id),
         };
@@ -243,7 +249,7 @@ export interface SectionPayload {
 
 export function buildSection(index: BookIndex, nodeId: string, lang: string): SectionPayload | undefined {
   const node = index.nodeById.get(nodeId);
-  if (!node || !isReadable(node)) return undefined;
+  if (!node || !isReadable(node, hasKids(index, node.id))) return undefined;
   const chapter = chapterOf(index, nodeId);
   const pos = index.readingOrder.findIndex((n) => n.id === nodeId);
   const prev = index.readingOrder[pos - 1];
