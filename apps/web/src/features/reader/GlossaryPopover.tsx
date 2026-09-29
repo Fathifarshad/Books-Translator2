@@ -2,6 +2,7 @@ import { getLanguage } from '@dozabaneh/text';
 import { autoUpdate, FloatingPortal, flip, offset, shift, size, useFloating } from '@floating-ui/react';
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
 import { Button } from '../../components/ui';
 import { useReaderUi } from '../../stores/reader';
 import { askTutor } from '../tutor/TutorPanel';
@@ -17,6 +18,7 @@ const CLOSE_DELAY = 150;
  */
 export function GlossaryPopover({ boundaryRef }: { boundaryRef: RefObject<HTMLElement | null> }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { glossary, bookId, sourceLang, targetLang } = useReader();
   const [termId, setTermId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -180,6 +182,17 @@ export function GlossaryPopover({ boundaryRef }: { boundaryRef: RefObject<HTMLEl
             }}
           >
             {t('glossary.askTutor')}
+          </Button>
+          <Button
+            variant="ghost"
+            icon="edit"
+            className="px-2 py-1 text-xs"
+            onClick={() => {
+              close();
+              navigate(`/books/${bookId}/glossary?q=${encodeURIComponent(term.src)}`);
+            }}
+          >
+            {t('glossary.edit')}
           </Button>
         </div>
       </div>

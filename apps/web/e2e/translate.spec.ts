@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
-import { expectNoSeriousA11yViolations } from './helpers';
+import { expectNoSeriousA11yViolations, openReader } from './helpers';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../../../fixtures/pdf/${name}`, import.meta.url));
 
@@ -87,4 +87,15 @@ test('agent mode shows the Claude Code hint with the command to run', async ({ p
   await expect(hint).toBeVisible({ timeout: 20_000 });
   await expect(hint.getByTestId('agent-command')).toHaveText(/^\/process-batches \d+$/);
   await expectNoSeriousA11yViolations(page);
+});
+
+test('the glossary card in the reader opens the glossary filtered to its term', async ({ page }) => {
+  await openReader(page, 'ch1-intro');
+  await page.locator('[data-col="target"] .term').first().hover();
+  const card = page.getByTestId('glossary-popover');
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'ویرایش' }).click();
+  await expect(page).toHaveURL(/\/books\/bk_sample\/glossary\?q=/);
+  await expect(page.getByRole('searchbox', { name: 'جستجو در واژه‌نامه' })).not.toHaveValue('');
+  await expect(page.getByTestId('glossary-row').first()).toBeVisible();
 });

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertDialog } from 'radix-ui';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button, IconButton } from '../../components/ui';
@@ -29,7 +29,9 @@ export function GlossaryPage() {
     enabled: Boolean(lang),
   });
   useBookLiveUpdates(bookId);
-  const [query, setQuery] = useState('');
+  // «ویرایش» in the reader's glossary card opens this page filtered to that term.
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(params.get('q') ?? '');
   const [status, setStatus] = useState<'all' | (typeof STATUSES)[number]>('all');
   const [kind, setKind] = useState<'all' | GlossaryKind>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
