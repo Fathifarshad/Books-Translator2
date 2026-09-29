@@ -5,7 +5,6 @@ import type {
   EditInput,
   GlossaryEntry,
   GlossaryInput,
-  TaskInput,
   TaskResult,
   TranslateInput,
 } from '@dozabaneh/shared';
@@ -73,7 +72,14 @@ export function stableHash(text: string): number {
 }
 
 function pseudoWords(text: string, vocab: readonly string[]): string {
-  return text.replace(/\p{L}[\p{L}\p{M}'’-]*/gu, (w) => vocab[stableHash(w.toLowerCase()) % vocab.length] as string);
+  // Neighbouring words never map to the same pseudo word, so the output never looks like a repetition loop.
+  let previous = '';
+  return text.replace(/\p{L}[\p{L}\p{M}'’-]*/gu, (w) => {
+    let i = stableHash(w.toLowerCase()) % vocab.length;
+    if (vocab[i] === previous) i = (i + 1) % vocab.length;
+    previous = vocab[i] as string;
+    return previous;
+  });
 }
 
 /** Pseudo-translation of one segment: glossary equivalents + a fixed word mapping; markup tokens stay intact. */
@@ -176,7 +182,7 @@ function mockBrief(batch: AgentBatch<BriefInput>): TaskResult<'brief'> {
 }
 
 /** The mock result of a batch, for every task the pipeline runs. */
-export function mockOutput<T extends AgentTask>(batch: AgentBatch<TaskInput<T>>): TaskResult<T> {
+export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T> {
   switch (batch.task) {
     case 'translate':
       return mockTranslate(batch as AgentBatch<TranslateInput>) as TaskResult<T>;

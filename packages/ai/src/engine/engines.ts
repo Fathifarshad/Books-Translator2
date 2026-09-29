@@ -1,4 +1,4 @@
-import type { AgentBatch, AgentTask, TaskInput, TaskResult } from '@dozabaneh/shared';
+import type { AgentBatch, AgentTask, TaskResult } from '@dozabaneh/shared';
 import { sleep } from '../mock/chunks';
 import { mockOutput } from './mock';
 
@@ -29,14 +29,14 @@ export interface RunContext {
 export interface Engine {
   id: EngineId;
   capabilities: { realtime: boolean; streaming: boolean; structuredOutput: boolean; batch: boolean };
-  run<T extends AgentTask>(batch: AgentBatch<TaskInput<T>>, ctx: RunContext): Promise<RunResult<T>>;
+  run<T extends AgentTask>(batch: AgentBatch, ctx: RunContext): Promise<RunResult<T>>;
 }
 
 export function createMockEngine(opts: { latencyMs?: number } = {}): Engine {
   return {
     id: 'mock',
     capabilities: { realtime: true, streaming: true, structuredOutput: true, batch: false },
-    async run<T extends AgentTask>(batch: AgentBatch<TaskInput<T>>, ctx: RunContext): Promise<RunResult<T>> {
+    async run<T extends AgentTask>(batch: AgentBatch, ctx: RunContext): Promise<RunResult<T>> {
       if (opts.latencyMs) await sleep(opts.latencyMs, ctx.signal);
       return { kind: 'done', output: mockOutput<T>(batch), usage: { tokensIn: 0, tokensOut: 0 }, model: 'mock' };
     },
@@ -48,7 +48,7 @@ export function createAgentEngine(): Engine {
   return {
     id: 'agent',
     capabilities: { realtime: false, streaming: false, structuredOutput: true, batch: true },
-    async run<T extends AgentTask>(batch: AgentBatch<TaskInput<T>>, ctx: RunContext): Promise<RunResult<T>> {
+    async run<T extends AgentTask>(batch: AgentBatch, ctx: RunContext): Promise<RunResult<T>> {
       if (!ctx.materialize) throw new Error('The agent engine needs a materialize() callback.');
       await ctx.materialize(batch);
       return { kind: 'deferred', batchId: batch.batchId };
