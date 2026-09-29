@@ -3,8 +3,9 @@
  * (free models, one-click key). One fetch-based client talks to all of them — no SDK, so it runs in Node and tests
  * can inject a fake `fetch`. Model ids and free-tier limits change often, so both are settings, not constants.
  */
-export const PROVIDER_IDS = ['gemini', 'ollama', 'openrouter'] as const;
-export type ProviderId = (typeof PROVIDER_IDS)[number];
+import { isProviderId, PROVIDER_IDS, type ProviderId } from '@dozabaneh/shared';
+
+export { isProviderId, PROVIDER_IDS, type ProviderId };
 
 export interface ProviderPreset {
   id: ProviderId;
@@ -18,6 +19,12 @@ export interface ProviderPreset {
   limits: { rpm: number; rpd: number };
   /** How JSON output is requested: OpenAI `response_format` json_object, or only through the prompt. */
   jsonMode: 'json_object' | 'prompt';
+  /** Request timeout: local models on a CPU need much longer. */
+  timeoutMs: number;
+  /** Source words per translate chunk / edit unit (smaller for slow local models). */
+  chunkWords?: { translate: number; edit: number };
+  /** Preferred models, best first, when the user has not picked one (matched against the provider's list). */
+  preferredModels: RegExp[];
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
@@ -29,6 +36,8 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
     defaultModel: 'gemini-flash-lite-latest',
     limits: { rpm: 10, rpd: 400 },
     jsonMode: 'json_object',
+    timeoutMs: 180_000,
+    preferredModels: [/^gemini-flash-lite-latest$/u, /^gemini-flash-latest$/u, /flash-lite/u, /flash/u],
   },
   ollama: {
     id: 'ollama',
@@ -37,6 +46,9 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
     defaultModel: '',
     limits: { rpm: 60, rpd: 100_000 },
     jsonMode: 'json_object',
+    timeoutMs: 15 * 60_000,
+    chunkWords: { translate: 600, edit: 800 },
+    preferredModels: [/aya/u, /gemma/u, /qwen/u, /llama/u, /mistral/u],
   },
   openrouter: {
     id: 'openrouter',
@@ -46,11 +58,24 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
     defaultModel: '',
     limits: { rpm: 15, rpd: 45 },
     jsonMode: 'prompt',
+    timeoutMs: 180_000,
+    preferredModels: [/gemini.*flash.*:free$/u, /deepseek.*:free$/u, /llama.*70b.*:free$/u, /qwen.*:free$/u, /:free$/u],
   },
 };
 
-export function isProviderId(id: string): id is ProviderId {
-  return (PROVIDER_IDS as readonly string[]).includes(id);
+/**
+ * A sensible model when the user has not chosen one: the first preferred pattern that matches a listed model. For
+ * OpenRouter only free models qualify. Returns '' when nothing fits (the user picks from the list).
+ */
+export function pickDefaultModel(provider: ProviderId, models: ProviderModel[]): string {
+  const candidates = provider === 'openrouter' ? models.filter((m) => m.free) : models;
+  const preset = PROVIDERS[provider];
+  if (preset.defaultModel && candidates.some((m) => m.id === preset.defaultModel)) return preset.defaultModel;
+  for (const re of preset.preferredModels) {
+    const hit = candidates.find((m) => re.test(m.id) && !/embed|vision|guard|tts|image|audio/iu.test(m.id));
+    if (hit) return hit.id;
+  }
+  return provider === 'ollama' ? (candidates.find((m) => !/embed/iu.test(m.id))?.id ?? '') : '';
 }
 
 export interface ChatMessage {
@@ -96,7 +121,7 @@ export interface ProviderConfig {
   apiKey?: string;
   baseUrl?: string;
   fetch?: typeof fetch;
-  /** Per request (default 3 minutes: local models on a CPU are slow). */
+  /** Per request (default: the preset's timeout). */
   timeoutMs?: number;
 }
 
@@ -169,7 +194,7 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
   const preset = PROVIDERS[config.provider];
   const base = (config.baseUrl || preset.baseUrl).replace(/\/+$/u, '');
   const doFetch = config.fetch ?? fetch;
-  const timeoutMs = config.timeoutMs ?? 180_000;
+  const timeoutMs = config.timeoutMs ?? preset.timeoutMs;
   const headers = (): Record<string, string> => ({
     'Content-Type': 'application/json',
     ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),

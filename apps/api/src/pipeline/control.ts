@@ -7,6 +7,8 @@ import {
   translationCounter,
 } from '@dozabaneh/core';
 import {
+  isProviderId,
+  PIPELINE_TASKS,
   type PipelineEstimate,
   type PipelineStage,
   type PipelineStatus,
@@ -32,6 +34,7 @@ export class PipelineError extends Error {
   constructor(
     readonly code: string,
     readonly status = 409,
+    readonly details: Record<string, unknown> = {},
   ) {
     super(code);
   }
@@ -51,6 +54,11 @@ export function startPipeline(
   if (!STARTABLE.has(row.status)) throw new PipelineError('BOOK_NOT_READY');
   if (lang === row.sourceLang) throw new PipelineError('SAME_LANGUAGE', 400);
   const settings = TranslationSettingsSchema.parse({ ...translationSettings(row, lang), ...input });
+  // A free provider must be connected (key + model) before its jobs are created.
+  const notReady = (ctx.providers?.status(PIPELINE_TASKS.map((t) => settings.engines[t])) ?? []).filter(
+    (p) => !p.ready,
+  );
+  if (notReady.length) throw new PipelineError('PROVIDER_NOT_READY', 409, { providers: notReady.map((p) => p.id) });
   db.transaction(() => {
     updateSettings(db, bookId, (s) => {
       s.translation = { ...(s.translation ?? {}), [lang]: settings };
@@ -342,6 +350,7 @@ export function pipelineStatus(ctx: PipelineCtx, bookId: string, lang: string): 
       .filter((j) => j.status === 'failed')
       .map((j) => ({ jobId: j.id, stage: j.stage, error: j.error ?? '', attempts: j.attempts })),
     log: state.log.slice(-60),
+    providers: ctx.providers?.status(PIPELINE_TASKS.map((t) => settings.engines[t]).filter(isProviderId)) ?? [],
   };
 }
 

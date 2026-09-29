@@ -18,13 +18,17 @@ import { healthRoutes } from './routes/health';
 import { pipelineRoutes } from './routes/pipeline';
 import { searchRoutes } from './routes/search';
 import { segmentRoutes } from './routes/segments';
+import { settingsRoutes } from './routes/settings';
 import { structureRoutes } from './routes/structure';
+import { ProviderService } from './settings/providers';
+import { createSecretBox } from './settings/secrets';
 
 export interface AppContext {
   config: Config;
   db: Db;
   bus: EventBus;
   runner: JobRunner;
+  providers: ProviderService;
 }
 
 export interface BuildOptions {
@@ -47,8 +51,9 @@ export async function buildApp(
   ensureLocalUser(db);
   if (config.AUTO_SEED) seedBundle(db, sampleBook, 'us_local');
   const bus = new EventBus();
-  const ctx: AppContext = { config, db, bus, runner: undefined as unknown as JobRunner };
-  ctx.runner = new JobRunner({ db, bus, config, log: app.log });
+  const providers = new ProviderService(db, config, createSecretBox(config.APP_SECRET, config.dataDir));
+  const ctx: AppContext = { config, db, bus, providers, runner: undefined as unknown as JobRunner };
+  ctx.runner = new JobRunner({ db, bus, config, providers, log: app.log });
 
   // CORS only for configured web origins (SPEC §16); the mobile app will use bearer tokens later.
   await app.register(cors, {
@@ -88,6 +93,7 @@ export async function buildApp(
   await app.register(pipelineRoutes, { ctx });
   await app.register(glossaryRoutes, { ctx });
   await app.register(segmentRoutes, { ctx });
+  await app.register(settingsRoutes, { ctx });
 
   // Events written by the agent CLI (another process) reach open pages through the notifications table.
   const poller = new NotificationPoller(db, bus, () => ctx.runner.kick());

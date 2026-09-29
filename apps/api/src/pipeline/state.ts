@@ -1,6 +1,7 @@
 import {
   type BriefResult,
   type PipelineLogEntry,
+  type PipelineProviderStatus,
   type TranslationSettings,
   TranslationSettingsSchema,
 } from '@dozabaneh/shared';
@@ -18,6 +19,8 @@ export interface PipelineCtx {
   db: Db;
   config: Config;
   notify: (bookId: string, event: BookEvent) => void;
+  /** Provider readiness and quota for the dashboard (absent in the agent CLI). */
+  providers?: { status(engines: string[]): PipelineProviderStatus[] };
 }
 
 /** Per target language pipeline state, stored in `books.settings.pipeline[lang]`. */

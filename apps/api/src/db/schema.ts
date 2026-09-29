@@ -266,3 +266,10 @@ export const notifications = sqliteTable('notifications', {
   event: text('event', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
   createdAt: createdAt(),
 });
+
+/** Application settings (key → JSON): provider configuration with encrypted keys, limiter state. */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value', { mode: 'json' }).$type<unknown>().notNull(),
+  updatedAt: updatedAt(),
+});

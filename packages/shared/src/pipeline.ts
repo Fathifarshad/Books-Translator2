@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { EzafeSchema, ParentheticalSchema } from './agent';
+import {
+  PROVIDER_IDS,
+  type ProviderId,
+  type ProviderLimits,
+  type ProviderProblem,
+  type ProviderUsage,
+} from './providers';
 
 /**
  * Per-book translation settings (wizard step 4, SPEC §13.2) and pipeline state shared by the API and the web app.
@@ -8,8 +15,8 @@ export const QUALITY_PROFILES = ['economy', 'balanced', 'best'] as const;
 export const QualityProfileSchema = z.enum(QUALITY_PROFILES);
 export type QualityProfile = z.infer<typeof QualityProfileSchema>;
 
-/** Engines selectable in Phase 3; `anthropic` / `openai` join in Phase 4. */
-export const PIPELINE_ENGINES = ['agent', 'mock'] as const;
+/** Engines selectable per task: Claude Code (agent), the offline mock, and the free providers (Phase 4). */
+export const PIPELINE_ENGINES = ['agent', 'mock', ...PROVIDER_IDS] as const;
 export const PipelineEngineSchema = z.enum(PIPELINE_ENGINES);
 export type PipelineEngine = z.infer<typeof PipelineEngineSchema>;
 
@@ -79,6 +86,17 @@ export interface PipelineStatus {
   agent: { pending: number; leased: number; imported: number; rejected: number };
   errors: PipelineJobError[];
   log: PipelineLogEntry[];
+  /** Free providers used by this pipeline: readiness, quota use and the last problem. */
+  providers: PipelineProviderStatus[];
+}
+
+export interface PipelineProviderStatus {
+  id: ProviderId;
+  model: string;
+  ready: boolean;
+  limits: ProviderLimits;
+  usage: ProviderUsage;
+  problem: ProviderProblem | null;
 }
 
 export interface PipelineEstimate {

@@ -68,7 +68,7 @@ function repairMessage(report: ValidationReport | null, parseError?: string): st
 export function createProviderEngine(opts: ProviderEngineOptions): Engine {
   const { client } = opts;
   return {
-    id: 'openai',
+    id: client.provider,
     capabilities: { realtime: true, streaming: true, structuredOutput: true, batch: false },
     async run<T extends AgentTask>(batch: AgentBatch, ctx: RunContext): Promise<RunResult<T>> {
       const messages = buildMessages(batch, opts.systemPrompt(batch));

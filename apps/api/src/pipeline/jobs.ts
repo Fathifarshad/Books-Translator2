@@ -1,3 +1,4 @@
+import { PROVIDERS } from '@dozabaneh/ai';
 import {
   chapterOf,
   chunkSegments,
@@ -8,7 +9,13 @@ import {
   TRANSLATE_CHUNK_WORDS,
   taskPriority,
 } from '@dozabaneh/core';
-import type { BookBundle, PipelineTask, SegmentRecord, TranslationSettings } from '@dozabaneh/shared';
+import {
+  type BookBundle,
+  isProviderId,
+  type PipelineTask,
+  type SegmentRecord,
+  type TranslationSettings,
+} from '@dozabaneh/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { getBundle, newId } from '../db/repo';
@@ -24,6 +31,12 @@ export type JobRow = typeof jobs.$inferSelect;
 export const PIPELINE_STAGES: PipelineTask[] = ['brief', 'glossary', 'translate', 'edit'];
 const DONE_STATUSES = new Set(['final', 'user_edited']);
 const GLOSSARY_BATCH = 40;
+
+/** Source words per translate chunk / edit unit for an engine (slow local models get smaller pieces). */
+export function chunkWordsFor(engine: string, task: 'translate' | 'edit'): number {
+  const custom = isProviderId(engine) ? PROVIDERS[engine].chunkWords : undefined;
+  return custom?.[task] ?? (task === 'translate' ? TRANSLATE_CHUNK_WORDS : EDIT_UNIT_WORDS);
+}
 
 export interface JobScope {
   nodeId?: string;
@@ -223,15 +236,17 @@ export function planTranslation(bundle: BookBundle, lang: string, settings: Tran
       count++;
       words += s.src.split(/\s+/u).length;
     }
-    const chunks = chunkSegments(toTranslate, { lang: bundle.book.sourceLang, maxWords: TRANSLATE_CHUNK_WORDS }).map(
-      (c) => c.map((s: SegmentRecord) => s.id),
-    );
+    const chunks = chunkSegments(toTranslate, {
+      lang: bundle.book.sourceLang,
+      maxWords: chunkWordsFor(settings.engines.translate, 'translate'),
+    }).map((c) => c.map((s: SegmentRecord) => s.id));
     const edits =
       settings.profile === 'economy'
         ? []
-        : chunkSegments(todo, { lang: bundle.book.sourceLang, maxWords: EDIT_UNIT_WORDS }).map((c) =>
-            c.map((s: SegmentRecord) => s.id),
-          );
+        : chunkSegments(todo, {
+            lang: bundle.book.sourceLang,
+            maxWords: chunkWordsFor(settings.engines.edit, 'edit'),
+          }).map((c) => c.map((s: SegmentRecord) => s.id));
     const chapter = chapterOf(index, node.id);
     units.push({ nodeId: node.id, chapterId: chapter?.id ?? node.id, chunks, edits, seq: i * 100 });
   });

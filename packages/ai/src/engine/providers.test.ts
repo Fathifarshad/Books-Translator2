@@ -2,7 +2,7 @@ import type { AgentBatch } from '@dozabaneh/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from './limiter';
 import { buildMessages, createProviderEngine, extractJson } from './provider-engine';
-import { createProviderClient, PROVIDERS, ProviderError } from './providers';
+import { createProviderClient, PROVIDERS, ProviderError, pickDefaultModel } from './providers';
 import { validateResult } from './validate';
 
 type FetchArgs = [string, RequestInit | undefined];
@@ -246,5 +246,40 @@ describe('provider engine', () => {
     expect(extractJson('Here you go: {"a": 1} hope it helps')).toEqual({ a: 1 });
     expect(() => extractJson('nothing here')).toThrow();
     expect(buildMessages(batch, 'S')).toHaveLength(2);
+  });
+});
+
+describe('provider defaults', () => {
+  it('picks a sensible default model from the provider list', () => {
+    expect(
+      pickDefaultModel('gemini', [{ id: 'gemini-pro-latest' }, { id: 'gemini-flash-lite-latest' }, { id: 'x' }]),
+    ).toBe('gemini-flash-lite-latest');
+    expect(pickDefaultModel('gemini', [{ id: 'gemini-9-pro' }, { id: 'gemini-9-flash' }])).toBe('gemini-9-flash');
+    expect(
+      pickDefaultModel('openrouter', [
+        { id: 'google/gemini-9-flash', free: false },
+        { id: 'vendor/tiny-guard:free', free: true },
+        { id: 'qwen/qwen9-72b:free', free: true },
+      ]),
+    ).toBe('qwen/qwen9-72b:free');
+    expect(pickDefaultModel('openrouter', [{ id: 'paid/only', free: false }])).toBe('');
+    expect(pickDefaultModel('ollama', [{ id: 'nomic-embed-text:latest' }, { id: 'mymodel:8b' }])).toBe('mymodel:8b');
+    expect(pickDefaultModel('ollama', [{ id: 'llama9:8b' }, { id: 'aya-expanse:8b' }])).toBe('aya-expanse:8b');
+    expect(pickDefaultModel('ollama', [])).toBe('');
+  });
+
+  it('keeps the limiter state across a restart', () => {
+    let now = 5_000_000;
+    const a = new RateLimiter({ rpm: 5, rpd: 3 }, () => now);
+    a.record();
+    a.record();
+    a.block(10_000);
+    const b = new RateLimiter({ rpm: 5, rpd: 3 }, () => now);
+    b.restore(JSON.parse(JSON.stringify(a.snapshot())));
+    expect(b.state()).toMatchObject({ usedToday: 2, reason: 'blocked' });
+    b.unblock();
+    expect(b.waitMs()).toBe(0);
+    now += 25 * 3_600_000;
+    expect(b.state().usedToday).toBe(0);
   });
 });

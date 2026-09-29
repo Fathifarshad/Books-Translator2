@@ -33,23 +33,25 @@ export function enqueue(
  * Leases the next runnable job atomically: queued jobs, or running jobs whose lease expired (the process
  * died mid-run) — this is what makes the pipeline resumable after a crash or restart.
  */
-export function claimNext(db: Db, stages?: Stage[]): JobRow | undefined {
+export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = []): JobRow | undefined {
   const now = iso();
-  const stageFilter = stages?.length ? `AND stage IN (${stages.map(() => '?').join(',')})` : '';
+  const stageFilter = stages?.length ? `AND j.stage IN (${stages.map(() => '?').join(',')})` : '';
+  // Providers that are not connected or wait for their rate limits.
+  const engineFilter = excludeEngines.length ? `AND j.engine NOT IN (${excludeEngines.map(() => '?').join(',')})` : '';
   // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded.
   const row = db.$client
     .prepare(
       `UPDATE jobs SET status = 'running', attempts = attempts + 1, lease_until = ?, started_at = COALESCE(started_at, ?)
         WHERE id = (
           SELECT j.id FROM jobs j
-           WHERE (j.status = 'queued' OR (j.status = 'running' AND j.lease_until < ?)) ${stageFilter.replace('stage', 'j.stage')}
+           WHERE (j.status = 'queued' OR (j.status = 'running' AND j.lease_until < ?)) ${stageFilter} ${engineFilter}
              AND j.engine <> 'agent'
              AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(j.depends_on, '[]')) d
                                JOIN jobs p ON p.id = d.value WHERE p.status <> 'succeeded')
            ORDER BY j.priority DESC, j.seq ASC, j.created_at ASC LIMIT 1)
         RETURNING id`,
     )
-    .get(iso(Date.now() + LEASE_MS), now, now, ...(stages ?? [])) as { id: string } | undefined;
+    .get(iso(Date.now() + LEASE_MS), now, now, ...(stages ?? []), ...excludeEngines) as { id: string } | undefined;
   return row ? db.select().from(jobs).where(eq(jobs.id, row.id)).get() : undefined;
 }
 
@@ -75,6 +77,21 @@ export function fail(db: Db, job: JobRow, error: string, retryable = true): 'ret
     .where(eq(jobs.id, job.id))
     .run();
   return retry ? 'retry' : 'failed';
+}
+
+/** Back to the queue without using up an attempt (the provider was busy or not connected — not the job's fault). */
+export function requeue(db: Db, jobId: string): void {
+  db.$client
+    .prepare(
+      `UPDATE jobs SET status = 'queued', lease_until = NULL, attempts = MAX(attempts - 1, 0) WHERE id = ? AND status = 'running'`,
+    )
+    .run(jobId);
+}
+
+export function addUsage(db: Db, jobId: string, usage: { tokensIn: number; tokensOut: number }): void {
+  db.$client
+    .prepare('UPDATE jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ? WHERE id = ?')
+    .run(usage.tokensIn, usage.tokensOut, jobId);
 }
 
 export function latestJob(db: Db, bookId: string, stage: Stage): JobRow | undefined {

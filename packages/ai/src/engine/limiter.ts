@@ -15,6 +15,11 @@ export interface LimiterState {
   reason: 'rpm' | 'rpd' | 'blocked' | null;
 }
 
+export interface LimiterSnapshot {
+  starts: number[];
+  blockedUntil: number;
+}
+
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
@@ -59,6 +64,23 @@ export class RateLimiter {
   /** After a 429: nothing is sent before `ms` from now. */
   block(ms: number): void {
     this.blockedUntil = Math.max(this.blockedUntil, this.now() + ms);
+  }
+
+  /** Lifts a block (after the user changed the provider's settings). */
+  unblock(): void {
+    this.blockedUntil = 0;
+  }
+
+  /** Persistable state, so a restart does not forget today's requests (at most `max` recent starts). */
+  snapshot(max = 2000): LimiterSnapshot {
+    this.prune(this.now());
+    return { starts: this.starts.slice(-max), blockedUntil: this.blockedUntil };
+  }
+
+  restore(s: LimiterSnapshot): void {
+    this.starts = [...s.starts].filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    this.blockedUntil = Number.isFinite(s.blockedUntil) ? s.blockedUntil : 0;
+    this.prune(this.now());
   }
 
   state(): LimiterState {

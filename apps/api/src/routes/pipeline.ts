@@ -29,7 +29,7 @@ export async function pipelineRoutes(app: FastifyInstance, { ctx }: { ctx: AppCo
     try {
       return fn();
     } catch (err) {
-      if (err instanceof PipelineError) throw httpError(err.status, err.code);
+      if (err instanceof PipelineError) throw httpError(err.status, err.code, err.details);
       throw err;
     }
   };

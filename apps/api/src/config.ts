@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-const EngineSchema = z.enum(['agent', 'anthropic', 'openai', 'mock']);
+const EngineSchema = z.enum(['agent', 'mock', 'gemini', 'ollama', 'openrouter']);
 const bool = z
   .enum(['0', '1', 'true', 'false'])
   .default('1')
@@ -25,7 +25,18 @@ const EnvSchema = z.object({
   /** Simulated latency of the mock engine per batch (ms), so progress is visible in demos. */
   MOCK_LATENCY_MS: z.coerce.number().int().nonnegative().default(0),
   ENGINE_DEFAULT: EngineSchema.default('agent'),
-  TUTOR_ENGINE: z.enum(['local', 'agent', 'anthropic', 'openai', 'mock']).default('local'),
+  TUTOR_ENGINE: z.enum(['local', 'mock', 'gemini', 'ollama', 'openrouter']).default('local'),
+  /**
+   * Encrypts API keys stored in the database. When unset (or left at the example value) a random key is created
+   * once in DATA_DIR/secret.key.
+   */
+  APP_SECRET: z.string().optional(),
+  /** Default endpoints; each can be changed in Settings (Ollama on another computer, tests with a fake server). */
+  GEMINI_BASE_URL: z.string().optional(),
+  OLLAMA_BASE_URL: z.string().optional(),
+  OPENROUTER_BASE_URL: z.string().optional(),
+  /** OpenRouter's authorization page for the one-click connection (OAuth PKCE). */
+  OPENROUTER_AUTH_URL: z.string().default('https://openrouter.ai/auth'),
 });
 
 export type Config = z.infer<typeof EnvSchema> & { webOrigins: string[]; dataDir: string };
