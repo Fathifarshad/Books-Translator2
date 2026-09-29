@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# local data: uploads, database, agent exchange, private PDFs
+data/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# test output
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.log
