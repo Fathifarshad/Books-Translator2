@@ -8,7 +8,7 @@ import { Icon } from '../../components/Icon';
 import { Button, IconButton, ProgressBar } from '../../components/ui';
 import { booksKey, useBooks } from '../../data/books';
 import { api, type BookSummary } from '../../lib/api';
-import { fmtPct } from '../../lib/format';
+import { fmtNum, fmtPct } from '../../lib/format';
 import { useLibrary } from '../../stores/library';
 
 /** Library «کتابخانه» (SPEC §13.1), backed by the API. */
@@ -154,6 +154,11 @@ function BookCard({ summary }: { summary: BookSummary }) {
           >
             {status}
           </span>
+          {summary.agentPending ? (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-warning" data-testid="book-agent">
+              {t('library.status.awaitingAgent', { count: fmtNum(summary.agentPending) })}
+            </span>
+          ) : null}
           {!processing && book.status !== 'failed' ? (
             <span className="rounded-full bg-panel px-2 py-0.5 text-muted">
               {t('library.readProgress', { percent: fmtPct(readRatio) })}
@@ -171,6 +176,15 @@ function BookCard({ summary }: { summary: BookSummary }) {
               onClick={() => navigate(`/books/${book.id}/setup`)}
             >
               {processing ? t('library.process') : t('library.review')}
+            </Button>
+          ) : null}
+          {book.status === 'translating' || (book.status === 'ready' && book.id !== 'bk_sample') ? (
+            <Button
+              className="flex-1"
+              onClick={() => navigate(`/books/${book.id}/pipeline`)}
+              data-testid="open-pipeline"
+            >
+              {t('library.pipeline')}
             </Button>
           ) : null}
           {!processing && book.status !== 'failed' ? (

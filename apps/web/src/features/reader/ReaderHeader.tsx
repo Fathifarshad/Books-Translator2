@@ -162,6 +162,7 @@ export function ReaderHeader({ layout, twoColumns }: { layout: Layout; twoColumn
 
 function MoreMenu() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { bookId, section } = useReader();
   const ui = useReaderUi();
   const item =
@@ -199,6 +200,19 @@ function MoreMenu() {
           <DropdownMenu.Item className={item} onSelect={() => ui.set({ helpOpen: true })}>
             <Icon name="keyboard" size={16} />
             {t('shortcuts.help')}
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className="my-1 h-px bg-border" />
+          <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${bookId}/pipeline`)}>
+            <Icon name="sparkle" size={16} />
+            {t('reader.openPipeline')}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${bookId}/glossary`)}>
+            <Icon name="book" size={16} />
+            {t('reader.openGlossaryPage')}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${bookId}/review`)}>
+            <Icon name="warning" size={16} />
+            {t('reader.openReview')}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

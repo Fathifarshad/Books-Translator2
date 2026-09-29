@@ -1,11 +1,15 @@
 import type { TranslationRecord } from '@dozabaneh/shared';
+import { useMutation } from '@tanstack/react-query';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button } from '../../components/ui';
+import { api } from '../../lib/api';
 import { uiDigits } from '../../lib/format';
 import { useLibrary } from '../../stores/library';
 import { useReaderUi } from '../../stores/reader';
+import { AgentHint } from '../pipeline/AgentHint';
+import { usePipeline } from '../pipeline/live';
 import { useReader } from './context';
 import { Row, type RowLayout } from './Row';
 
@@ -79,8 +83,19 @@ export function SectionView({ layout, scrollRef }: { layout: RowLayout; scrollRe
     pending.length > 0 && pending.length === translatable.length && pending.every((r) => r.status === 'pending');
   const inProgress = pending.length > 0 && !notStarted;
 
-  // The mock pipeline can only reveal translations that exist (the sample book); real books wait for Phase 3.
-  const canSimulate = pending.some((r) => index.translations.has(`${r.segmentId}|${targetLang}`));
+  // The sample book reveals translations it already ships; real books move the section to the front of the queue.
+  const canSimulate = pending.some(
+    (r) =>
+      index.translations.has(`${r.segmentId}|${targetLang}`) &&
+      index.translations.get(`${r.segmentId}|${targetLang}`)?.text,
+  );
+  const translating = index.book.status === 'translating';
+  const pipeline = usePipeline(bookId, translating ? targetLang : undefined);
+  const [queued, setQueued] = useState(false);
+  const prioritize = useMutation({
+    mutationFn: () => api.prioritize(bookId, section.node.id, targetLang),
+    onSuccess: () => setQueued(true),
+  });
 
   const translateNow = () => {
     // Mock pipeline: queue every pending segment, then finish them one by one (progressive availability).
@@ -113,14 +128,40 @@ export function SectionView({ layout, scrollRef }: { layout: RowLayout; scrollRe
             <Button variant="primary" onClick={translateNow}>
               {t('reader.translateNow')}
             </Button>
+          ) : translating ? (
+            <Button
+              variant="primary"
+              onClick={() => prioritize.mutate()}
+              disabled={prioritize.isPending || queued}
+              data-testid="translate-now"
+            >
+              {t('reader.translateNow')}
+            </Button>
           ) : (
-            <p className="w-full text-xs text-muted">{t('reader.translateLater')}</p>
+            <Link
+              to={`/books/${bookId}/setup`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
+              data-testid="start-translation-link"
+            >
+              {t('reader.startTranslation')}
+            </Link>
           )}
+          {queued ? (
+            <p className="w-full text-sm" role="status">
+              {t('reader.translateQueued')}
+            </p>
+          ) : null}
+          {translating && pipeline.data?.agent.pending ? (
+            <AgentHint count={pipeline.data.agent.pending} className="w-full" />
+          ) : null}
         </div>
       ) : inProgress ? (
-        <p className="mx-5 my-3 text-sm text-muted" role="status">
-          {t('reader.translating')}
-        </p>
+        <div className="mx-5 my-3 space-y-2">
+          <p className="text-sm text-muted" role="status">
+            {t('reader.translating')}
+          </p>
+          {translating && pipeline.data?.agent.pending ? <AgentHint count={pipeline.data.agent.pending} /> : null}
+        </div>
       ) : null}
 
       <ul className="pb-6">

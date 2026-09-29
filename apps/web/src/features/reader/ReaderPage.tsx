@@ -11,9 +11,11 @@ import { useLayout, useTwoColumns } from '../../lib/hooks';
 import { useLibrary } from '../../stores/library';
 import { TOC_WIDTH, TUTOR_WIDTH, useReaderUi } from '../../stores/reader';
 import { readerCssVars, useSettings } from '../../stores/settings';
+import { useBookLiveUpdates } from '../pipeline/live';
 import { TutorPanel } from '../tutor/TutorPanel';
 import { ReaderContext, type ReaderContextValue } from './context';
 import { DisplaySettingsDialog, ShortcutsDialog } from './Dialogs';
+import { useMigrateLocalEdits } from './edits';
 import { GlossaryPopover } from './GlossaryPopover';
 import { ReaderHeader } from './ReaderHeader';
 import type { RowLayout } from './Row';
@@ -33,6 +35,9 @@ export function ReaderPage() {
   const { data: bundle, isLoading } = useBookBundle(bookId);
   const index = useBookIndex(bundle ?? undefined);
   const savedNode = useLibrary((s) => s.progress[bookId]?.nodeId);
+  // Progressive availability: translated sections appear while the pipeline runs (SPEC §9.1).
+  useBookLiveUpdates(bookId);
+  useMigrateLocalEdits(bundle ? bookId : undefined);
 
   if (isLoading) return <p className="p-8 text-muted">{t('app.loading')}</p>;
   if (!index) return <Navigate to="/" replace />;

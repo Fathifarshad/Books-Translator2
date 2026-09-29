@@ -17,7 +17,7 @@
   --danger: #b42318;
   --danger-soft: #fdecea;
   --success: #2f7d4f;
-  --warning: #b7791f;
+  --warning: #8a5a0f; /* darkened from #b7791f for WCAG AA on light backgrounds */
   --shadow-popover: 0 8px 24px rgb(43 40 37 / 0.12);
   --radius-card: 12px;
   --radius-pill: 999px;
@@ -61,5 +61,6 @@
   --row-hover: #262320;
   --selection: #2f4a6b;
   --term-underline: rgb(224 137 94 / 0.55);
+  --warning: #e0a44a;
   --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.4);
 }

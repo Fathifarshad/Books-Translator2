@@ -1,31 +1,41 @@
 import { getTranslation } from '@dozabaneh/core';
 import { type DiffOp, diffWords } from '@dozabaneh/text';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui';
-import { lastRevision, useLibrary } from '../../stores/library';
+import { api } from '../../lib/api';
 import { useReader } from './context';
+import { applyServerTranslation } from './edits';
 
 /**
  * Inline editor for one translated paragraph (SPEC §9.8/§11.7): shows a word diff against the current
- * text, an optional reason, and saves a revision; the segment becomes `user_edited`.
+ * text, an optional reason, and saves a revision on the server; the segment becomes `user_edited`.
  */
 export function TranslationEditor({ segmentId, onClose }: { segmentId: string; onClose: () => void }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { bookId, index, targetLang } = useReader();
   const current = getTranslation(index, segmentId, targetLang);
   const original = current?.text ?? '';
   const [text, setText] = useState(original);
   const [reason, setReason] = useState('');
-  const revisions = useLibrary((s) => s.revisions[bookId]);
-  const canUndo = Boolean(lastRevision(revisions, segmentId, targetLang));
+  const revisionsKey = ['revisions', segmentId, targetLang] as const;
+  const revisions = useQuery({ queryKey: revisionsKey, queryFn: () => api.revisions(segmentId, targetLang) });
+  const lastUserEdit = revisions.data?.revisions.find((r) => r.actor === 'user' && r.before !== null);
   const ops = diffWords(original, text);
   const changed = text.trim() !== original.trim() && text.trim().length > 0;
 
-  const save = () => {
-    useLibrary.getState().saveEdit(bookId, current, segmentId, targetLang, text.trim(), reason.trim() || undefined);
-    onClose();
-  };
+  const edit = useMutation({
+    mutationFn: ({ value, kind }: { value: string; kind: string }) =>
+      api.editTranslation(segmentId, targetLang, value, kind),
+    onSuccess: (res) => {
+      applyServerTranslation(bookId, res.translation);
+      void queryClient.invalidateQueries({ queryKey: revisionsKey });
+      onClose();
+    },
+  });
+  const save = () => edit.mutate({ value: text.trim(), kind: reason.trim() || 'edit' });
 
   return (
     <div className="mt-1 rounded-xl border border-accent/40 bg-surface p-3" data-testid="translation-editor">
@@ -67,20 +77,23 @@ export function TranslationEditor({ segmentId, onClose }: { segmentId: string; o
         aria-label={t('reader.editReason')}
         className="mt-2 w-full rounded-lg border border-border bg-bg px-2 py-1.5 text-sm outline-none focus:border-accent/60"
       />
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button variant="primary" onClick={save} disabled={!changed}>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button variant="primary" onClick={save} disabled={!changed || edit.isPending}>
           {t('reader.saveEdit')}
         </Button>
         <Button onClick={onClose}>{t('app.cancel')}</Button>
-        {canUndo ? (
+        {edit.isError ? (
+          <span role="alert" className="text-sm text-danger">
+            {t('reader.editFailed')}
+          </span>
+        ) : null}
+        {lastUserEdit?.before ? (
           <Button
             variant="ghost"
             icon="history"
             className="ms-auto"
-            onClick={() => {
-              useLibrary.getState().undoEdit(bookId, segmentId, targetLang);
-              onClose();
-            }}
+            disabled={edit.isPending}
+            onClick={() => edit.mutate({ value: lastUserEdit.before as string, kind: 'undo' })}
           >
             {t('reader.undoEdit')}
           </Button>

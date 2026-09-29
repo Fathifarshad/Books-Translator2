@@ -71,6 +71,18 @@ const router = createBrowserRouter([
         path: '/books/:bookId/setup',
         lazy: async () => ({ Component: (await import('../features/setup/SetupPage')).SetupPage }),
       },
+      {
+        path: '/books/:bookId/pipeline',
+        lazy: async () => ({ Component: (await import('../features/pipeline/PipelinePage')).PipelinePage }),
+      },
+      {
+        path: '/books/:bookId/glossary',
+        lazy: async () => ({ Component: (await import('../features/glossary/GlossaryPage')).GlossaryPage }),
+      },
+      {
+        path: '/books/:bookId/review',
+        lazy: async () => ({ Component: (await import('../features/review/ReviewPage')).ReviewPage }),
+      },
       { path: '/books/:bookId/read/:nodeId?', element: <ReaderPage /> },
       {
         path: '/books/:bookId/quiz/:chapterId',

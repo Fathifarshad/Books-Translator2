@@ -55,12 +55,15 @@ test.describe
       await expect(nodes).toHaveCount(4);
 
       await page.getByTestId('confirm-structure').click();
+      // Step 4 (translation settings) follows on the same page.
+      await expect(page.getByTestId('translation-settings')).toBeVisible();
+      await page.getByTestId('read-source').click();
       await expect(page).toHaveURL(/\/read\/nd_/);
       await expect(page.getByTestId('section-title')).toBeVisible();
-      // Source-only rows until translated (Phase 3).
+      // Source-only rows until translated; the banner leads to the translation settings.
       await page.getByRole('treeitem').filter({ hasText: 'Rain' }).first().click();
       await expect(page.locator('[data-col="source"]').first()).toContainText('Rain');
-      await expect(page.getByTestId('untranslated-banner')).toContainText('فاز ۳');
+      await expect(page.getByTestId('start-translation-link')).toBeVisible();
     });
 
     test('the library shows the processed book', async ({ page }) => {

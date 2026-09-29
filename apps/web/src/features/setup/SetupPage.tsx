@@ -8,7 +8,9 @@ import { Button, ProgressBar } from '../../components/ui';
 import { booksKey, bundleKey, useBookBundle } from '../../data/books';
 import { api, type ExtractionReport, subscribeBookEvents } from '../../lib/api';
 import { fmtNum, fmtPct } from '../../lib/format';
+import { targetOf, usePipeline } from '../pipeline/live';
 import { StructureEditor } from './StructureEditor';
+import { TranslationSetup } from './TranslationSetup';
 
 const STEPS = ['upload', 'extract', 'review', 'settings', 'glossary', 'translate'] as const;
 
@@ -38,13 +40,23 @@ export function SetupPage() {
     });
   }, [bookId, queryClient]);
 
-  const step = reviewing ? 2 : 1;
+  const confirmed = status === 'ready_to_translate' || status === 'ready' || status === 'translating';
+  const pipeline = usePipeline(bookId, confirmed && detail.data ? targetOf(detail.data.book) : undefined);
+  const stage = pipeline.data?.stage;
+  const step = !reviewing
+    ? 1
+    : !confirmed
+      ? 2
+      : !pipeline.data || pipeline.data.state === 'idle' || pipeline.data.state === 'cancelled'
+        ? 3
+        : stage === 'brief' || stage === 'glossary' || stage === 'glossary_review'
+          ? 4
+          : 5;
   const confirm = async () => {
     await api.structure(bookId, { op: 'confirm' });
     await queryClient.invalidateQueries({ queryKey: ['book', bookId] });
     await queryClient.invalidateQueries({ queryKey: booksKey });
     await queryClient.invalidateQueries({ queryKey: bundleKey(bookId) });
-    navigate(`/books/${bookId}/read`);
   };
 
   if (detail.isError) {
@@ -104,6 +116,8 @@ export function SetupPage() {
         </p>
       ) : null}
 
+      {confirmed && book && bundle.data ? <TranslationSetup book={book} bundle={bundle.data} /> : null}
+
       {reviewing && report.data?.report ? <ReportCard report={report.data.report} /> : null}
 
       {reviewing && bundle.data ? (
@@ -111,7 +125,7 @@ export function SetupPage() {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-bold">{t('setup.structureReview')}</h2>
             <div className="ms-auto flex gap-2">
-              <Button icon="book" onClick={() => navigate(`/books/${bookId}/read`)}>
+              <Button icon="book" onClick={() => navigate(`/books/${bookId}/read`)} data-testid="read-source">
                 {t('setup.readSource')}
               </Button>
               {status === 'structure_review' ? (
@@ -121,11 +135,18 @@ export function SetupPage() {
               ) : null}
             </div>
           </div>
-          {status !== 'structure_review' ? (
-            <p className="mb-3 rounded-xl bg-accent-soft/60 px-4 py-2 text-sm">{t('setup.confirmed')}</p>
-          ) : null}
-          <p className="mb-4 text-sm text-muted">{t('setup.structureHint')}</p>
-          <StructureEditor bundle={bundle.data} />
+          {confirmed ? (
+            <details className="rounded-2xl border border-border bg-surface px-4 py-3">
+              <summary className="cursor-pointer text-sm">{t('setup.confirmed')}</summary>
+              <p className="my-3 text-sm text-muted">{t('setup.structureHint')}</p>
+              <StructureEditor bundle={bundle.data} />
+            </details>
+          ) : (
+            <>
+              <p className="mb-4 text-sm text-muted">{t('setup.structureHint')}</p>
+              <StructureEditor bundle={bundle.data} />
+            </>
+          )}
         </section>
       ) : null}
     </main>

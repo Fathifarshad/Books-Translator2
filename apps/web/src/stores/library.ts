@@ -47,6 +47,8 @@ interface LibraryState {
     reason?: string,
   ) => void;
   undoEdit: (bookId: string, segmentId: string, lang: string) => void;
+  /** Removes local overrides once the server holds the text (edits moved to the API in Phase 3). */
+  dropOverrides: (bookId: string, keys: string[]) => void;
   setStatus: (bookId: string, records: TranslationRecord[]) => void;
   setPosition: (bookId: string, nodeId: string, segmentId?: string) => void;
   markRead: (bookId: string, nodeId: string) => void;
@@ -122,6 +124,21 @@ export const useLibrary = create<LibraryState>()(
           };
         });
       },
+
+      dropOverrides: (bookId, keys) =>
+        set((s) => {
+          const current = s.overrides[bookId];
+          if (!current || !keys.some((k) => k in current)) return s;
+          const next = { ...current };
+          for (const k of keys) delete next[k];
+          return {
+            overrides: { ...s.overrides, [bookId]: next },
+            revisions: {
+              ...s.revisions,
+              [bookId]: (s.revisions[bookId] ?? []).filter((r) => !keys.includes(key(r.segmentId, r.lang))),
+            },
+          };
+        }),
 
       setStatus: (bookId, records) =>
         set((s) => {

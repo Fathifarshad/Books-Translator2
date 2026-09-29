@@ -1,5 +1,16 @@
 import type { SearchResults, SearchSide, StructureOp } from '@dozabaneh/core';
-import { API_PREFIX, type BookBundle, type BookRecord } from '@dozabaneh/shared';
+import {
+  API_PREFIX,
+  type BookBundle,
+  type BookRecord,
+  type GlossaryKind,
+  type ParentheticalPolicy,
+  type PipelineEstimate,
+  type PipelineStatus,
+  type QaFlag,
+  type TranslationSettings,
+  type TranslationStatus,
+} from '@dozabaneh/shared';
 
 /**
  * Typed API client. The base URL is configurable (VITE_API_URL) for the mobile app; in development the Vite
@@ -41,9 +52,70 @@ export interface BookSummary {
   book: BookRecord;
   counter: { done: number; total: number };
   readable: number;
+  /** Agent batches waiting for Claude Code (pending + leased). */
+  agentPending?: number;
   fileName?: string;
   error?: string;
 }
+
+export interface GlossaryTermRow {
+  id: string;
+  bookId: string | null;
+  srcLang: string;
+  tgtLang: string;
+  src: string;
+  tgt: string;
+  alternatives: string[];
+  definition: string | null;
+  kind: GlossaryKind;
+  parenthetical: ParentheticalPolicy;
+  status: 'proposed' | 'approved' | 'locked';
+  occurrences: number;
+  notes: string | null;
+  confidence: number | null;
+}
+
+export type GlossaryTermInput = Partial<
+  Pick<GlossaryTermRow, 'src' | 'tgt' | 'alternatives' | 'definition' | 'kind' | 'parenthetical' | 'status' | 'notes'>
+>;
+
+export interface RevisionRow {
+  id: string;
+  segmentId: string;
+  lang: string;
+  before: string | null;
+  after: string;
+  actor: 'engine' | 'user';
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface TranslationView {
+  segmentId: string;
+  lang: string;
+  text: string;
+  status: TranslationStatus;
+  version: number;
+  suggestion: string | null;
+}
+
+export interface ReviewItem {
+  segmentId: string;
+  nodeId: string;
+  location: string[];
+  type: string;
+  src: string;
+  draft: string | null;
+  final: string | null;
+  status: TranslationStatus;
+  flags: QaFlag[];
+  confidence: number | null;
+  note: string | null;
+  suggestion: string | null;
+  lastChange: { before: string | null; after: string; reason: string | null } | null;
+}
+
+export type ReviewAction = 'approve' | 'reject' | 'rerun' | 'accept_suggestion' | 'dismiss_suggestion';
 
 export interface ExtractionReport {
   stats: {
@@ -88,6 +160,69 @@ export const api = {
     request<SearchResults>(
       `/books/${id}/search?${new URLSearchParams({ q, sides: o.sides.join(','), glossary: o.glossary ? '1' : '0', lang: o.lang })}`,
     ),
+  patchBook: (id: string, body: { titles?: Record<string, string>; brief?: Record<string, string> }) =>
+    request<{ book: BookRecord }>(`/books/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  // Pipeline (SPEC §13.3)
+  pipeline: (id: string, lang: string) =>
+    request<PipelineStatus>(`/books/${id}/pipeline?lang=${encodeURIComponent(lang)}`),
+  estimate: (id: string, lang: string, settings: Partial<TranslationSettings>) =>
+    request<PipelineEstimate>(`/books/${id}/pipeline/estimate`, {
+      method: 'POST',
+      body: JSON.stringify({ lang, settings }),
+    }),
+  startPipeline: (id: string, lang: string, settings: Partial<TranslationSettings>) =>
+    request<PipelineStatus>(`/books/${id}/pipeline/start`, {
+      method: 'POST',
+      body: JSON.stringify({ lang, settings }),
+    }),
+  pipelineAction: (id: string, action: 'pause' | 'resume' | 'cancel', lang: string) =>
+    request<PipelineStatus>(`/books/${id}/pipeline/${action}`, { method: 'POST', body: JSON.stringify({ lang }) }),
+  prioritize: (id: string, nodeId: string, lang: string) =>
+    request<{ moved: number }>(`/books/${id}/priority`, { method: 'POST', body: JSON.stringify({ nodeId, lang }) }),
+  retryJob: (id: string, jobId: string) =>
+    request<{ ok: boolean }>(`/books/${id}/jobs/${jobId}/retry`, { method: 'POST' }),
+
+  // Glossary (SPEC §13.4)
+  glossary: (id: string, lang: string) =>
+    request<{ terms: GlossaryTermRow[] }>(`/books/${id}/glossary?lang=${encodeURIComponent(lang)}`),
+  createTerm: (id: string, lang: string, term: GlossaryTermInput & { src: string; tgt: string }) =>
+    request<{ term: GlossaryTermRow }>(`/books/${id}/glossary`, {
+      method: 'POST',
+      body: JSON.stringify({ lang, ...term }),
+    }),
+  updateTerm: (id: string, termId: string, patch: GlossaryTermInput) =>
+    request<{ term: GlossaryTermRow; changedEquivalent: boolean }>(`/books/${id}/glossary/${termId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteTerm: (id: string, termId: string) => request<void>(`/books/${id}/glossary/${termId}`, { method: 'DELETE' }),
+  approveGlossary: (id: string, lang: string, ids?: string[]) =>
+    request<{ approved: number }>(`/books/${id}/glossary/approve`, {
+      method: 'POST',
+      body: JSON.stringify(ids ? { lang, ids } : { lang }),
+    }),
+  applyTerm: (id: string, termId: string) =>
+    request<{ segments: number }>(`/books/${id}/glossary/${termId}/apply`, { method: 'POST' }),
+
+  // Edits, history and review (SPEC §9.8, §13.5)
+  /** `reason`: "undo", "edit" or the user's own short note (stored with the revision). */
+  editTranslation: (segmentId: string, lang: string, text: string, reason = 'edit') =>
+    request<{ translation: TranslationView }>(`/segments/${segmentId}/translation`, {
+      method: 'PATCH',
+      body: JSON.stringify({ lang, text, reason }),
+    }),
+  revisions: (segmentId: string, lang: string) =>
+    request<{ revisions: RevisionRow[] }>(`/segments/${segmentId}/revisions?lang=${encodeURIComponent(lang)}`),
+  reviewAction: (segmentId: string, lang: string, action: ReviewAction) =>
+    request<{ translation: TranslationView }>(`/segments/${segmentId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ lang, action }),
+    }),
+  review: (id: string, lang: string, filter: 'flagged' | 'all' = 'flagged') =>
+    request<{ lang: string; items: ReviewItem[] }>(
+      `/books/${id}/review?lang=${encodeURIComponent(lang)}&filter=${filter}`,
+    ),
 };
 
 /** Upload with progress (XHR, since fetch has no upload progress events). */
@@ -118,7 +253,13 @@ export function uploadBook(file: File, onProgress: (ratio: number) => void): Pro
 export type BookEvent =
   | { type: 'progress'; stage: string; done: number; total: number }
   | { type: 'job'; jobId: string; stage: string; status: string; error?: string }
-  | { type: 'book'; status: string };
+  | { type: 'book'; status: string }
+  | { type: 'segment'; lang: string; ids: string[] }
+  | { type: 'pipeline'; lang: string }
+  | { type: 'agent'; pending: number; leased: number }
+  | { type: 'glossary'; lang: string };
+
+const EVENT_TYPES: BookEvent['type'][] = ['progress', 'job', 'book', 'segment', 'pipeline', 'agent', 'glossary'];
 
 /** Live updates for one book over SSE; reconnects automatically (EventSource). */
 export function subscribeBookEvents(bookId: string, onEvent: (e: BookEvent) => void): () => void {
@@ -130,6 +271,6 @@ export function subscribeBookEvents(bookId: string, onEvent: (e: BookEvent) => v
       // ignore malformed events
     }
   };
-  for (const type of ['progress', 'job', 'book']) source.addEventListener(type, handler as EventListener);
+  for (const type of EVENT_TYPES) source.addEventListener(type, handler as EventListener);
   return () => source.close();
 }
