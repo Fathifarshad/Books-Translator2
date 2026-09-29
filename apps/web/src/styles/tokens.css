@@ -1,0 +1,65 @@
+/* Approximations of the prototype palette — compare with the screenshots and adjust. */
+:root,
+[data-theme="light"] {
+  --bg: #fbfaf7; /* reader background (paper) */
+  --panel: #f5f2ec; /* TOC & tutor background */
+  --surface: #ffffff; /* cards, chips, popovers */
+  --text: #2b2825;
+  --text-muted: #655f58; /* darkened from #6f6a63 for WCAG AA on --accent-soft */
+  --border: #e6e1d8;
+  --accent: #9e4a2b; /* terracotta (prototype ≈ #a8502e, darkened for AA text on --accent-soft) */
+  --accent-hover: #863c22;
+  --accent-soft: #f3e3d8; /* active TOC row, pressed toggles */
+  --on-accent: #ffffff;
+  --row-hover: #f4efe7; /* aligned-row hover tint (both columns) */
+  --selection: #cfe3fa;
+  --term-underline: rgb(158 74 43 / 0.5);
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --success: #2f7d4f;
+  --warning: #b7791f;
+  --shadow-popover: 0 8px 24px rgb(43 40 37 / 0.12);
+  --radius-card: 12px;
+  --radius-pill: 999px;
+
+  --font-fa: "Vazirmatn Variable", "Vazirmatn", system-ui, sans-serif; /* Persian text & UI — 17px / line-height 2.0 */
+  --font-en:
+    "Literata Variable", "Literata", "Source Serif 4", Georgia, serif; /* English text — 17px / line-height 1.75 */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace; /* code — 13–14px */
+
+  /* Reader text; overridden by the display settings. */
+  --reader-font-size: 17px;
+  --reader-line-height-fa: 2;
+  --reader-line-height-en: 1.75;
+}
+
+[data-theme="sepia"] {
+  --bg: #f4ecd8;
+  --panel: #ede3cb;
+  --surface: #fbf6ea;
+  --text: #3b2f22;
+  --text-muted: #6b5c48;
+  --border: #ddd0b3;
+  --accent: #9a4a22;
+  --accent-hover: #7f3c1b;
+  --accent-soft: #ebd9c2;
+  --row-hover: #efe4cc;
+  --selection: #e3cfa6;
+}
+
+[data-theme="dark"] {
+  --bg: #1b1a18;
+  --panel: #22201d;
+  --surface: #2a2724;
+  --text: #ece7e1;
+  --text-muted: #a59e95;
+  --border: #3a3632;
+  --accent: #e0895e;
+  --accent-hover: #eba07a;
+  --accent-soft: #3b2a21;
+  --on-accent: #1b1a18;
+  --row-hover: #262320;
+  --selection: #2f4a6b;
+  --term-underline: rgb(224 137 94 / 0.55);
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.4);
+}
