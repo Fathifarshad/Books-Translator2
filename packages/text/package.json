@@ -1,0 +1,13 @@
+{
+  "name": "@dozabaneh/text",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Language registry, bidi helpers, digits, inline markup, glossary matcher, search normalization.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

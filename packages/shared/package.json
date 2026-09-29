@@ -1,0 +1,20 @@
+{
+  "name": "@dozabaneh/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared zod schemas, DTOs, constants and the original sample book.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sample-book": "./src/sample-book/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@dozabaneh/text": "workspace:*"
+  }
+}

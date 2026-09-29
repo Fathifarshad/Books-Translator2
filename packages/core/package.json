@@ -1,0 +1,17 @@
+{
+  "name": "@dozabaneh/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain services: book tree, section payloads, progress counters, tutor context and citations.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dozabaneh/shared": "workspace:*",
+    "@dozabaneh/text": "workspace:*"
+  }
+}
