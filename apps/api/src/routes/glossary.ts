@@ -23,7 +23,17 @@ const TermBody = z.object({
   status: z.enum(['proposed', 'approved', 'locked']).default('approved'),
   notes: z.string().max(1000).nullable().optional(),
 });
-const PatchBody = TermBody.omit({ lang: true }).partial();
+// Explicit (no defaults): a PATCH must only change the fields it sends.
+const PatchBody = z.object({
+  src: z.string().trim().min(1).max(200).optional(),
+  tgt: z.string().trim().min(1).max(200).optional(),
+  alternatives: z.array(z.string().trim().min(1)).max(10).optional(),
+  definition: z.string().trim().max(1000).nullable().optional(),
+  kind: GlossaryKindSchema.optional(),
+  parenthetical: ParentheticalSchema.optional(),
+  status: z.enum(['proposed', 'approved', 'locked']).optional(),
+  notes: z.string().max(1000).nullable().optional(),
+});
 const ApproveBody = z.object({
   lang: z.string().min(2).max(12),
   /** Specific terms; without ids every proposed term is approved and translation can start. */

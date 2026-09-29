@@ -365,3 +365,39 @@ describe('cross-process notifications', () => {
     expect(seen).toEqual([{ type: 'pipeline', lang: 'fa' }]);
   });
 });
+
+describe('glossary PATCH', () => {
+  it('only changes the fields it sends', async () => {
+    const books = (await app.inject({ url: '/api/v1/books' })).json().books as { book: { id: string } }[];
+    const id = books[0]?.book.id as string;
+    const created = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/books/${id}/glossary`,
+        payload: {
+          lang: 'fa',
+          src: 'Ada Byron',
+          tgt: 'آدا بایرون',
+          kind: 'person',
+          parenthetical: 'always',
+          alternatives: ['ایدا بایرن'],
+          status: 'proposed',
+        },
+      })
+    ).json().term;
+    const patched = (
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/books/${id}/glossary/${created.id}`,
+        payload: { src: 'Ada Lovelace' },
+      })
+    ).json().term;
+    expect(patched).toMatchObject({
+      src: 'Ada Lovelace',
+      kind: 'person',
+      parenthetical: 'always',
+      alternatives: ['ایدا بایرن'],
+      status: 'proposed',
+    });
+  });
+});
