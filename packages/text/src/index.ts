@@ -5,5 +5,8 @@ export * from './digits';
 export * from './glossary-match';
 export * from './languages';
 export * from './markup';
+export * from './parentheticals';
+export * from './postprocess';
+export * from './qa';
 export * from './search';
 export * from './sentences';

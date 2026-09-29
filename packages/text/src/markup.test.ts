@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareMarkup, stripMarkup, tokenize, tokenSignature } from './markup';
+import { compareMarkup, serializeMarkup, stripMarkup, tokenize, tokenSignature } from './markup';
 
 describe('markup tokenizer', () => {
   it('parses emphasis, strong, code, refs and URLs', () => {
@@ -52,5 +52,18 @@ describe('markup validation', () => {
 
   it('reports missing and extra tokens', () => {
     expect(compareMarkup('a [^1] `x`', 'الف [^2]')).toEqual({ missing: ['code:x', 'fn:1'], extra: ['fn:2'] });
+  });
+});
+
+describe('serializeMarkup', () => {
+  it.each([
+    'Plain text.',
+    'An *emphasized* and **strong** word.',
+    'Call `run()` and see[^3] in [[fig:2.1]] or [[tab:1]].',
+    'Visit https://example.org/a.',
+    'Nested **bold *and italic* text**.',
+    'A literal \\* star.',
+  ])('round-trips %s', (src) => {
+    expect(serializeMarkup(tokenize(src))).toBe(src);
   });
 });

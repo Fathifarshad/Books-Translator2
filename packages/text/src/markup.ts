@@ -127,6 +127,32 @@ export function plainText(tokens: MarkupToken[]): string {
     .join('');
 }
 
+/** Serializes tokens back to markup (inverse of `tokenize` for well-formed input). */
+export function serializeMarkup(tokens: MarkupToken[]): string {
+  return tokens
+    .map((t) => {
+      switch (t.type) {
+        case 'text':
+          return t.text.replace(/([*`])/g, '\\$1');
+        case 'em':
+          return `*${serializeMarkup(t.children)}*`;
+        case 'strong':
+          return `**${serializeMarkup(t.children)}**`;
+        case 'code':
+          return `\`${t.text}\``;
+        case 'fnref':
+          return `[^${t.id}]`;
+        case 'ref':
+          return `[[${t.kind}:${t.id}]]`;
+        case 'url':
+          return t.url;
+        default:
+          return '';
+      }
+    })
+    .join('');
+}
+
 export function stripMarkup(src: string): string {
   return plainText(tokenize(src));
 }
