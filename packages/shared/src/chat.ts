@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ProviderId } from './providers';
 
 /** Typed tutor errors (SPEC §12.6); each maps to a Persian i18n message in the web app. */
 export const CHAT_ERROR_CODES = [
@@ -90,6 +91,34 @@ export interface ContextGlossaryEntry {
   definition?: string;
 }
 
+const text = (max: number) => z.string().max(max);
+
+/** Validation of a tutor request sent to the API (bounded sizes: it goes to a provider). */
+export const TutorEngineInputSchema = z.object({
+  question: text(4_000).min(1),
+  mode: TutorModeSchema,
+  selection: z.object({ text: text(6_000).min(1), lang: z.string().max(12) }).optional(),
+  passages: z
+    .array(
+      z.object({
+        label: text(10),
+        segmentId: text(80),
+        nodeId: text(80),
+        location: text(300),
+        src: text(8_000),
+        tgt: text(12_000).optional(),
+      }),
+    )
+    .max(40),
+  glossary: z.array(z.object({ src: text(200), tgt: text(200), definition: text(1_000).optional() })).max(60),
+  history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: text(20_000) })).max(40),
+  sourceLang: z.string().min(2).max(12),
+  targetLang: z.string().min(2).max(12),
+  book: z.object({ title: text(500), authors: z.array(text(200)).max(20) }),
+  sectionTitle: text(500),
+  attempt: z.number().int().min(1).max(100),
+});
+
 /** Everything an engine needs to answer one tutor question (TutorAnswerInputV1 + book info). */
 export interface TutorEngineInput {
   question: string;
@@ -107,6 +136,6 @@ export interface TutorEngineInput {
 }
 
 export interface TutorEngine {
-  id: 'mock' | 'local' | 'agent' | 'anthropic' | 'openai';
+  id: 'mock' | 'local' | 'agent' | 'anthropic' | 'openai' | ProviderId;
   streamChat(input: TutorEngineInput, signal: AbortSignal): AsyncIterable<ChatEvent>;
 }

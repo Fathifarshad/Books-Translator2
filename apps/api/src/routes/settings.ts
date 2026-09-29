@@ -1,6 +1,14 @@
 import { ProviderError, pickDefaultModel } from '@dozabaneh/ai';
-import { API_PREFIX, isProviderId, type ProviderId, ProviderUpdateSchema } from '@dozabaneh/shared';
+import {
+  API_PREFIX,
+  AssistantEngineSchema,
+  isProviderId,
+  type ProviderId,
+  type ProviderSettingsResponse,
+  ProviderUpdateSchema,
+} from '@dozabaneh/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import type { AppContext } from '../app';
 import { authorizeUrl, exchangeCode, OAuthFlows } from '../settings/oauth';
 import { httpError } from './errors';
@@ -41,7 +49,19 @@ export async function settingsRoutes(app: FastifyInstance, { ctx }: { ctx: AppCo
     return u.toString();
   };
 
-  app.get(base, async () => ({ providers: providers.views() }));
+  app.get(
+    base,
+    async (): Promise<ProviderSettingsResponse> => ({
+      providers: providers.views(),
+      assistant: providers.assistant(),
+    }),
+  );
+
+  app.put(`${API_PREFIX}/settings/assistant`, async (req) => {
+    const { engine } = z.object({ engine: AssistantEngineSchema }).parse(req.body ?? {});
+    providers.setAssistantEngine(engine);
+    return providers.assistant();
+  });
 
   app.put<{ Params: { id: string } }>(`${base}/:id`, async (req) => {
     const id = providerOf(req.params.id);

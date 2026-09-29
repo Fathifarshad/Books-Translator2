@@ -247,16 +247,54 @@ const summary: TaskSpec<'summary'> = {
   check: () => [],
 };
 
+/** A question the reader can actually answer and grade: options and answer must fit the question type. */
+function quizQuestionIssues(q: TaskResult<'quiz'>['questions'][number], i: number): ValidationIssue[] {
+  const at = `Question ${i + 1}`;
+  const issue = (rule: string, message: string, fix: string): ValidationIssue => ({
+    level: 'error',
+    rule,
+    message: `${at}: ${message}`,
+    fix,
+  });
+  const out: ValidationIssue[] = [];
+  if (!q.question.trim()) out.push(issue('empty_question', 'the question is empty.', 'Write the question.'));
+  if (q.type === 'mcq') {
+    const n = q.options?.length ?? 0;
+    if (n < 2) out.push(issue('mcq_options', 'a multiple-choice question needs 2–6 options.', 'Give 4 options.'));
+    if (typeof q.answer !== 'number' || !Number.isInteger(q.answer) || q.answer < 0 || q.answer >= n)
+      out.push(
+        issue('mcq_answer', 'the answer must be the 0-based index of the correct option.', 'Set "answer" to 0…n-1.'),
+      );
+  } else if (q.type === 'tf' && typeof q.answer !== 'boolean') {
+    out.push(issue('tf_answer', 'a true/false answer must be true or false.', 'Set "answer" to true or false.'));
+  } else if (q.type === 'short' && (typeof q.answer !== 'string' || !q.answer.trim())) {
+    out.push(issue('short_answer', 'a short-answer question needs a model answer.', 'Set "answer" to a model answer.'));
+  }
+  return out;
+}
+
 const quiz: TaskSpec<'quiz'> = {
   task: 'quiz',
   input: TASK_INPUT_SCHEMAS.quiz,
   output: TASK_RESULT_SCHEMAS.quiz,
-  check: (input, output) =>
-    labelsIssues(
+  check: (input, output) => [
+    ...(output.questions.length === 0
+      ? [
+          {
+            level: 'error' as const,
+            rule: 'no_questions',
+            message: 'The quiz has no questions.',
+            fix: 'Write the questions.',
+          },
+        ]
+      : []),
+    ...output.questions.flatMap(quizQuestionIssues),
+    ...labelsIssues(
       input.passages.map((p) => p.label),
       output.questions.flatMap((q) => q.sources),
       'unknown_source',
     ),
+  ],
 };
 
 const tutorAnswer: TaskSpec<'tutor_answer'> = {

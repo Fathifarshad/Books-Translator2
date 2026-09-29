@@ -2,6 +2,7 @@ import { mockQuiz } from '@dozabaneh/ai';
 import { type BookIndex, buildSection, glossaryFor } from '@dozabaneh/core';
 import type { QuizQuestion } from '@dozabaneh/shared';
 import { stripMarkup } from '@dozabaneh/text';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
@@ -10,7 +11,10 @@ import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui';
 import { targetLangOf, useBookBundle, useBookIndex } from '../../data/books';
 import { uiLocale } from '../../i18n';
+import { api } from '../../lib/api';
 import { fmtNum, uiDigits } from '../../lib/format';
+import { assistErrorKey } from '../reader/SummaryCard';
+import { assistBook, useAssistantEngine } from '../settings/engines';
 
 interface Passage {
   label: string;
@@ -38,7 +42,10 @@ function chapterPassages(index: BookIndex, chapterId: string, lang: string): Pas
   return out;
 }
 
-/** Chapter quiz «آزمون این فصل» (SPEC §13.6), generated on demand by the engine (mock in Phase 1). */
+/** A provider reads at most this many passages of a chapter for one quiz. */
+const MAX_QUIZ_PASSAGES = 300;
+
+/** Chapter quiz «آزمون این فصل» (SPEC §13.6), generated on demand by the assistant engine (mock or a provider). */
 export function QuizPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -48,6 +55,7 @@ export function QuizPage() {
   const [seed, setSeed] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number | boolean | string>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
+  const engine = useAssistantEngine();
 
   const data = useMemo(() => {
     if (!index) return undefined;
@@ -59,13 +67,70 @@ export function QuizPage() {
     const glossary = glossaryFor(index, lang)
       .filter((g) => text.includes(g.src.toLowerCase()))
       .map((g) => ({ src: g.src, tgt: g.tgt, ...(g.definition ? { definition: g.definition } : {}) }));
-    const quiz = mockQuiz({ scope: 'chapter', targetLang: lang, passages, glossary, seed: String(seed) });
-    return { chapter, passages, quiz, lang };
-  }, [index, chapterId, seed]);
+    const mock =
+      engine === 'mock'
+        ? mockQuiz({ scope: 'chapter', targetLang: lang, passages, glossary, seed: String(seed) })
+        : null;
+    return { chapter, passages, glossary, mock, lang };
+  }, [index, chapterId, seed, engine]);
+
+  const remote = useQuery({
+    queryKey: ['quiz', bookId, chapterId, seed, engine],
+    queryFn: () => {
+      if (!data || !index) throw new Error('no chapter');
+      return api.quiz({
+        scope: 'chapter',
+        sourceLang: index.book.sourceLang,
+        targetLang: data.lang,
+        book: assistBook(index.book, data.lang),
+        glossary: data.glossary,
+        passages: data.passages
+          .slice(0, MAX_QUIZ_PASSAGES)
+          .map((p) => ({ label: p.label, src: p.src, ...(p.tgt ? { tgt: p.tgt } : {}) })),
+      });
+    },
+    enabled: Boolean(data) && engine !== 'mock',
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
   if (!bundle) return null;
   if (!data) return <Navigate to={`/books/${bookId}/read`} replace />;
-  const { chapter, passages, quiz, lang } = data;
+  const { chapter, passages, lang } = data;
+  const quiz = data.mock ?? remote.data;
+  const header = (
+    <>
+      <Link
+        to={`/books/${bookId}/read`}
+        className="inline-flex items-center gap-1 text-sm text-muted hover:text-accent"
+      >
+        <Icon name="back" size={16} />
+        {t('quiz.backToReading')}
+      </Link>
+      <h1 className="mt-4 text-2xl font-bold">{t('quiz.chapterTitle', { n: uiDigits(chapter.numberLabel ?? '') })}</h1>
+    </>
+  );
+
+  if (!quiz) {
+    return (
+      <main id="main" className="mx-auto min-h-dvh max-w-3xl px-5 py-8">
+        {header}
+        {remote.isError ? (
+          <div role="alert" className="mt-6 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
+            <p>{t(assistErrorKey(remote.error))}</p>
+            <Button className="mt-3" icon="history" onClick={() => void remote.refetch()}>
+              {t('app.retry')}
+            </Button>
+          </div>
+        ) : (
+          <p role="status" className="mt-6 text-muted">
+            {t('quiz.generating')}
+          </p>
+        )}
+      </main>
+    );
+  }
   const score = quiz.questions.filter((q, i) => checked[i] && isCorrect(q, answers[i])).length;
   const gradable = quiz.questions.filter((q) => q.type !== 'short').length;
   const done = Object.keys(checked).length;
@@ -77,14 +142,7 @@ export function QuizPage() {
 
   return (
     <main id="main" className="mx-auto min-h-dvh max-w-3xl px-5 py-8">
-      <Link
-        to={`/books/${bookId}/read`}
-        className="inline-flex items-center gap-1 text-sm text-muted hover:text-accent"
-      >
-        <Icon name="back" size={16} />
-        {t('quiz.backToReading')}
-      </Link>
-      <h1 className="mt-4 text-2xl font-bold">{t('quiz.chapterTitle', { n: uiDigits(chapter.numberLabel ?? '') })}</h1>
+      {header}
       <p className="mt-1 text-sm text-muted">
         {t('quiz.answered', { done: fmtNum(done), total: fmtNum(quiz.questions.length) })} ·{' '}
         {t('quiz.score', { score: fmtNum(score), total: fmtNum(gradable) })}

@@ -10,6 +10,7 @@ import { EventBus } from './events';
 import { JobRunner, pipelineCtx } from './jobs/runner';
 import { advanceAll } from './pipeline/advance';
 import { NotificationPoller } from './pipeline/notify';
+import { assistRoutes } from './routes/assist';
 import { bookRoutes } from './routes/books';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
@@ -94,6 +95,7 @@ export async function buildApp(
   await app.register(glossaryRoutes, { ctx });
   await app.register(segmentRoutes, { ctx });
   await app.register(settingsRoutes, { ctx });
+  await app.register(assistRoutes, { ctx });
 
   // Events written by the agent CLI (another process) reach open pages through the notifications table.
   const poller = new NotificationPoller(db, bus, () => ctx.runner.kick());

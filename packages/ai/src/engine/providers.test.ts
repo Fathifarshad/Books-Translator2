@@ -49,18 +49,42 @@ describe('provider client', () => {
     expect(sentHeaders?.['X-Title']).toBe('Dozabaneh');
   });
 
-  it('needs no key for Ollama and honours a custom base URL', async () => {
-    const f = fakeFetch([completion('ok')]);
-    await createProviderClient({
+  it('talks to Ollama natively: no key, custom base, context size and an enforced JSON schema', async () => {
+    const f = fakeFetch([
+      json({ model: 'llm', message: { role: 'assistant', content: '{"a":1}' }, prompt_eval_count: 9, eval_count: 3 }),
+    ]);
+    const out = await createProviderClient({
       provider: 'ollama',
       model: 'llm',
       baseUrl: 'http://pc:11434/v1/',
       fetch: f.fetch,
-    }).chat([]);
+    }).chat([{ role: 'user', content: 'x' }], { json: true, schema: { type: 'object' } });
+    expect(out).toEqual({ text: '{"a":1}', model: 'llm', usage: { tokensIn: 9, tokensOut: 3 } });
     const [url, init] = f.calls[0] as FetchArgs;
-    expect(url).toBe('http://pc:11434/v1/chat/completions');
+    expect(url).toBe('http://pc:11434/api/chat');
     const sentHeaders = init?.headers as Record<string, string> | undefined;
     expect(sentHeaders?.Authorization).toBeUndefined();
+    const body = JSON.parse(String(init?.body));
+    expect(body).toMatchObject({ model: 'llm', stream: false, format: { type: 'object' } });
+    expect(body.options.num_ctx).toBe(PROVIDERS.ollama.contextTokens);
+  });
+
+  it('streams Ollama NDJSON', async () => {
+    const ndjson = [
+      '{"message":{"content":"سلام"},"done":false}',
+      '{"message":{"content":" دنیا"},"done":false}',
+      '{"message":{"content":""},"done":true,"prompt_eval_count":4,"eval_count":2}',
+    ].join('\n');
+    const f = fakeFetch([new Response(ndjson, { headers: { 'content-type': 'application/x-ndjson' } })]);
+    const events = [];
+    for await (const e of createProviderClient({ provider: 'ollama', model: 'm', fetch: f.fetch }).stream([]))
+      events.push(e);
+    expect(events).toEqual([
+      { type: 'delta', text: 'سلام' },
+      { type: 'delta', text: ' دنیا' },
+      { type: 'usage', usage: { tokensIn: 4, tokensOut: 2 } },
+    ]);
+    expect(JSON.parse(String((f.calls[0] as FetchArgs)[1]?.body)).stream).toBe(true);
   });
 
   it.each([
@@ -93,7 +117,11 @@ describe('provider client', () => {
     });
     const f = fakeFetch([json({ choices: [{ message: { content: '' } }] })]);
     await expect(
-      createProviderClient({ provider: 'ollama', model: 'm', fetch: f.fetch }).chat([]),
+      createProviderClient({ provider: 'gemini', model: 'm', apiKey: 'k', fetch: f.fetch }).chat([]),
+    ).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+    const g = fakeFetch([json({ message: { content: '' }, done: true })]);
+    await expect(
+      createProviderClient({ provider: 'ollama', model: 'm', fetch: g.fetch }).chat([]),
     ).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
   });
 
@@ -235,11 +263,12 @@ describe('provider engine', () => {
   it('gives up with BAD_RESPONSE after the repair round', async () => {
     const f = fakeFetch([completion('not json at all'), completion('still not json')]);
     const engine = createProviderEngine({
-      client: createProviderClient({ provider: 'ollama', model: 'm', fetch: f.fetch }),
+      client: createProviderClient({ provider: 'openrouter', model: 'm', apiKey: 'k', fetch: f.fetch }),
       systemPrompt: () => 'P',
       validate,
     });
     await expect(engine.run(batch, {})).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+    expect(f.calls).toHaveLength(2);
   });
 
   it('extracts JSON from chatty answers', () => {

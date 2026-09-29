@@ -83,3 +83,45 @@ export interface ProviderTestResult {
   sample?: string;
   error?: { code: string; message: string };
 }
+
+/** Engine of the reading assistant (tutor, summaries, quizzes): the offline mock or a free provider. */
+export const ASSISTANT_ENGINES = ['mock', ...PROVIDER_IDS] as const;
+export const AssistantEngineSchema = z.enum(ASSISTANT_ENGINES);
+export type AssistantEngine = z.infer<typeof AssistantEngineSchema>;
+
+export interface ProviderSettingsResponse {
+  providers: ProviderView[];
+  assistant: { engine: AssistantEngine; ready: boolean };
+}
+
+const passage = z.object({
+  label: z.string().max(10),
+  src: z.string().max(8_000),
+  tgt: z.string().max(12_000).optional(),
+});
+const terms = z
+  .array(z.object({ src: z.string().max(200), tgt: z.string().max(200), definition: z.string().max(1_000).optional() }))
+  .max(60)
+  .default([]);
+const assistBase = {
+  sourceLang: z.string().min(2).max(12),
+  targetLang: z.string().min(2).max(12),
+  book: z.object({ title: z.string().max(500), authors: z.array(z.string().max(200)).max(20) }),
+  glossary: terms,
+};
+
+/** POST /assist/summary — «چکیده‌ی این بخش» on the configured provider. */
+export const SummaryRequestSchema = z.object({
+  ...assistBase,
+  kind: z.enum(['section', 'chapter']),
+  passages: z.array(passage).min(1).max(200),
+});
+export type SummaryRequest = z.input<typeof SummaryRequestSchema>;
+
+/** POST /assist/quiz — «آزمون این فصل» on the configured provider. */
+export const QuizRequestSchema = z.object({
+  ...assistBase,
+  scope: z.enum(['chapter', 'selection']),
+  passages: z.array(passage).min(1).max(300),
+});
+export type QuizRequest = z.input<typeof QuizRequestSchema>;

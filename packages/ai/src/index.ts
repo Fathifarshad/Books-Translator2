@@ -3,6 +3,7 @@ export * from './engine/limiter';
 export * from './engine/mock';
 export * from './engine/prompts';
 export * from './engine/provider-engine';
+export * from './engine/provider-tutor';
 export * from './engine/providers';
 export * from './engine/specs';
 export * from './engine/validate';

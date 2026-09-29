@@ -5,7 +5,8 @@ import type { AgentBatch } from '@dozabaneh/shared';
 
 /**
  * A fake OpenAI-compatible provider for tests and e2e (never used in production): Gemini under /gemini, Ollama
- * under /ollama/v1 (no key), OpenRouter under /openrouter/api/v1 with its OAuth pages (/openrouter/auth). Chat
+ * under /ollama (native /api/chat and /v1/models, no key), OpenRouter under /openrouter/api/v1 with its OAuth pages
+ * (/openrouter/auth). Chat
  * answers are the mock engine's output for the batch in the request, so the whole pipeline runs offline.
  */
 export interface FakeFailure {
@@ -74,11 +75,56 @@ function batchFrom(messages: { role: string; content: string }[]): AgentBatch | 
   }
 }
 
+type Passage = { label: string; src: string; tgt: string };
+
+/** Summary and quiz answers (the mock engine only covers pipeline tasks). */
+function assistOutput(batch: AgentBatch): Record<string, unknown> | null {
+  const passages = ((batch.input as { passages?: Passage[] }).passages ?? []).slice(0, 7);
+  const first = passages[0]?.label ?? 'P1';
+  if (batch.task === 'summary') {
+    return {
+      markdown: [
+        '**ایده‌ی اصلی:** چکیده‌ی آزمایشی از موتور رایگان.',
+        '',
+        '**نکته‌های کلیدی:**',
+        ...passages.map((p) => `- ${p.tgt || p.src}`),
+      ].join('\n'),
+    };
+  }
+  if (batch.task === 'quiz') {
+    const mcq = (i: number) => ({
+      type: 'mcq',
+      question: `پرسش آزمایشی ${i + 1}؟`,
+      options: ['گزینه‌ی الف', 'گزینه‌ی ب', 'گزینه‌ی ج', 'گزینه‌ی د'],
+      answer: i % 4,
+      explanation: 'توضیح آزمایشی.',
+      difficulty: (['easy', 'medium', 'hard'] as const)[i % 3],
+      sources: [passages[i % Math.max(passages.length, 1)]?.label ?? first],
+    });
+    return {
+      questions: [
+        ...[0, 1, 2, 3, 4].map(mcq),
+        { ...mcq(5), type: 'tf', options: undefined, answer: true },
+        { ...mcq(6), type: 'tf', options: undefined, answer: false },
+        { ...mcq(7), type: 'short', options: undefined, answer: 'پاسخ نمونه.', keyPoints: ['نکته'] },
+      ],
+    };
+  }
+  return null;
+}
+
 function answerFor(messages: { role: string; content: string }[]): string {
   const batch = batchFrom(messages);
   if (batch) {
+    const assist = assistOutput(batch);
+    if (assist) return JSON.stringify(assist);
     const { schemaVersion: _v, batchId: _b, ...output } = mockOutput(batch) as Record<string, unknown>;
     return JSON.stringify(output);
+  }
+  const last = messages.at(-1)?.content ?? '';
+  if (last.includes('<book_context>')) {
+    const label = /\[(P\d+)\]/u.exec(last)?.[1] ?? 'P1';
+    return `**پاسخ کوتاه:** این پاسخ آزمایشیِ موتور رایگان است و به متن کتاب ارجاع می‌دهد [${label}].\n\n- نکته‌ی نخست\n- نکته‌ی دوم`;
   }
   return 'OK';
 }
@@ -159,6 +205,27 @@ export async function startFakeProvider(port = 0, host = '127.0.0.1'): Promise<F
       if (path.endsWith('/models') && req.method === 'GET') {
         if (provider === 'gemini' && !keyOk) return sendJson(res, 401, { error: { message: 'API key not valid' } });
         return sendJson(res, 200, { object: 'list', data: MODELS[provider] });
+      }
+      // Ollama's native chat API (used for its context size and JSON schema).
+      if (path === '/ollama/api/chat' && req.method === 'POST') {
+        const failure = state.failures.shift();
+        if (failure) return sendJson(res, failure.status, failure.body ?? { error: 'fail' }, failure.headers);
+        const b = body as { model?: string; messages?: { role: string; content: string }[]; stream?: boolean };
+        const content = state.contents.shift() ?? answerFor(b.messages ?? []);
+        const counts = { prompt_eval_count: Math.ceil(raw.length / 4), eval_count: Math.ceil(content.length / 4) };
+        if (b.stream) {
+          res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+          for (const piece of content.match(/[\s\S]{1,12}/gu) ?? []) {
+            res.write(
+              `${JSON.stringify({ model: b.model, message: { role: 'assistant', content: piece }, done: false })}\n`,
+            );
+          }
+          res.end(
+            `${JSON.stringify({ model: b.model, message: { role: 'assistant', content: '' }, done: true, ...counts })}\n`,
+          );
+          return;
+        }
+        return sendJson(res, 200, { model: b.model, message: { role: 'assistant', content }, done: true, ...counts });
       }
       if (path.endsWith('/chat/completions') && req.method === 'POST') {
         if (!keyOk) return sendJson(res, 401, { error: { message: 'API key not valid' } });

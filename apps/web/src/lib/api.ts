@@ -1,15 +1,28 @@
 import type { SearchResults, SearchSide, StructureOp } from '@dozabaneh/core';
 import {
   API_PREFIX,
+  type AssistantEngine,
   type BookBundle,
   type BookRecord,
+  type ChatEvent,
+  ChatEventSchema,
   type GlossaryKind,
   type ParentheticalPolicy,
   type PipelineEstimate,
   type PipelineStatus,
+  type ProviderId,
+  type ProviderModelInfo,
+  type ProviderSettingsResponse,
+  type ProviderTestResult,
+  type ProviderUpdate,
+  type ProviderView,
   type QaFlag,
+  type QuizRequest,
+  type QuizResult,
+  type SummaryRequest,
   type TranslationSettings,
   type TranslationStatus,
+  type TutorEngineInput,
 } from '@dozabaneh/shared';
 
 /**
@@ -223,7 +236,84 @@ export const api = {
     request<{ lang: string; items: ReviewItem[] }>(
       `/books/${id}/review?lang=${encodeURIComponent(lang)}&filter=${filter}`,
     ),
+
+  // AI engines (Phase 4): free providers, keys are write-only
+  providers: () => request<ProviderSettingsResponse>('/settings/providers'),
+  updateProvider: (id: ProviderId, patch: ProviderUpdate) =>
+    request<ProviderView>(`/settings/providers/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  testProvider: (id: ProviderId) =>
+    request<ProviderTestResult & { provider: ProviderView }>(`/settings/providers/${id}/test`, { method: 'POST' }),
+  providerModels: (id: ProviderId) => request<{ models: ProviderModelInfo[] }>(`/settings/providers/${id}/models`),
+  setAssistant: (engine: AssistantEngine) =>
+    request<ProviderSettingsResponse['assistant']>('/settings/assistant', {
+      method: 'PUT',
+      body: JSON.stringify({ engine }),
+    }),
+  summary: (body: SummaryRequest) =>
+    request<{ markdown: string; engine: ProviderId; model: string }>('/assist/summary', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  quiz: (body: QuizRequest) =>
+    request<QuizResult & { engine: ProviderId; model: string }>('/assist/quiz', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
+
+/** Full-page navigation target of «اتصال با یک کلیک» (OpenRouter's authorization page, then back here). */
+export function openRouterConnectUrl(returnTo: string): string {
+  return apiUrl(`/settings/providers/openrouter/connect?return=${encodeURIComponent(returnTo)}`);
+}
+
+/** Streams a tutor answer from the API (SSE over a POST); yields validated ChatEvents. */
+export async function* streamTutor(input: TutorEngineInput, signal: AbortSignal): AsyncGenerator<ChatEvent> {
+  let res: Response;
+  try {
+    res = await fetch(apiUrl('/assist/tutor'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(input),
+      signal,
+    });
+  } catch {
+    if (signal.aborted) return;
+    yield { type: 'error', code: 'NETWORK', message: 'network', retryable: true };
+    return;
+  }
+  if (!res.ok || !res.body) {
+    const code = res.status === 400 ? 'CONTEXT_TOO_LONG' : 'UNKNOWN';
+    yield { type: 'error', code, message: String(res.status), retryable: code === 'UNKNOWN' };
+    return;
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let end = buffer.indexOf('\n\n');
+    while (end !== -1) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      end = buffer.indexOf('\n\n');
+      const data = block
+        .split('\n')
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trim())
+        .join('');
+      if (!data) continue;
+      let json: unknown;
+      try {
+        json = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      const parsed = ChatEventSchema.safeParse(json);
+      if (parsed.success) yield parsed.data;
+    }
+  }
+}
 
 /** Upload with progress (XHR, since fetch has no upload progress events). */
 export function uploadBook(file: File, onProgress: (ratio: number) => void): Promise<{ bookId: string }> {

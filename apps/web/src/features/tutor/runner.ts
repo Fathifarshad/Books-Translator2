@@ -1,19 +1,35 @@
 import { createMockTutorEngine } from '@dozabaneh/ai';
 import { chapterOf, nodeTitle, streamTutorAnswer, stripUnknownCitations, withTimeouts } from '@dozabaneh/core';
-import type { ChatTurn, MessageContext, TutorEngine, TutorMode, TutorRequest } from '@dozabaneh/shared';
+import type {
+  AssistantEngine,
+  ChatTurn,
+  MessageContext,
+  TutorEngine,
+  TutorMode,
+  TutorRequest,
+} from '@dozabaneh/shared';
 import i18next from 'i18next';
 import { currentBookIndex, targetLangOf } from '../../data/books';
+import { streamTutor } from '../../lib/api';
 import { uiDigits } from '../../lib/format';
 import { type ChatMessage, newId, useTutor } from './store';
 
 /**
- * The tutor engine for this build. Phase 1: the in-browser mock engine. Phase 4 adds an SSE transport to
- * the API (anthropic/openai) behind the same `TutorEngine` interface; Phase 3 adds deferred agent answers.
+ * The tutor engine: the in-browser mock, or a free provider through the API (SSE; the key stays on the server).
+ * The context (passages, glossary) is built here from the book the reader already has, and citations are
+ * resolved against it — the same orchestration for every engine.
  */
-let engine: TutorEngine = createMockTutorEngine();
+const mockEngine = createMockTutorEngine();
+let engine: TutorEngine = mockEngine;
 
 export function setTutorEngine(next: TutorEngine) {
   engine = next;
+}
+
+/** Follows Settings → assistant engine. */
+export function selectTutorEngine(id: AssistantEngine) {
+  if (id === engine.id) return;
+  engine = id === 'mock' ? mockEngine : { id, streamChat: (input, signal) => streamTutor(input, signal) };
 }
 
 export function tutorEngineId(): TutorEngine['id'] {
@@ -21,6 +37,8 @@ export function tutorEngineId(): TutorEngine['id'] {
 }
 
 export const STREAM_TIMEOUTS = { firstTokenMs: 30_000, idleMs: 45_000 };
+/** A local model on a CPU reads the context slowly before its first word. */
+const LOCAL_TIMEOUTS = { firstTokenMs: 180_000, idleMs: 90_000 };
 
 const controllers = new Map<string, AbortController>();
 
@@ -74,7 +92,7 @@ async function run(conversationId: string, assistant: ChatMessage, userMessage: 
 
   try {
     const events = withTimeouts(streamTutorAnswer(index, request, engine, controller.signal, { formatLocation }), {
-      ...STREAM_TIMEOUTS,
+      ...(engine.id === 'ollama' ? LOCAL_TIMEOUTS : STREAM_TIMEOUTS),
       signal: controller.signal,
     });
     for await (const event of events) {

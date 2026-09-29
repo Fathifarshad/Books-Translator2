@@ -276,6 +276,13 @@ describe('pipeline on a free provider', () => {
     status = await statusOf(other);
     expect(status.state).toBe('done');
     expect(status.providers[0]?.problem).toBeNull();
+    // Ollama runs through its native API with a larger context and the task's JSON schema enforced.
+    const native = fake.requests.filter((r) => r.path === '/ollama/api/chat').at(-1)?.body as {
+      format: { type?: string };
+      options: { num_ctx: number };
+    };
+    expect(native.format.type).toBe('object');
+    expect(native.options.num_ctx).toBeGreaterThanOrEqual(8192);
   });
 
   it('sends the validation errors back once and accepts the repaired answer', async () => {
@@ -293,5 +300,143 @@ describe('pipeline on a free provider', () => {
   it('uses smaller chunks for slow local models', () => {
     expect(chunkWordsFor('ollama', 'translate')).toBeLessThan(chunkWordsFor('gemini', 'translate'));
     expect(chunkWordsFor('mock', 'edit')).toBe(chunkWordsFor('gemini', 'edit'));
+  });
+});
+
+describe('reading assistant on a free provider', () => {
+  const book = { title: 'Small Machines', authors: ['A. Writer'] };
+  const passages = [
+    { label: 'P1', src: 'A gear has twelve teeth.', tgt: 'یک چرخ‌دنده دوازده دندانه دارد.' },
+    { label: 'P2', src: 'Levers move loads.' },
+  ];
+  const tutorInput = {
+    question: 'What is a gear?',
+    mode: 'default',
+    passages: passages.map((p) => ({ ...p, segmentId: `sg_${p.label}`, nodeId: 'nd_1', location: 'Ch 1' })),
+    glossary: [],
+    history: [],
+    sourceLang: 'en',
+    targetLang: 'fa',
+    book,
+    sectionTitle: 'Gears',
+    attempt: 1,
+  };
+  const setAssistant = (engine: string) =>
+    app.inject({ method: 'PUT', url: '/api/v1/settings/assistant', payload: { engine } });
+  const baseUrl = () => {
+    const address = app.server.address();
+    return `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+  };
+  const events = (body: string) =>
+    body
+      .split('\n\n')
+      .filter((b) => b.includes('data: '))
+      .map((b) => JSON.parse(b.slice(b.indexOf('data: ') + 6)) as { type: string; text?: string; code?: string });
+
+  it('keeps the offline assistant by default and switches to a connected provider', async () => {
+    const before = (await app.inject({ url: '/api/v1/settings/providers' })).json();
+    expect(before.assistant).toEqual({ engine: 'mock', ready: true });
+    expect((await setAssistant('nope')).statusCode).toBe(400);
+    expect((await setAssistant('gemini')).json()).toEqual({ engine: 'gemini', ready: true });
+  });
+
+  it('streams tutor answers over SSE', async () => {
+    const res = await fetch(`${baseUrl()}/api/v1/assist/tutor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
+      body: JSON.stringify(tutorInput),
+    });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+    const list = events(await res.text());
+    expect(list.at(-1)?.type).toBe('done');
+    const text = list
+      .filter((e) => e.type === 'delta')
+      .map((e) => e.text)
+      .join('');
+    expect(text).toContain('[P1]');
+    expect(list.some((e) => e.type === 'usage')).toBe(true);
+    const sent = fake.requests.at(-1)?.body as { messages: { role: string; content: string }[]; stream: boolean };
+    expect(sent.stream).toBe(true);
+    expect(sent.messages[0]?.content).toContain('"Small Machines" by A. Writer');
+    expect(sent.messages.at(-1)?.content).toContain('<book_context>');
+  });
+
+  it('reports a typed error when the provider refuses, and rejects oversized input', async () => {
+    fake.failures.push({ status: 503, body: { error: 'busy' } });
+    const res = await fetch(`${baseUrl()}/api/v1/assist/tutor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(tutorInput),
+    });
+    expect(events(await res.text())).toEqual([expect.objectContaining({ type: 'error', code: 'OVERLOADED' })]);
+    await put('gemini', { model: 'gemini-flash-lite-latest' }); // lifts the block after the 503
+    const big = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/tutor',
+      payload: { ...tutorInput, question: 'x'.repeat(5_000) },
+    });
+    expect(big.statusCode).toBe(400);
+  });
+
+  it('writes summaries and validated quizzes', async () => {
+    const summary = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/summary',
+      payload: { kind: 'section', sourceLang: 'en', targetLang: 'fa', book, passages },
+    });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json()).toMatchObject({ engine: 'gemini', model: expect.any(String) });
+    expect(summary.json().markdown).toContain('یک چرخ‌دنده');
+
+    const quiz = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/quiz',
+      payload: { scope: 'chapter', sourceLang: 'en', targetLang: 'fa', book, passages },
+    });
+    expect(quiz.statusCode).toBe(200);
+    expect(quiz.json().questions).toHaveLength(8);
+  });
+
+  it('gives up on a quiz that stays invalid after the repair round', async () => {
+    const broken = JSON.stringify({
+      questions: [
+        { type: 'mcq', question: 'Q', options: ['a'], answer: 3, explanation: '', difficulty: 'easy', sources: ['P9'] },
+      ],
+    });
+    fake.contents.push(broken, broken);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/quiz',
+      payload: { scope: 'selection', sourceLang: 'en', targetLang: 'fa', book, passages },
+    });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.code).toBe('PROVIDER_BAD_RESPONSE');
+    const repair = fake.requests.at(-1)?.body as { messages: { content: string }[] };
+    expect(repair.messages.at(-1)?.content).toContain('mcq_options');
+  });
+
+  it('answers 409 when the assistant is offline or its provider is not connected', async () => {
+    await setAssistant('openrouter');
+    await put('openrouter', { apiKey: null });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/summary',
+      payload: { kind: 'section', sourceLang: 'en', targetLang: 'fa', book, passages },
+    });
+    expect(res.json().error).toMatchObject({ code: 'PROVIDER_NOT_READY', details: { provider: 'openrouter' } });
+    const sse = await fetch(`${baseUrl()}/api/v1/assist/tutor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(tutorInput),
+    });
+    expect(events(await sse.text())).toEqual([expect.objectContaining({ type: 'error', code: 'NO_ENGINE' })]);
+    await setAssistant('mock');
+    const local = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assist/quiz',
+      payload: { scope: 'chapter', sourceLang: 'en', targetLang: 'fa', book, passages },
+    });
+    expect(local.json().error.code).toBe('ASSISTANT_IS_LOCAL');
   });
 });

@@ -9,6 +9,7 @@ import {
   RateLimiter,
 } from '@dozabaneh/ai';
 import {
+  type AssistantEngine,
   isProviderId,
   type PipelineProviderStatus,
   PROVIDER_IDS,
@@ -134,6 +135,23 @@ export class ProviderService {
 
   views(): ProviderView[] {
     return PROVIDER_IDS.map((id) => this.view(id));
+  }
+
+  /** Engine of the tutor, summaries and quizzes (Settings); defaults to TUTOR_ENGINE, else the offline mock. */
+  assistantEngine(): AssistantEngine {
+    const stored = getSetting<AssistantEngine>(this.db, 'assistant:engine');
+    if (stored) return stored;
+    const env = this.config.TUTOR_ENGINE;
+    return isProviderId(env) ? env : 'mock';
+  }
+
+  setAssistantEngine(engine: AssistantEngine): void {
+    setSetting(this.db, 'assistant:engine', engine);
+  }
+
+  assistant(): { engine: AssistantEngine; ready: boolean } {
+    const engine = this.assistantEngine();
+    return { engine, ready: engine === 'mock' || this.view(engine).ready };
   }
 
   /** Dashboard block for the providers a pipeline uses. */

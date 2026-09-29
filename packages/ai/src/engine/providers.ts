@@ -25,6 +25,11 @@ export interface ProviderPreset {
   chunkWords?: { translate: number; edit: number };
   /** Preferred models, best first, when the user has not picked one (matched against the provider's list). */
   preferredModels: RegExp[];
+  /**
+   * Context window requested per call (Ollama's native API only — its default is too small for a prompt, a style
+   * guide and a chunk of book text).
+   */
+  contextTokens?: number;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
@@ -47,7 +52,8 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
     limits: { rpm: 60, rpd: 100_000 },
     jsonMode: 'json_object',
     timeoutMs: 15 * 60_000,
-    chunkWords: { translate: 600, edit: 800 },
+    chunkWords: { translate: 500, edit: 700 },
+    contextTokens: 16_384,
     preferredModels: [/aya/u, /gemma/u, /qwen/u, /llama/u, /mistral/u],
   },
   openrouter: {
@@ -123,10 +129,14 @@ export interface ProviderConfig {
   fetch?: typeof fetch;
   /** Per request (default: the preset's timeout). */
   timeoutMs?: number;
+  /** Ollama context window (default: the preset's). */
+  contextTokens?: number;
 }
 
 export interface ChatOptions {
   json?: boolean;
+  /** JSON Schema of the answer: enforced by Ollama (structured outputs); other providers get it in the prompt. */
+  schema?: Record<string, unknown>;
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -190,6 +200,24 @@ async function toError(res: Response): Promise<ProviderError> {
   return new ProviderError('UNKNOWN', `Unexpected response ${res.status}: ${detail}`, res.status);
 }
 
+/** Non-empty trimmed lines of a byte stream (SSE and NDJSON). */
+async function* lines(body: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let nl = buffer.indexOf('\n');
+    while (nl !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      nl = buffer.indexOf('\n');
+      if (line) yield line;
+    }
+  }
+  const rest = (buffer + decoder.decode()).trim();
+  if (rest) yield rest;
+}
+
 export function createProviderClient(config: ProviderConfig): ProviderClient {
   const preset = PROVIDERS[config.provider];
   const base = (config.baseUrl || preset.baseUrl).replace(/\/+$/u, '');
@@ -201,12 +229,12 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
     ...(config.provider === 'openrouter' ? { 'X-Title': 'Dozabaneh' } : {}),
   });
 
-  async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  async function post(path: string, body: unknown, signal?: AbortSignal, root = base): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     const merged = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let res: Response;
     try {
-      res = await doFetch(`${base}${path}`, {
+      res = await doFetch(`${root}${path}`, {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify(body),
@@ -230,11 +258,65 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
     ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
   });
 
+  // Ollama: its native /api/chat takes the context size and a JSON schema; the OpenAI-compatible layer does not.
+  const native = config.provider === 'ollama';
+  const nativeBase = base.replace(/\/v1$/u, '');
+  const nativeBody = (messages: ChatMessage[], opts: ChatOptions, stream: boolean) => ({
+    model: config.model,
+    messages,
+    stream,
+    ...(opts.json ? { format: opts.schema ?? 'json' } : {}),
+    options: {
+      temperature: opts.temperature ?? 0.3,
+      num_ctx: config.contextTokens ?? preset.contextTokens ?? 8192,
+      ...(opts.maxTokens ? { num_predict: opts.maxTokens } : {}),
+    },
+  });
+  type NativeChunk = {
+    model?: string;
+    message?: { content?: string };
+    done?: boolean;
+    prompt_eval_count?: number;
+    eval_count?: number;
+    error?: string;
+  };
+  const nativeUsage = (d: NativeChunk) => ({ tokensIn: d.prompt_eval_count ?? 0, tokensOut: d.eval_count ?? 0 });
+
+  async function nativeChat(messages: ChatMessage[], opts: ChatOptions) {
+    const res = await post('/api/chat', nativeBody(messages, opts, false), opts.signal, nativeBase);
+    const data = (await res.json().catch(() => null)) as NativeChunk | null;
+    const text = data?.message?.content;
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new ProviderError('BAD_RESPONSE', `Empty answer from the model${data?.error ? `: ${data.error}` : ''}.`);
+    }
+    return { text, model: data?.model ?? config.model, usage: nativeUsage(data as NativeChunk) };
+  }
+
+  async function* nativeStream(messages: ChatMessage[], opts: ChatOptions) {
+    const res = await post('/api/chat', nativeBody(messages, opts, true), opts.signal, nativeBase);
+    if (!res.body) throw new ProviderError('BAD_RESPONSE', 'The provider sent no stream.');
+    for await (const line of lines(res.body as unknown as AsyncIterable<Uint8Array>)) {
+      let data: NativeChunk;
+      try {
+        data = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (data.error) throw new ProviderError('UNKNOWN', data.error);
+      if (data.message?.content) yield { type: 'delta' as const, text: data.message.content };
+      if (data.done) {
+        yield { type: 'usage' as const, usage: nativeUsage(data) };
+        return;
+      }
+    }
+  }
+
   return {
     provider: config.provider,
     model: config.model,
 
     async chat(messages, opts = {}) {
+      if (native) return nativeChat(messages, opts);
       const res = await post('/chat/completions', requestBody(messages, opts, false), opts.signal);
       const data = (await res.json().catch(() => null)) as {
         choices?: { message?: { content?: string | null } }[];
@@ -259,39 +341,34 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
     },
 
     async *stream(messages, opts = {}) {
+      if (native) {
+        yield* nativeStream(messages, opts);
+        return;
+      }
       const res = await post('/chat/completions', requestBody(messages, opts, true), opts.signal);
       if (!res.body) throw new ProviderError('BAD_RESPONSE', 'The provider sent no stream.');
-      const decoder = new TextDecoder();
-      let buffer = '';
-      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-        buffer += decoder.decode(chunk, { stream: true });
-        let nl = buffer.indexOf('\n');
-        while (nl !== -1) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          nl = buffer.indexOf('\n');
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') return;
-          let data: {
-            choices?: { delta?: { content?: string | null } }[];
-            usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
-            error?: { message?: string };
-          };
-          try {
-            data = JSON.parse(payload);
-          } catch {
-            continue;
-          }
-          if (data.error) throw new ProviderError('UNKNOWN', data.error.message ?? 'stream error');
-          const text = data.choices?.[0]?.delta?.content;
-          if (text) yield { type: 'delta', text };
-          if (data.usage)
-            yield {
-              type: 'usage',
-              usage: { tokensIn: data.usage.prompt_tokens ?? 0, tokensOut: data.usage.completion_tokens ?? 0 },
-            };
+      for await (const line of lines(res.body as unknown as AsyncIterable<Uint8Array>)) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') return;
+        let data: {
+          choices?: { delta?: { content?: string | null } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+          error?: { message?: string };
+        };
+        try {
+          data = JSON.parse(payload);
+        } catch {
+          continue;
         }
+        if (data.error) throw new ProviderError('UNKNOWN', data.error.message ?? 'stream error');
+        const text = data.choices?.[0]?.delta?.content;
+        if (text) yield { type: 'delta', text };
+        if (data.usage)
+          yield {
+            type: 'usage',
+            usage: { tokensIn: data.usage.prompt_tokens ?? 0, tokensOut: data.usage.completion_tokens ?? 0 },
+          };
       }
     },
 

@@ -65,11 +65,21 @@ export const BriefInputSchema = z.object({
 export type BriefInput = z.infer<typeof BriefInputSchema>;
 
 const PassageSchema = z.object({ label: z.string(), src: z.string(), tgt: z.string() });
+/** Approved glossary terms occurring in the passages (keeps summaries and quizzes consistent with the book). */
+const TermsSchema = z.array(z.object({ src: z.string(), tgt: z.string(), definition: z.string().optional() }));
 
-export const SummaryInputSchema = z.object({ kind: z.enum(['section', 'chapter']), passages: z.array(PassageSchema) });
+export const SummaryInputSchema = z.object({
+  kind: z.enum(['section', 'chapter']),
+  passages: z.array(PassageSchema),
+  glossary: TermsSchema.optional(),
+});
 export type SummaryInput = z.infer<typeof SummaryInputSchema>;
 
-export const QuizInputSchema = z.object({ scope: z.enum(['chapter', 'selection']), passages: z.array(PassageSchema) });
+export const QuizInputSchema = z.object({
+  scope: z.enum(['chapter', 'selection']),
+  passages: z.array(PassageSchema),
+  glossary: TermsSchema.optional(),
+});
 export type QuizInput = z.infer<typeof QuizInputSchema>;
 
 export const TutorAnswerInputSchema = z.object({

@@ -11,8 +11,9 @@ import { currentBookIndex, targetLangOf } from '../../data/books';
 import { fmtNum, uiDigits } from '../../lib/format';
 import { useOnline } from '../../lib/hooks';
 import { useReaderUi } from '../../stores/reader';
+import { useAssistantEngine } from '../settings/engines';
 import { Markdown } from './Markdown';
-import { nodeLabelFor, retryAnswer, sendQuestion, stopStreaming, tutorEngineId } from './runner';
+import { nodeLabelFor, retryAnswer, selectTutorEngine, sendQuestion, stopStreaming } from './runner';
 import { type ChatMessage, type Conversation, conversationsForBook, useTutor } from './store';
 
 interface TutorPanelProps {
@@ -55,8 +56,9 @@ export function TutorPanel({ bookId, onClose }: TutorPanelProps) {
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<TutorMode>('default');
   const online = useOnline();
-  const engineId = tutorEngineId();
-  const needsNetwork = engineId === 'anthropic' || engineId === 'openai';
+  const engineId = useAssistantEngine();
+  useEffect(() => selectTutorEngine(engineId), [engineId]);
+  const needsNetwork = engineId === 'gemini' || engineId === 'openrouter';
   const streamingMsg = messages.find((m) => m.status === 'streaming');
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -123,7 +125,7 @@ export function TutorPanel({ bookId, onClose }: TutorPanelProps) {
         <div className="flex items-center gap-1">
           <h2 className="text-[15px] font-bold">{t('tutor.title')}</h2>
           <span className="ms-1 rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] text-muted">
-            {t(`tutor.engine.${engineId === 'anthropic' || engineId === 'openai' ? 'api' : engineId}`)}
+            {t(`tutor.engine.${engineId}`)}
           </span>
           <div className="ms-auto flex items-center">
             <Button

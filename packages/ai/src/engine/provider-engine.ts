@@ -30,15 +30,16 @@ export function extractJson(text: string): unknown {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
-const schemaCache = new Map<AgentTask, string>();
-function resultSchema(task: AgentTask): string {
+const schemaCache = new Map<AgentTask, Record<string, unknown>>();
+function resultSchemaObject(task: AgentTask): Record<string, unknown> {
   let s = schemaCache.get(task);
   if (!s) {
-    s = JSON.stringify(z.toJSONSchema(TASK_RESULT_SCHEMAS[task]));
+    s = z.toJSONSchema(TASK_RESULT_SCHEMAS[task]) as Record<string, unknown>;
     schemaCache.set(task, s);
   }
   return s;
 }
+const resultSchema = (task: AgentTask) => JSON.stringify(resultSchemaObject(task));
 
 /** What the model sees: everything the agent would see in the batch file, minus file-exchange fields. */
 export function batchPayload(batch: AgentBatch): Record<string, unknown> {
@@ -76,7 +77,11 @@ export function createProviderEngine(opts: ProviderEngineOptions): Engine {
       let lastProblem = '';
       for (let attempt = 0; attempt <= (opts.repairs ?? 1); attempt++) {
         await opts.beforeRequest?.();
-        const answer = await client.chat(messages, { json: true, ...(ctx.signal ? { signal: ctx.signal } : {}) });
+        const answer = await client.chat(messages, {
+          json: true,
+          schema: resultSchemaObject(batch.task),
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
         usage.tokensIn += answer.usage?.tokensIn ?? 0;
         usage.tokensOut += answer.usage?.tokensOut ?? 0;
         let parsed: unknown;
