@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { expectNoSeriousA11yViolations, intersects, read, seedSettings, selectCell } from './helpers';
+import { expectNoSeriousA11yViolations, intersects, openReader, sampleCard, seedSettings, selectCell } from './helpers';
 
 test.describe('reader layout', () => {
   test('columns render right → left: TOC | Persian | English | tutor', async ({ page }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     const toc = await page.getByRole('navigation', { name: 'فهرست' }).boundingBox();
     const tutor = await page.getByTestId('tutor-column').boundingBox();
     const target = await page.locator('#seg-sg_sample_ch1-recipes_01 [data-col="target"]').boundingBox();
@@ -20,7 +20,7 @@ test.describe('reader layout', () => {
   test('shows book info, counter with Persian digits and Latin digits in the English metadata (bug §4.2-7)', async ({
     page,
   }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     await expect(page.getByTestId('translated-counter')).toContainText(/ترجمه‌شده: .*[۰-۹]+.*از/);
     const meta = page.getByTestId('book-meta');
     await expect(meta).toContainText('2025');
@@ -28,7 +28,7 @@ test.describe('reader layout', () => {
   });
 
   test('column toggles keep at least one column visible', async ({ page }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     const sourceCell = page.locator('#seg-sg_sample_ch1-recipes_01 [data-col="source"]');
     await expect(sourceCell).toBeVisible();
     await page.getByRole('button', { name: /ستون انگلیسی/ }).click();
@@ -39,7 +39,7 @@ test.describe('reader layout', () => {
   });
 
   test('prev/next buttons and ← / → shortcuts follow the RTL reading direction', async ({ page }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     await page.getByTestId('next-section').click();
     await expect(page).toHaveURL(/ch1-precision$/);
     await page.getByTestId('prev-section').click();
@@ -52,7 +52,7 @@ test.describe('reader layout', () => {
   });
 
   test('deep link scrolls to and flashes the row', async ({ page }) => {
-    await page.goto(read('ch2-bits', 'ch2-bits_02'));
+    await openReader(page, 'ch2-bits', 'ch2-bits_02');
     const row = page.locator('#seg-sg_sample_ch2-bits_02');
     await expect(row).toBeInViewport();
     await expect(row).toHaveClass(/row-flash/);
@@ -62,7 +62,7 @@ test.describe('reader layout', () => {
 test.describe('prototype bug regressions (SPEC §4.2)', () => {
   test('§4.2-1: English titles ending in ? or ) keep punctuation inside their run in the TOC', async ({ page }) => {
     await seedSettings(page, { tocTitles: 'source' });
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     for (const [text, last] of [
       ['What Is an Algorithm?', '?'],
       ['Representing the World (with Data)', ')'],
@@ -102,7 +102,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
   test('§4.2-2: the tutor context follows the section of the selection; citation chips navigate there', async ({
     page,
   }) => {
-    await page.goto(read('ch1-speed'));
+    await openReader(page, 'ch1-speed');
     await selectCell(page, 'ch1-speed_03', 'source');
     const toolbar = page.getByTestId('selection-toolbar');
     await expect(toolbar).toBeVisible();
@@ -128,7 +128,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
   });
 
   test('§4.2-3: a network error keeps the partial answer and retry does not duplicate messages', async ({ page }) => {
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     const box = page.getByRole('textbox', { name: /سؤالت را بنویس/ });
     await box.fill('الگوریتم چیست؟ #error');
     await box.press('Enter');
@@ -144,7 +144,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
   });
 
   test('§4.2-4: the glossary popover never overlaps the TOC', async ({ page }) => {
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     const term = page.locator('[data-col="target"] .term').first();
     await term.hover();
     const popover = page.getByTestId('glossary-popover');
@@ -163,7 +163,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
   });
 
   test('§4.2-5: no floating control covers the last TOC items', async ({ page }) => {
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     const items = page.getByRole('treeitem');
     const last = items.last();
     await last.scrollIntoViewIfNeeded();
@@ -180,7 +180,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
   });
 
   test('§4.2-8: status indicators have a legend and labels', async ({ page }) => {
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     await page.getByTestId('legend-button').click();
     const legend = page.getByTestId('legend');
     for (const label of [
@@ -200,7 +200,7 @@ test.describe('prototype bug regressions (SPEC §4.2)', () => {
 
 test.describe('reader features', () => {
   test('search (Ctrl+K) finds Persian text and navigates to the row', async ({ page }) => {
-    await page.goto(read('preface'));
+    await openReader(page, 'preface');
     await page.keyboard.press('Control+KeyK');
     await page.getByTestId('search-input').fill('جست وجوی دودویی');
     await expect(page.getByTestId('search-hit').first()).toBeVisible();
@@ -209,7 +209,7 @@ test.describe('reader features', () => {
   });
 
   test('inline translation editing saves a revision and can be undone', async ({ page }) => {
-    await page.goto(read('preface'));
+    await openReader(page, 'preface');
     const row = page.locator('#seg-sg_sample_preface_03');
     await row.hover();
     await row.getByRole('button', { name: 'ویرایش ترجمه' }).click();
@@ -226,7 +226,7 @@ test.describe('reader features', () => {
   });
 
   test('summary card is generated and can be collapsed', async ({ page }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     await page.getByRole('button', { name: 'چکیده‌ی فارسی این بخش را بساز' }).click();
     const card = page.getByTestId('summary-card');
     await expect(card).toContainText('ایده‌ی اصلی');
@@ -235,7 +235,7 @@ test.describe('reader features', () => {
   });
 
   test('«translate this section now» fills an untranslated section progressively', async ({ page }) => {
-    await page.goto(read('epilogue'));
+    await openReader(page, 'epilogue');
     await expect(page.getByTestId('untranslated-banner')).toBeVisible();
     await page.getByRole('button', { name: 'ترجمه‌ی این بخش را الان انجام بده' }).click();
     await expect(page.locator('#seg-sg_sample_epilogue_02 [data-col="target"]')).toContainText('تمرین', {
@@ -245,7 +245,7 @@ test.describe('reader features', () => {
   });
 
   test('keyboard-only: TOC tree navigation with arrows and Enter', async ({ page }) => {
-    await page.goto(read('preface'));
+    await openReader(page, 'preface');
     const current = page.locator('[role="treeitem"][aria-current="page"]');
     await current.focus();
     await page.keyboard.press('ArrowDown');
@@ -265,18 +265,18 @@ test.describe('reader features', () => {
 
   test('reader and library have no serious accessibility violations', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByTestId('book-card')).toBeVisible();
+    await expect(sampleCard(page)).toBeVisible();
     await expectNoSeriousA11yViolations(page);
-    await page.goto(read('ch1-precision'));
+    await openReader(page, 'ch1-precision');
     await expect(page.getByTestId('section-title')).toBeVisible();
     await expectNoSeriousA11yViolations(page);
   });
 
   test('library resumes reading where the reader left off', async ({ page }) => {
-    await page.goto(read('ch2-structures'));
+    await openReader(page, 'ch2-structures');
     await expect(page.getByTestId('section-title')).toBeVisible();
     await page.goto('/');
-    await page.getByTestId('continue-reading').click();
+    await sampleCard(page).getByTestId('continue-reading').click();
     await expect(page).toHaveURL(/nd_sample_ch2-structures/);
   });
 });

@@ -1,16 +1,15 @@
 import { getLanguage } from '@dozabaneh/text';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Direction } from 'radix-ui';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createBrowserRouter, Link, Outlet } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { queryClient } from '../data/books';
 import { LibraryPage } from '../features/library/LibraryPage';
 import { ReaderPage } from '../features/reader/ReaderPage';
 import { useMediaQuery } from '../lib/hooks';
 import { useSettings } from '../stores/settings';
-
-const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } });
 
 /** Applies the UI language/direction and the theme to <html> (RTL-first shell, SPEC §3.1). */
 function Shell() {
@@ -67,6 +66,10 @@ const router = createBrowserRouter([
       {
         path: '/books/new',
         lazy: async () => ({ Component: (await import('../features/setup/AddBookPage')).AddBookPage }),
+      },
+      {
+        path: '/books/:bookId/setup',
+        lazy: async () => ({ Component: (await import('../features/setup/SetupPage')).SetupPage }),
       },
       { path: '/books/:bookId/read/:nodeId?', element: <ReaderPage /> },
       {

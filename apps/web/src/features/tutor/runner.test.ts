@@ -1,5 +1,7 @@
 import { createMockTutorEngine } from '@dozabaneh/ai';
+import { sampleBook } from '@dozabaneh/shared/sample-book';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { bundleKey, queryClient } from '../../data/books';
 import '../../i18n';
 import { nodeLabelFor, retryAnswer, sendQuestion, setTutorEngine } from './runner';
 import { useTutor } from './store';
@@ -18,6 +20,7 @@ function messages() {
 
 describe('tutor runner', () => {
   beforeEach(() => {
+    queryClient.setQueryData(bundleKey(BOOK), sampleBook);
     useTutor.setState({ conversations: {}, active: {} });
     setTutorEngine(createMockTutorEngine({ delayMs: 0, firstDelayMs: 0 }));
   });

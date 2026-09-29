@@ -5,6 +5,15 @@ export const BOOK = 'bk_sample';
 export const read = (nodeKey: string, seg?: string) =>
   `/books/${BOOK}/read/nd_sample_${nodeKey}${seg ? `?seg=sg_sample_${seg}` : ''}`;
 
+/** Opens the reader and waits until the book has loaded from the API. */
+export async function openReader(page: Page, nodeKey: string, seg?: string) {
+  await page.goto(read(nodeKey, seg));
+  await expect(page.getByTestId('section-title')).toBeVisible();
+}
+
+/** The sample book's card in the library (other tests may have added books). */
+export const sampleCard = (page: Page) => page.locator('[data-book-id="bk_sample"]');
+
 /** Pre-seeds persisted settings before the app boots (zustand persist format). */
 export async function seedSettings(page: Page, settings: Record<string, unknown>) {
   await page.addInitScript((s) => {

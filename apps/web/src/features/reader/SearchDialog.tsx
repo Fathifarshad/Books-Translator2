@@ -1,12 +1,14 @@
-import { buildSection, type SearchHit, type SearchSide, searchBook } from '@dozabaneh/core';
-import { dirOf } from '@dozabaneh/text';
+import { buildSection, type SearchHit, type SearchResults, type SearchSide } from '@dozabaneh/core';
+import { dirOf, normalizeForSearch } from '@dozabaneh/text';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Dialog } from 'radix-ui';
-import { type KeyboardEvent, useDeferredValue, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui';
+import { api } from '../../lib/api';
 import { fmtNum, languageName } from '../../lib/format';
 import { useReaderUi } from '../../stores/reader';
 import { useReader } from './context';
@@ -22,18 +24,22 @@ export function SearchDialog() {
   const [sides, setSides] = useState<Record<SearchSide, boolean>>({ target: true, source: true });
   const [glossaryOn, setGlossaryOn] = useState(true);
   const [active, setActive] = useState(0);
-  const deferred = useDeferredValue(query);
+  const [deferred, setDeferred] = useState(query);
+  useEffect(() => {
+    const timer = setTimeout(() => setDeferred(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-  const results = useMemo(
-    () =>
-      searchBook(index, deferred, {
-        targetLang,
-        sides: (Object.keys(sides) as SearchSide[]).filter((s) => sides[s]),
-        glossary: glossaryOn,
-        limit: 80,
-      }),
-    [index, deferred, targetLang, sides, glossaryOn],
-  );
+  // Server-side FTS5 over both languages with Persian normalization (SPEC §11.9).
+  const activeSides = (Object.keys(sides) as SearchSide[]).filter((s) => sides[s]);
+  const enabled = open && normalizeForSearch(deferred).length >= 2;
+  const search = useQuery({
+    queryKey: ['search', bookId, deferred, activeSides.join(), glossaryOn, targetLang],
+    queryFn: () => api.search(bookId, deferred, { sides: activeSides, glossary: glossaryOn, lang: targetLang }),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+  const results: SearchResults = enabled && search.data ? search.data : { groups: [], glossary: [], total: 0 };
   const flat = results.groups.flatMap((g) => g.hits.map((h) => ({ nodeId: g.nodeId, hit: h })));
 
   const go = (nodeId: string, segmentId: string) => {

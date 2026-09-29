@@ -1,5 +1,5 @@
 import { createMockTutorEngine } from '@dozabaneh/ai';
-import { chapterOf, streamTutorAnswer, stripUnknownCitations, withTimeouts } from '@dozabaneh/core';
+import { chapterOf, nodeTitle, streamTutorAnswer, stripUnknownCitations, withTimeouts } from '@dozabaneh/core';
 import type { ChatTurn, MessageContext, TutorEngine, TutorMode, TutorRequest } from '@dozabaneh/shared';
 import i18next from 'i18next';
 import { currentBookIndex, targetLangOf } from '../../data/books';
@@ -198,15 +198,8 @@ export function nodeLabelFor(bookId: string, nodeId: string): string {
   if (!index) return '';
   const node = index.nodeById.get(nodeId);
   if (!node) return '';
-  const lang = targetLangOf(index);
-  const seg = node.headingSegmentId ? index.segmentById.get(node.headingSegmentId) : undefined;
-  const tgt = seg ? index.translations.get(`${seg.id}|${lang}`) : undefined;
-  const title =
-    node.kind === 'chapter_intro'
-      ? i18next.t('reader.chapterIntro')
-      : tgt && tgt.status !== 'pending' && tgt.status !== 'queued'
-        ? tgt.text
-        : (seg?.src ?? '');
+  const t = nodeTitle(index, node, targetLangOf(index));
+  const title = node.kind === 'chapter_intro' ? i18next.t('reader.chapterIntro') : (t.tgt ?? t.src);
   const chapter = chapterOf(index, nodeId);
   return formatLocation(chapter?.numberLabel, title);
 }

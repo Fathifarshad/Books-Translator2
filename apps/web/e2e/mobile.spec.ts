@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { expectNoSeriousA11yViolations, read } from './helpers';
+import { expectNoSeriousA11yViolations, openReader } from './helpers';
 
 test.describe('mobile (390×844)', () => {
   test('TOC drawer navigates and closes', async ({ page }) => {
     // The current chapter is expanded in the TOC.
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     await page.getByRole('button', { name: 'باز کردن فهرست' }).click();
     const drawer = page.getByRole('dialog', { name: 'فهرست' });
     await expect(drawer).toBeVisible();
@@ -14,7 +14,7 @@ test.describe('mobile (390×844)', () => {
   });
 
   test('segmented control switches Persian / English / both', async ({ page }) => {
-    await page.goto(read('ch1-recipes'));
+    await openReader(page, 'ch1-recipes');
     const row = page.locator('#seg-sg_sample_ch1-recipes_01');
     await expect(row.locator('[data-col="target"]')).toBeVisible();
     await expect(row.locator('[data-col="source"]')).toHaveCount(0);
@@ -27,7 +27,7 @@ test.describe('mobile (390×844)', () => {
   });
 
   test('tutor opens as a bottom sheet and answers', async ({ page }) => {
-    await page.goto(read('ch1-intro'));
+    await openReader(page, 'ch1-intro');
     await page.getByTestId('open-tutor').click();
     const sheet = page.getByRole('region', { name: 'بپرس از مدرس' });
     await expect(sheet).toBeVisible();
@@ -39,7 +39,7 @@ test.describe('mobile (390×844)', () => {
   });
 
   test('no serious accessibility violations', async ({ page }) => {
-    await page.goto(read('ch1-precision'));
+    await openReader(page, 'ch1-precision');
     await expect(page.getByTestId('section-title')).toBeVisible();
     await expectNoSeriousA11yViolations(page);
   });

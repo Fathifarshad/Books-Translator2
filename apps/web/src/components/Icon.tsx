@@ -10,6 +10,8 @@ const PATHS = {
   back: 'M19 12H5M11 6l-6 6 6 6',
   chevronForward: 'M9 6l6 6-6 6',
   chevronBack: 'M15 6l-6 6 6 6',
+  indent: 'M4 6h16M12 12h8M4 18h16M4 9l3 3-3 3',
+  outdent: 'M4 6h16M12 12h8M4 18h16M7 9l-3 3 3 3',
   // non-directional
   chevronDown: 'M6 9l6 6 6-6',
   close: 'M6 6l12 12M18 6L6 18',
@@ -39,9 +41,20 @@ const PATHS = {
   download: 'M12 4v12M7 11l5 5 5-5M4 20h16',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9h.01',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  mergeUp: 'M12 20V8M7 13l5-5 5 5M5 4h14',
+  mergeDown: 'M12 4v12M7 11l5 5 5-5M5 20h14',
+  scissors: 'M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM7.5 7.5L20 18M7.5 16.5L20 6',
 } as const;
 
-const DIRECTIONAL = new Set<IconName>(['forward', 'back', 'chevronForward', 'chevronBack', 'send']);
+const DIRECTIONAL = new Set<IconName>([
+  'forward',
+  'back',
+  'chevronForward',
+  'chevronBack',
+  'send',
+  'indent',
+  'outdent',
+]);
 
 export type IconName = keyof typeof PATHS;
 

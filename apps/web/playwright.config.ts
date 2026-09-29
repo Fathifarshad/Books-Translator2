@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Set PW_CHROMIUM_PATH to use a pre-installed Chromium instead of `playwright install chromium`.
 const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
 const PORT = 4173;
+const API_PORT = 8797;
 
 export default defineConfig({
   testDir: './e2e',
@@ -33,10 +34,27 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    command: `pnpm build && pnpm preview --port ${PORT}`,
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // The API with a throw-away data folder (sample book auto-seeded).
+      command: 'pnpm --filter @dozabaneh/api start',
+      url: `http://127.0.0.1:${API_PORT}/api/v1/health`,
+      env: {
+        PORT: String(API_PORT),
+        DATA_DIR: './data/e2e',
+        E2E_RESET: '1',
+        LOG_LEVEL: 'warn',
+        WEB_ORIGIN: `http://localhost:${PORT}`,
+      },
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      command: `pnpm build && pnpm preview --port ${PORT}`,
+      url: `http://localhost:${PORT}`,
+      env: { API_PROXY_TARGET: `http://127.0.0.1:${API_PORT}` },
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

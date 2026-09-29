@@ -79,6 +79,9 @@ export function SectionView({ layout, scrollRef }: { layout: RowLayout; scrollRe
     pending.length > 0 && pending.length === translatable.length && pending.every((r) => r.status === 'pending');
   const inProgress = pending.length > 0 && !notStarted;
 
+  // The mock pipeline can only reveal translations that exist (the sample book); real books wait for Phase 3.
+  const canSimulate = pending.some((r) => index.translations.has(`${r.segmentId}|${targetLang}`));
+
   const translateNow = () => {
     // Mock pipeline: queue every pending segment, then finish them one by one (progressive availability).
     const lib = useLibrary.getState();
@@ -106,9 +109,13 @@ export function SectionView({ layout, scrollRef }: { layout: RowLayout; scrollRe
           data-testid="untranslated-banner"
         >
           <p className="flex-1 text-sm">{t('reader.notTranslated')}</p>
-          <Button variant="primary" onClick={translateNow}>
-            {t('reader.translateNow')}
-          </Button>
+          {canSimulate ? (
+            <Button variant="primary" onClick={translateNow}>
+              {t('reader.translateNow')}
+            </Button>
+          ) : (
+            <p className="w-full text-xs text-muted">{t('reader.translateLater')}</p>
+          )}
         </div>
       ) : inProgress ? (
         <p className="mx-5 my-3 text-sm text-muted" role="status">
