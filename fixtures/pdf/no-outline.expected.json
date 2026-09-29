@@ -1,0 +1,87 @@
+{
+  "source": "contents",
+  "labels": ["i", "ii", "1", "2", "3", "4", "5"],
+  "nodes": [
+    {
+      "kind": "front",
+      "depth": 0,
+      "title": "Weather Notes",
+      "skip": true,
+      "pages": [0, 1],
+      "segments": [
+        ["heading", "Weather Notes"],
+        ["paragraph", "*Short observations for curious readers*"],
+        ["heading", "Contents"],
+        ["paragraph", "Preface ........ 1 Chapter 1 Rain ........ 2 Chapter 2 Wind ........ 4"]
+      ]
+    },
+    {
+      "kind": "front",
+      "depth": 0,
+      "title": "Preface",
+      "skip": false,
+      "pages": [2, 2],
+      "segments": [
+        ["heading", "Preface"],
+        [
+          "paragraph",
+          "These notes began as a notebook kept on a windowsill. Every morning the sky looked a little different, and writing it down turned a habit into a small study."
+        ],
+        [
+          "paragraph",
+          "Nothing here needs special instruments. A glass jar, a ribbon and a patient eye are enough to start."
+        ]
+      ]
+    },
+    {
+      "kind": "chapter",
+      "depth": 0,
+      "title": "Rain",
+      "numberLabel": "1",
+      "skip": false,
+      "pages": [3, 4],
+      "segments": [
+        ["heading", "Rain"],
+        [
+          "paragraph",
+          "Rain is water that has travelled a long way. It rose as vapour from seas and fields, cooled high in the air, and gathered into drops heavy enough to fall."
+        ],
+        ["heading", "Where rain comes from"],
+        [
+          "paragraph",
+          "Warm air holds more moisture than cold air. When warm, damp air is pushed upward by a hill or by a colder air mass, it cools, and the moisture it can no longer hold becomes cloud and then rain."
+        ],
+        ["heading", "Measuring rain"],
+        [
+          "paragraph",
+          "A straight-sided jar left in an open place collects rain at the same depth as the ground around it. Measuring that depth each morning gives a simple record of how wet the day was."
+        ]
+      ]
+    },
+    {
+      "kind": "chapter",
+      "depth": 0,
+      "title": "Wind",
+      "numberLabel": "2",
+      "skip": false,
+      "pages": [5, 6],
+      "segments": [
+        ["heading", "Wind"],
+        [
+          "paragraph",
+          "A ribbon tied to a stick is the easiest wind gauge. When it hangs down, the air is calm; when it streams straight out, the wind is strong enough to notice on the face."
+        ],
+        [
+          "paragraph",
+          "Keeping the same stick in the same place matters more than the stick itself. Comparisons only make sense when the conditions stay the same."
+        ]
+      ]
+    }
+  ],
+  "stats": {
+    "mergedContinuations": 1,
+    "dehyphenated": 0,
+    "removedHeaderFooterLines": 7,
+    "suspectedBreaks": 0
+  }
+}

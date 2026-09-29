@@ -15,7 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "pnpm --filter @dozabaneh/web e2e",
-    "screens": "pnpm --filter @dozabaneh/web screens"
+    "screens": "pnpm --filter @dozabaneh/web screens",
+    "fixtures:pdf": "pnpm --filter @dozabaneh/pdf fixtures",
+    "pdf:inspect": "pnpm --filter @dozabaneh/pdf inspect",
+    "db:migrate": "pnpm --filter @dozabaneh/api db:migrate",
+    "db:seed": "pnpm --filter @dozabaneh/api db:seed"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

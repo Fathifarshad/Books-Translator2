@@ -1,0 +1,135 @@
+{
+  "source": "outline",
+  "labels": ["i", "ii", "1", "2", "3", "4", "5"],
+  "nodes": [
+    {
+      "kind": "front",
+      "depth": 0,
+      "title": "Small Machines",
+      "skip": true,
+      "pages": [0, 0],
+      "segments": [
+        ["heading", "Small Machines"],
+        ["paragraph", "*A synthetic book for extraction tests*"],
+        ["paragraph", "Fixture Author"]
+      ]
+    },
+    {
+      "kind": "front",
+      "depth": 0,
+      "title": "Contents",
+      "skip": true,
+      "pages": [1, 1],
+      "segments": [
+        ["heading", "Contents"],
+        [
+          "paragraph",
+          "Chapter 1 Levers and Pulleys ........ 1 1.1 Levers ........ 1 1.2 Pulleys ........ 3 Chapter 2 Gears ........ 4 Index ........ 5"
+        ]
+      ]
+    },
+    {
+      "kind": "chapter",
+      "depth": 0,
+      "title": "Levers and Pulleys",
+      "numberLabel": "1",
+      "skip": false,
+      "pages": [2, 2],
+      "segments": []
+    },
+    {
+      "kind": "chapter_intro",
+      "depth": 1,
+      "title": "Levers and Pulleys",
+      "skip": false,
+      "pages": [2, 2],
+      "segments": [
+        ["heading", "Levers and Pulleys"],
+        [
+          "paragraph",
+          "People have always looked for ways to move heavy things with less effort. The oldest answers are also the simplest ones: a rigid bar, a rope and a wheel. This chapter looks at two of them."
+        ]
+      ]
+    },
+    {
+      "kind": "section",
+      "depth": 1,
+      "title": "1.1 Levers",
+      "skip": false,
+      "pages": [2, 4],
+      "segments": [
+        ["heading", "1.1 Levers"],
+        [
+          "paragraph",
+          "A lever is a rigid bar that turns around a fixed point called the fulcrum. When the fulcrum sits close to the load, a small push on the far end lifts a large weight. The hand moves a long way while the load moves a short way, and the computation behind it is simple enough to do in your head."
+        ],
+        [
+          "paragraph",
+          "Seesaws, crowbars and bottle openers are all levers. A seesaw puts the fulcrum in the middle, so two children of similar weight can balance each other when they sit at equal distances from the middle of the board."
+        ],
+        [
+          "paragraph",
+          "A crowbar works the other way round: the fulcrum sits near the heavy end, and a long handle turns a modest push into a strong lift.[^1] Builders relied on this long before anyone wrote the rule down."
+        ],
+        ["paragraph", "Three things decide how well a lever works:"],
+        ["list_item", "where the fulcrum sits;"],
+        ["list_item", "how long each arm is; and"],
+        [
+          "list_item",
+          "how stiff the bar stays under load, which matters most when the load is heavy and the bar is thin."
+        ],
+        ["footnote", "A famous boast claims that a long enough lever could move the whole Earth."]
+      ]
+    },
+    {
+      "kind": "section",
+      "depth": 1,
+      "title": "1.2 Pulleys",
+      "skip": false,
+      "pages": [4, 4],
+      "segments": [
+        ["heading", "1.2 Pulleys"],
+        [
+          "paragraph",
+          "A pulley is a wheel with a groove for a rope. One fixed pulley only changes the direction of the pull, but several pulleys working together share the load between many lengths of rope."
+        ],
+        ["code", "effort = load / ropes\nif ropes > 1:\n    print(\"less force, more rope\")"],
+        ["caption", "Figure 1.1 — A block and tackle with four supporting ropes."]
+      ]
+    },
+    {
+      "kind": "chapter",
+      "depth": 0,
+      "title": "Gears",
+      "numberLabel": "2",
+      "skip": false,
+      "pages": [5, 5],
+      "segments": [
+        ["heading", "Gears"],
+        [
+          "paragraph",
+          "A gear is a wheel with teeth. When two gears mesh, the smaller one turns faster and the larger one turns with more force, a trade that engineers call *mechanical advantage*."
+        ],
+        ["paragraph", "Modern self-driving carts still depend on gear trains hidden inside their wheels."],
+        [
+          "paragraph",
+          "Even the small self-driving carts in a warehouse count on gears to turn quick motor spins into slow, strong wheel turns."
+        ]
+      ]
+    },
+    {
+      "kind": "back",
+      "depth": 0,
+      "title": "Index",
+      "skip": true,
+      "pages": [6, 6],
+      "segments": [["heading", "Index"], ["paragraph", "fulcrum, 1 gear, 4 lever, 1–2 pulley, 3"]]
+    }
+  ],
+  "stats": {
+    "mergedContinuations": 2,
+    "dehyphenated": 1,
+    "removedHeaderFooterLines": 10,
+    "suspectedBreaks": 0
+  }
+}
