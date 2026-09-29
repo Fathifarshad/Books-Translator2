@@ -6,15 +6,29 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "db:migrate": "tsx src/cli/migrate.ts",
+    "db:seed": "tsx src/cli/seed.ts",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@dozabaneh/shared": "workspace:*",
     "@fastify/cors": "^11.3.0",
     "fastify": "^5.12.5",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@dozabaneh/core": "workspace:*",
+    "@dozabaneh/pdf": "workspace:*",
+    "@dozabaneh/text": "workspace:*",
+    "@fastify/multipart": "^10.1.2",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.3",
+    "ulid": "^3.0.2"
   },
   "devDependencies": {
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "@types/better-sqlite3": "^9.6.0",
+    "drizzle-kit": "^0.31.11",
+    "pdfkit": "^0.20.2",
+    "@types/pdfkit": "^0.17.6"
   }
 }
