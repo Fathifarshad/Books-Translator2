@@ -45,6 +45,36 @@ interface Tally {
   words: number;
 }
 
+// Plural → singular of a word, per source language (null when the word does not look plural).
+const SINGULAR: Record<string, (word: string) => string | null> = {
+  en: (w) => {
+    if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
+    if (/(?:ses|xes|zes|ches|shes)$/u.test(w)) return w.slice(0, -2);
+    if (w.endsWith('s') && !/(?:ss|us|is)$/u.test(w)) return w.slice(0, -1);
+    return null;
+  },
+};
+
+/**
+ * "pulleys" and "pulley" are one glossary entry: a plural candidate is merged into its singular form, but only when
+ * the singular also occurs in the book (so words such as "physics" are never cut down).
+ */
+function mergePlurals(tallies: Map<string, Tally>, lang: string): void {
+  const singular = SINGULAR[lang];
+  if (!singular) return;
+  for (const [key, t] of [...tallies]) {
+    const words = key.split(' ');
+    const last = singular(words.at(-1) ?? '');
+    if (!last) continue;
+    const target = [...words.slice(0, -1), last].join(' ');
+    const into = tallies.get(target);
+    if (!into || target === key) continue;
+    into.count += t.count;
+    into.bonus = Math.max(into.bonus, t.bonus);
+    tallies.delete(key);
+  }
+}
+
 function emphasized(tokens: MarkupToken[], out: string[] = []): string[] {
   for (const t of tokens) {
     if (t.type === 'em' || t.type === 'strong') {
@@ -109,6 +139,7 @@ export function extractCandidates(texts: string[], lang: string, opts: Candidate
     }
   }
 
+  mergePlurals(tallies, lang);
   const exclude = opts.exclude ?? new Set<string>();
   let list = [...tallies.entries()]
     .filter(([key, t]) => {

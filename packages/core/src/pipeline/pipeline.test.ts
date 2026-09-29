@@ -138,3 +138,27 @@ describe('extractCandidates', () => {
     expect(srcs).not.toContain('simple machine');
   });
 });
+
+describe('extractCandidates plural merging', () => {
+  it('merges a plural into its singular when both occur', () => {
+    const texts = [
+      'A pulley has a groove. Two pulleys share the load.',
+      'Each pulley turns. More pulleys mean less effort. The pulley system is old.',
+      'Pulleys again: a pulley here, pulleys there.',
+    ];
+    const list = extractCandidates(texts, 'en');
+    const pulley = list.find((c) => c.src === 'pulley');
+    expect(pulley?.freq).toBe(8);
+    expect(list.map((c) => c.src)).not.toContain('pulleys');
+  });
+
+  it('keeps words that only look plural', () => {
+    const texts = [
+      'Physics explains motion.',
+      'Physics is fun.',
+      'We study physics daily.',
+      'Physics helps engineers.',
+    ];
+    expect(extractCandidates(texts, 'en').map((c) => c.src.toLowerCase())).toContain('physics');
+  });
+});
