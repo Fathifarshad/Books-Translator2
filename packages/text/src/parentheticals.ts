@@ -59,18 +59,21 @@ export function applyFirstMentions(
     for (const m of matcher.find(item.text)) {
       const entry = byId.get(m.termId);
       if (!entry) continue;
-      const paren = parentheticalAfter(entry.src).exec(item.text.slice(m.end));
+      // An emphasized term («*مزیت مکانیکی* (mechanical advantage)»): the parenthetical follows the closing marker.
+      const rest = item.text.slice(m.end);
+      const at = m.end + (/^\*{1,2}(?![\p{L}\p{N}])/u.exec(rest)?.[0].length ?? 0);
+      const paren = parentheticalAfter(entry.src).exec(item.text.slice(at));
       const key = entry.src.toLowerCase();
       if (entry.policy === 'never') {
-        if (paren) edits.push({ at: m.end, remove: paren[0].length, insert: '' });
+        if (paren) edits.push({ at, remove: paren[0].length, insert: '' });
         continue;
       }
       if (!seen.has(key)) {
         seen.add(key);
         introduced.push(entry.src);
-        if (!paren) edits.push({ at: m.end, remove: 0, insert: ` (${entry.src})` });
+        if (!paren) edits.push({ at, remove: 0, insert: ` (${entry.src})` });
       } else if (paren) {
-        edits.push({ at: m.end, remove: paren[0].length, insert: '' });
+        edits.push({ at, remove: paren[0].length, insert: '' });
       }
     }
     if (edits.length === 0) return item;

@@ -187,3 +187,31 @@ describe('applyFirstMentions', () => {
     expect(applyFirstMentions(input, [], 'fa').items).toBe(input);
   });
 });
+
+describe('applyFirstMentions with emphasis', () => {
+  const entries = [{ id: 'm', src: 'mechanical advantage', tgt: 'مزیت مکانیکی', policy: 'first_in_chapter' as const }];
+
+  it('recognizes a parenthetical after the closing emphasis marker', () => {
+    const text = 'مهندسان آن را *مزیت مکانیکی* (mechanical advantage) می‌نامند.';
+    const { items, introduced } = applyFirstMentions([{ key: '01', text }], entries, 'fa');
+    expect(items[0]?.text).toBe(text);
+    expect(introduced).toEqual(['mechanical advantage']);
+  });
+
+  it('adds a missing parenthetical outside the emphasis', () => {
+    const { items } = applyFirstMentions([{ key: '01', text: 'این *مزیت مکانیکی* است.' }], entries, 'fa');
+    expect(items[0]?.text).toBe('این *مزیت مکانیکی* (mechanical advantage) است.');
+  });
+
+  it('removes a later duplicate but keeps the emphasis', () => {
+    const { items } = applyFirstMentions(
+      [
+        { key: '01', text: 'مزیت مکانیکی (mechanical advantage) مهم است.' },
+        { key: '02', text: 'باز هم *مزیت مکانیکی* (mechanical advantage) را می‌بینیم.' },
+      ],
+      entries,
+      'fa',
+    );
+    expect(items[1]?.text).toBe('باز هم *مزیت مکانیکی* را می‌بینیم.');
+  });
+});
