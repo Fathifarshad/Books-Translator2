@@ -164,6 +164,8 @@ export interface BookSummary {
   counter: { done: number; total: number };
   /** Number of readable sections (for reading-progress percentages on the client). */
   readable: number;
+  /** Agent batches waiting for Claude Code (pending + leased). */
+  agentPending: number;
   fileName?: string;
   error?: string;
 }
@@ -176,8 +178,12 @@ export function listBooks(db: Db, ownerId: string): BookSummary[] {
       const targets = db.select().from(bookTargets).where(eq(bookTargets.bookId, row.id)).all();
       const t = targets[0];
       const bundle = getBundle(db, row.id);
+      const pending = db.$client
+        .prepare(`SELECT COUNT(*) AS n FROM agent_batches WHERE book_id = ? AND status IN ('pending','leased')`)
+        .get(row.id) as { n: number };
       return {
         readable: bundle ? createBookIndex(bundle).readingOrder.length : 0,
+        agentPending: pending.n,
         book: toBookRecord(
           row,
           targets.map((x) => x.lang),

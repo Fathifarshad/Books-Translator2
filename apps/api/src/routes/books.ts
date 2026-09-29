@@ -19,6 +19,8 @@ const PatchBook = z.object({
   authors: z.array(z.string()).optional(),
   publisher: z.string().nullable().optional(),
   year: z.number().int().nullable().optional(),
+  /** Translation brief per target language (editable in wizard step 5). */
+  brief: z.record(z.string(), z.string().max(4000)).optional(),
 });
 
 /** Library, upload and per-book data (SPEC §17). */
@@ -63,6 +65,7 @@ export async function bookRoutes(app: FastifyInstance, { ctx }: { ctx: AppContex
         ...(body.authors ? { authors: body.authors } : {}),
         ...(body.publisher !== undefined ? { publisher: body.publisher } : {}),
         ...(body.year !== undefined ? { year: body.year } : {}),
+        ...(body.brief ? { brief: { ...(row.brief ?? {}), ...body.brief } } : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(books.id, row.id))

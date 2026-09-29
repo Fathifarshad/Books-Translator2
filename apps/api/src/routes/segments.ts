@@ -10,7 +10,8 @@ import { httpError } from './errors';
 const EditBody = z.object({
   lang: z.string().min(2).max(12),
   text: z.string().max(20_000),
-  reason: z.enum(['edit', 'undo']).default('edit'),
+  /** "edit", "undo" or the user's own short note, stored with the revision. */
+  reason: z.string().trim().min(1).max(200).default('edit'),
 });
 const ReviewBody = z.object({
   lang: z.string().min(2).max(12),
