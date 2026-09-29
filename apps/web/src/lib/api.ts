@@ -134,6 +134,7 @@ export interface ExtractionReport {
   stats: {
     pages: number;
     pagesWithoutText: number;
+    ocrPages?: number;
     words: number;
     chapters: number;
     sections: number;
@@ -341,7 +342,7 @@ export function uploadBook(file: File, onProgress: (ratio: number) => void): Pro
 }
 
 export type BookEvent =
-  | { type: 'progress'; stage: string; done: number; total: number }
+  | { type: 'progress'; stage: string; done: number; total: number; ocrPages?: number }
   | { type: 'job'; jobId: string; stage: string; status: string; error?: string }
   | { type: 'book'; status: string }
   | { type: 'segment'; lang: string; ids: string[] }

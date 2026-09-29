@@ -19,7 +19,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getBookRow, getBundle, refreshCounters } from '../db/repo';
 import { agentBatches, books, bookTargets, jobs, translations } from '../db/schema';
 import { advancePipeline, agentCounts } from './advance';
-import { type JobRow, pipelineJobs, planTranslation, scopeOf } from './jobs';
+import { effectiveSkip, type JobRow, pipelineJobs, planTranslation, scopeOf } from './jobs';
 import {
   logPipeline,
   type PipelineCtx,
@@ -42,6 +42,12 @@ export class PipelineError extends Error {
 
 const STARTABLE = new Set(['ready_to_translate', 'translating', 'ready']);
 
+/** Any translatable segment outside skipped sections (already translated ones count too). */
+function hasTranslatable(bundle: NonNullable<ReturnType<typeof getBundle>>): boolean {
+  const skipped = effectiveSkip(bundle);
+  return bundle.segments.some((s) => needsTranslation(s) && !skipped.has(s.nodeId));
+}
+
 export function startPipeline(
   ctx: PipelineCtx,
   bookId: string,
@@ -59,6 +65,11 @@ export function startPipeline(
     (p) => !p.ready,
   );
   if (notReady.length) throw new PipelineError('PROVIDER_NOT_READY', 409, { providers: notReady.map((p) => p.id) });
+  // A book whose sections are all skipped (or whose text could not be read) would "finish" at 0%: say why instead.
+  const bundle = getBundle(db, bookId);
+  if (bundle && !hasTranslatable(bundle)) {
+    throw new PipelineError('NOTHING_TO_TRANSLATE', 409);
+  }
   db.transaction(() => {
     updateSettings(db, bookId, (s) => {
       s.translation = { ...(s.translation ?? {}), [lang]: settings };

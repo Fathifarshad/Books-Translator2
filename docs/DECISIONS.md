@@ -244,3 +244,17 @@ Format for each entry:
 - **Consequences:** conversations stay in the browser for now (server-side conversations come with multi-user,
   Phase 6); one engine setting drives tutor, summaries and quizzes («موتور مدرس، چکیده و آزمونک»), mock by default.
 
+## ADR-031 — OCR for scanned PDFs with tesseract.js, inside ingestion (2026-09-29)
+- **Context:** a real book arrived as a scanned PDF (every page an image, no text layer); SPEC lists OCR for Phase 5.
+  The owner asked for it inside the app now.
+- **Decision:** during extraction, a page with (almost) no text whose images cover at least half of it is rendered
+  with pdf.js onto @napi-rs/canvas at 216 dpi and read by tesseract.js (Apache-2.0, WebAssembly). The language data
+  comes from the npm package `@tesseract.js-data/<code>` (English installed; the registry maps book languages to
+  Tesseract codes), so nothing is downloaded at run time. Recognized words become ordinary text items, so line
+  building, header/footer removal, block and structure detection run unchanged. The engine starts only when the
+  first scanned page appears; `OCR=0` turns it off. The ingestion worker now times out after 5 minutes without
+  progress instead of 10 minutes in total, since a long scanned book takes much longer.
+- **Consequences:** ≈ 1–3 s per page on a normal CPU; recognition errors are possible, so the report shows how many
+  pages were read with OCR. Bold/italic are not recognized (headings are found by size and the printed contents).
+  Pages already carrying an OCR text layer (e.g. from PDF24) are read as text, without OCR.
+

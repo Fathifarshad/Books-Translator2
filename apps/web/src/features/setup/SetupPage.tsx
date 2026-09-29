@@ -21,7 +21,7 @@ export function SetupPage() {
   const queryClient = useQueryClient();
   const { bookId = '' } = useParams();
   const detail = useQuery({ queryKey: ['book', bookId], queryFn: () => api.book(bookId), enabled: Boolean(bookId) });
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; ocrPages?: number } | null>(null);
   const status = detail.data?.book.status;
   const reviewing =
     status === 'structure_review' || status === 'ready_to_translate' || status === 'ready' || status === 'translating';
@@ -32,7 +32,7 @@ export function SetupPage() {
   useEffect(() => {
     if (!bookId) return;
     return subscribeBookEvents(bookId, (e) => {
-      if (e.type === 'progress') setProgress({ done: e.done, total: e.total });
+      if (e.type === 'progress') setProgress({ done: e.done, total: e.total, ocrPages: e.ocrPages ?? 0 });
       if (e.type === 'book' || e.type === 'job') {
         void queryClient.invalidateQueries({ queryKey: ['book', bookId] });
         void queryClient.invalidateQueries({ queryKey: booksKey });
@@ -106,6 +106,11 @@ export function SetupPage() {
           <p className="mb-3">
             {p ? t('setup.extracting', { page: fmtNum(p.done), total: fmtNum(p.total) }) : t('setup.waiting')}
           </p>
+          {progress?.ocrPages ? (
+            <p className="mb-3 text-sm text-muted" data-testid="ocr-progress">
+              {t('setup.ocrProgress', { count: fmtNum(progress.ocrPages) })}
+            </p>
+          ) : null}
           <ProgressBar value={p ? p.done / Math.max(1, p.total) : 0} label={t('setup.steps.extract')} />
         </section>
       ) : null}
@@ -158,6 +163,7 @@ function ReportCard({ report }: { report: ExtractionReport }) {
   const s = report.stats;
   const items: [string, number][] = [
     ['pages', s.pages],
+    ...(s.ocrPages ? ([['ocrPages', s.ocrPages]] as [string, number][]) : []),
     ['words', s.words],
     ['chapters', s.chapters],
     ['sections', s.sections],
@@ -168,6 +174,9 @@ function ReportCard({ report }: { report: ExtractionReport }) {
     ['suspected', s.suspectedBreaks],
   ];
   const scanned = report.warnings.find((w) => w.code === 'pages_without_text');
+  const ocrMissing = report.warnings.some((w) => w.code === 'ocr_unavailable');
+  // Mostly unreadable: nothing useful to translate until the scan is made readable.
+  const unreadable = scanned && (scanned.pages?.length ?? 0) >= s.pages * 0.5;
   return (
     <section className="mt-8 rounded-2xl border border-border bg-surface p-5" data-testid="report">
       <h2 className="text-lg font-bold">{t('setup.report')}</h2>
@@ -180,14 +189,27 @@ function ReportCard({ report }: { report: ExtractionReport }) {
           </div>
         ))}
       </dl>
+      {unreadable ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger"
+          data-testid="unreadable"
+        >
+          <p className="font-bold">{t('setup.unreadableTitle')}</p>
+          <p className="mt-1 leading-7">{t(ocrMissing ? 'setup.unreadableNoOcr' : 'setup.unreadableHint')}</p>
+        </div>
+      ) : null}
       <ul className="mt-4 space-y-1 text-sm">
+        {s.ocrPages ? <li className="text-warning">⚠ {t('setup.ocrWarning', { count: fmtNum(s.ocrPages) })}</li> : null}
         {scanned ? (
           <li className="text-warning">⚠ {t('setup.scannedWarning', { count: fmtNum(scanned.pages?.length ?? 0) })}</li>
         ) : null}
         {s.suspectedBreakRatio > 0.01 ? (
           <li className="text-warning">⚠ {t('setup.suspectedWarning', { percent: fmtPct(s.suspectedBreakRatio) })}</li>
         ) : null}
-        {!scanned && s.suspectedBreakRatio <= 0.01 ? <li className="text-success">✓ {t('setup.noWarnings')}</li> : null}
+        {!scanned && !s.ocrPages && s.suspectedBreakRatio <= 0.01 ? (
+          <li className="text-success">✓ {t('setup.noWarnings')}</li>
+        ) : null}
       </ul>
     </section>
   );

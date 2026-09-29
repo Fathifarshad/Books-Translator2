@@ -160,6 +160,13 @@ the sandbox has no access to the real services, so the first real connection is 
 - The one-click OpenRouter connection needs the app on `localhost` or `https` (OpenRouter's callback rule).
 - The back-translation check of «بهترین» (ADR-023) is still open.
 
+### Delivered ahead of plan (owner's request, 2026-09-29)
+- [x] OCR for scanned PDFs (Phase 5 item) — English; `packages/pdf/src/ocr.ts`, ADR-031. Tested on the synthetic
+  `fixtures/pdf/scanned.pdf` (the «Weather Notes» fixture as page images): 7/7 pages read, both chapters found,
+  > 85% word recall (`packages/pdf/src/ocr.test.ts`, also through the ingestion worker). Unreadable books now get a
+  clear alert in the report, an explanation instead of a blank reader, and `NOTHING_TO_TRANSLATE` instead of a
+  pipeline that «finishes» at 0%.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

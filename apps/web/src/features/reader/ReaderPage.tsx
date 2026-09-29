@@ -2,7 +2,7 @@ import { buildSection, firstReadable, glossaryFor } from '@dozabaneh/core';
 import { createGlossaryMatcher, isolate } from '@dozabaneh/text';
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, useParams } from 'react-router';
+import { Link, Navigate, useParams } from 'react-router';
 import { BOTTOM_SHEET_RESERVE, BottomSheet } from '../../components/BottomSheet';
 import { Drawer } from '../../components/Drawer';
 import { Button, IconButton } from '../../components/ui';
@@ -45,7 +45,25 @@ export function ReaderPage() {
   const target = nodeId ? firstReadable(index, nodeId) : undefined;
   if (!nodeId || !target) {
     const fallback = (savedNode && firstReadable(index, savedNode)) || index.readingOrder[0];
-    return fallback ? <Navigate to={`/books/${bookId}/read/${fallback.id}`} replace /> : null;
+    if (fallback) return <Navigate to={`/books/${bookId}/read/${fallback.id}`} replace />;
+    // Nothing readable (scanned PDF without OCR, or every section marked «ترجمه نشود»): say so instead of a blank page.
+    return (
+      <main id="main" className="mx-auto max-w-xl px-5 py-16 text-center" data-testid="reader-empty">
+        <h1 className="text-xl font-bold">{t('reader.emptyTitle')}</h1>
+        <p className="mt-3 leading-8 text-muted">{t('reader.emptyHint')}</p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <Link
+            to={`/books/${bookId}/setup`}
+            className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
+          >
+            {t('reader.emptyOpenSetup')}
+          </Link>
+          <Link to="/" className="rounded-lg border border-border px-3.5 py-2 text-sm hover:border-accent/60">
+            {t('reader.backToLibrary')}
+          </Link>
+        </div>
+      </main>
+    );
   }
   if (target.id !== nodeId) return <Navigate to={`/books/${bookId}/read/${target.id}`} replace />;
   return <Reader bookId={bookId} index={index} nodeId={nodeId} />;

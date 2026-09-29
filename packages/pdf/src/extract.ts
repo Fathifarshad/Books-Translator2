@@ -3,14 +3,28 @@ import { pathToFileURL } from 'node:url';
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { buildLines, type RawItem } from './lines';
 import { fontStyle, normalizeRunText } from './normalize';
+import { createTesseractEngine, type OcrEngine, ocrItems, renderPagePng } from './ocr';
 import type { Box, ExtractedBook, OutlineEntry, PageData } from './types';
 
 const require = createRequire(import.meta.url);
 const pdfjsRoot = require.resolve('pdfjs-dist/package.json').replace(/package\.json$/, '');
 
+export interface OcrOptions {
+  /** Tesseract language code (from the language registry). */
+  lang: string;
+  /** Engine factory (tests inject a fake); defaults to tesseract.js with the installed language data. */
+  engine?: (lang: string) => Promise<OcrEngine | null>;
+  /** A page with fewer text characters than this is read with OCR. */
+  minChars?: number;
+  /** Maximum time to render and read one page (ms). */
+  pageTimeoutMs?: number;
+}
+
 export interface ExtractOptions {
-  /** Called after each page is processed. */
-  onPage?: (done: number, total: number) => void;
+  /** Called after each page is processed (`ocrPages`: pages read with OCR so far). */
+  onPage?: (done: number, total: number, ocrPages?: number) => void;
+  /** Read pages without a text layer (scanned books) with OCR. */
+  ocr?: OcrOptions;
   /** Maximum time for one page (ms). */
   pageTimeoutMs?: number;
   maxPages?: number;
@@ -168,7 +182,15 @@ async function extractPage(page: PdfPage, index: number): Promise<PageData> {
   };
 }
 
-/** pdf.js pass: metadata, page labels, outline with resolved destinations, and per-page lines. */
+const textLength = (p: PageData) => p.lines.reduce((n, l) => n + l.text.length, 0);
+
+/** A scanned page is (mostly) one picture: images cover at least half of it. Title pages keep their text. */
+function looksScanned(p: PageData): boolean {
+  const area = p.images.reduce((n, b) => n + b.width * b.height, 0);
+  return area >= p.width * p.height * 0.5;
+}
+
+/** pdf.js pass: metadata, page labels, outline with resolved destinations, and per-page lines (OCR when needed). */
 export async function extractPdf(data: Uint8Array, opts: ExtractOptions = {}): Promise<ExtractedBook> {
   const task = openPdf(data);
   const pdf = await task.promise;
@@ -181,22 +203,52 @@ export async function extractPdf(data: Uint8Array, opts: ExtractOptions = {}): P
     const pages: PageData[] = [];
     const heights = new Map<number, number>();
     let done = 0;
-    for (const i of wanted) {
-      const page = await pdf.getPage(i + 1);
-      try {
-        const data = await withTimeout(extractPage(page, i), opts.pageTimeoutMs ?? 20_000, `page ${i + 1}`);
-        pages.push(data);
-        heights.set(i, data.height);
-      } catch {
-        // A page that cannot be parsed in time is treated as empty (reported as "no text").
-        const viewport = page.getViewport({ scale: 1 });
-        pages.push({ index: i, width: viewport.width, height: viewport.height, lines: [], images: [] });
-        heights.set(i, viewport.height);
-      } finally {
-        page.cleanup();
+    let ocrPages = 0;
+    // The OCR engine starts only when the first page without text appears (text PDFs never pay for it).
+    let engine: OcrEngine | null | undefined;
+    const ocr = opts.ocr;
+    try {
+      for (const i of wanted) {
+        const page = await pdf.getPage(i + 1);
+        try {
+          let data: PageData;
+          try {
+            data = await withTimeout(extractPage(page, i), opts.pageTimeoutMs ?? 20_000, `page ${i + 1}`);
+          } catch {
+            // A page that cannot be parsed in time is treated as empty (reported as "no text").
+            const viewport = page.getViewport({ scale: 1 });
+            data = { index: i, width: viewport.width, height: viewport.height, lines: [], images: [] };
+          }
+          if (ocr && textLength(data) < (ocr.minChars ?? 30) && looksScanned(data)) {
+            if (engine === undefined) engine = await (ocr.engine ?? createTesseractEngine)(ocr.lang);
+            if (engine) {
+              const reader = engine;
+              try {
+                const words = await withTimeout(
+                  renderPagePng(page).then((png) => reader.recognize(png)),
+                  ocr.pageTimeoutMs ?? 120_000,
+                  `OCR of page ${i + 1}`,
+                );
+                const lines = buildLines(ocrItems(words), i);
+                if (lines.length) {
+                  data = { ...data, lines, ocr: true };
+                  ocrPages++;
+                }
+              } catch {
+                // Unreadable page: stays empty and is reported as "no text".
+              }
+            }
+          }
+          pages.push(data);
+          heights.set(i, data.height);
+        } finally {
+          page.cleanup();
+        }
+        done++;
+        opts.onPage?.(done, wanted.length, ocrPages);
       }
-      done++;
-      opts.onPage?.(done, wanted.length);
+    } finally {
+      await engine?.close();
     }
     // Destinations need page heights; pages outside `wanted` are measured lazily.
     for (let i = 0; i < total && !opts.pages; i++) if (!heights.has(i)) heights.set(i, 842);
@@ -211,7 +263,14 @@ export async function extractPdf(data: Uint8Array, opts: ExtractOptions = {}): P
     if (author) meta.author = author;
     if (subject) meta.subject = subject;
     if (producer) meta.producer = producer;
-    return { meta, pageCount: total, pageLabels: labels ?? null, outline, pages };
+    return {
+      meta,
+      pageCount: total,
+      pageLabels: labels ?? null,
+      outline,
+      pages,
+      ocr: { lang: ocr?.lang ?? null, available: engine ? true : engine === null ? false : null },
+    };
   } finally {
     await task.destroy();
   }

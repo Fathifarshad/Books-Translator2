@@ -42,6 +42,8 @@ export interface PageData {
   height: number;
   lines: Line[];
   images: Box[];
+  /** The text of this page was recognized with OCR (scanned page). */
+  ocr?: boolean;
 }
 
 export interface OutlineEntry {
@@ -59,6 +61,8 @@ export interface ExtractedBook {
   pageLabels: string[] | null;
   outline: OutlineEntry[];
   pages: PageData[];
+  /** OCR language, and whether its engine was available (null: no page needed OCR). */
+  ocr?: { lang: string | null; available: boolean | null };
 }
 
 export type BlockType = 'heading' | 'paragraph' | 'list_item' | 'quote' | 'code' | 'caption' | 'footnote' | 'figure';
@@ -119,6 +123,8 @@ export interface ExtractionReport {
   stats: {
     pages: number;
     pagesWithoutText: number;
+    /** Pages read with OCR (scanned pages). */
+    ocrPages: number;
     words: number;
     chapters: number;
     sections: number;

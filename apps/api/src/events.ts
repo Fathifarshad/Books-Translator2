@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 
 /** Events pushed to open pages over SSE (`GET /books/:id/events`, SPEC §17). */
 export type BookEvent =
-  | { type: 'progress'; stage: string; done: number; total: number }
+  | { type: 'progress'; stage: string; done: number; total: number; ocrPages?: number }
   | { type: 'job'; jobId: string; stage: string; status: string; error?: string }
   | { type: 'book'; status: string }
   /** Translations of these segments changed (reader refreshes progressively). */

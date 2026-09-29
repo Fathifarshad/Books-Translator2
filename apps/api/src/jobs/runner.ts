@@ -119,8 +119,9 @@ async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<
   const result = await ingestInWorker(book.filePath, {
     lang: book.sourceLang,
     maxPages: config.MAX_PAGES,
-    onProgress: (done, total) => {
-      bus.publish(book.id, { type: 'progress', stage: 'ingest', done, total });
+    ocr: config.OCR,
+    onProgress: (done, total, ocrPages) => {
+      bus.publish(book.id, { type: 'progress', stage: 'ingest', done, total, ocrPages });
       if (Date.now() - lastBeat > 2000 || done === total) {
         lastBeat = Date.now();
         heartbeat(db, job.id, { done, total });

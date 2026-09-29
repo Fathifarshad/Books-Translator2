@@ -20,6 +20,8 @@ const EnvSchema = z.object({
   WORKER_MODE: z.enum(['inline', 'separate']).default('inline'),
   /** Seed the original sample book into an empty database at startup. */
   AUTO_SEED: bool,
+  /** Read scanned pages (no text layer) with OCR during ingestion. */
+  OCR: bool,
   AGENT_MAX_PENDING: z.coerce.number().int().positive().default(40),
   AGENT_LEASE_MINUTES: z.coerce.number().positive().default(60),
   /** Simulated latency of the mock engine per batch (ms), so progress is visible in demos. */

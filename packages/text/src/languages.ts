@@ -23,6 +23,8 @@ export interface LanguageInfo {
   emphasis: 'italic' | 'weight';
   /** Words used for `[[fig:…]]` / `[[tab:…]]` references inside text of this language. */
   refLabels: { fig: string; tab: string };
+  /** Tesseract language code for OCR of scanned pages (its data package must be installed). */
+  ocr?: string;
 }
 
 export const LANGUAGES = {
@@ -38,6 +40,7 @@ export const LANGUAGES = {
     terminalPunctuation: '.?!:”’)"\'…',
     emphasis: 'italic',
     refLabels: { fig: 'Figure', tab: 'Table' },
+    ocr: 'eng',
   },
   fa: {
     name: 'Persian',
@@ -53,6 +56,7 @@ export const LANGUAGES = {
     terminalPunctuation: '.?!:؟»)…',
     emphasis: 'weight',
     refLabels: { fig: 'شکل', tab: 'جدول' },
+    ocr: 'fas',
   },
 } as const satisfies Record<string, LanguageInfo>;
 
@@ -67,6 +71,11 @@ export function isKnownLanguage(code: string): code is KnownLanguage {
 /** Registry lookup that never throws: unknown codes fall back to LTR/Latin defaults. */
 export function getLanguage(code: string): LanguageInfo {
   return isKnownLanguage(code) ? LANGUAGES[code] : FALLBACK;
+}
+
+/** Tesseract code for a book language; undefined for languages without OCR support. */
+export function ocrLanguageOf(code: string): string | undefined {
+  return isKnownLanguage(code) ? (LANGUAGES[code] as LanguageInfo).ocr : undefined;
 }
 
 export function dirOf(code: string): TextDirection {

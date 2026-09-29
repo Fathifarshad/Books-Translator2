@@ -16,7 +16,10 @@
   "dependencies": {
     "@dozabaneh/shared": "workspace:*",
     "@dozabaneh/text": "workspace:*",
-    "pdfjs-dist": "^6.3.289"
+    "@napi-rs/canvas": "^1.0.9",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@types/pdfkit": "^0.17.6",

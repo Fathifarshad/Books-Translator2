@@ -34,13 +34,27 @@ export function analyze(ex: ExtractedBook, opts: AnalyzeOptions = {}): Analysis 
   const segmentsByType: Record<string, number> = {};
   for (const s of segments) segmentsByType[s.type] = (segmentsByType[s.type] ?? 0) + 1;
   const emptyPages = ex.pages.filter((p) => p.lines.reduce((n, l) => n + l.text.length, 0) < 20).map((p) => p.index);
+  const ocrPages = ex.pages.filter((p) => p.ocr).map((p) => p.index);
 
   const warnings: ExtractionReport['warnings'] = [];
+  if (ocrPages.length > 0) {
+    warnings.push({
+      code: 'pages_ocr',
+      message: `${ocrPages.length} scanned pages read with OCR; check them for recognition errors`,
+      pages: ocrPages.slice(0, 50),
+    });
+  }
   if (emptyPages.length > 0) {
     warnings.push({
       code: 'pages_without_text',
       message: `${emptyPages.length} pages without a text layer`,
       pages: emptyPages,
+    });
+  }
+  if (emptyPages.length > 0 && ex.ocr?.available === false) {
+    warnings.push({
+      code: 'ocr_unavailable',
+      message: `No OCR data for language "${ex.ocr.lang}"; scanned pages cannot be read`,
     });
   }
   if (source !== 'outline')
@@ -58,6 +72,7 @@ export function analyze(ex: ExtractedBook, opts: AnalyzeOptions = {}): Analysis 
     stats: {
       pages: ex.pageCount,
       pagesWithoutText: emptyPages.length,
+      ocrPages: ocrPages.length,
       words: segments.reduce((n, s) => n + (s.src.match(/\S+/g)?.length ?? 0), 0),
       chapters: nodes.filter((n) => n.kind === 'chapter').length,
       sections: nodes.filter((n) => n.kind === 'section' || n.kind === 'subsection').length,

@@ -17,7 +17,8 @@ import { agentNext, agentRelease, agentStatus, agentSubmit } from './pipeline/ag
  */
 const FIXTURES = fileURLToPath(new URL('../../../fixtures/pdf/', import.meta.url));
 const dataDir = mkdtempSync(join(tmpdir(), 'dozabaneh-pipeline-'));
-const config = readConfig({ LOG_LEVEL: 'silent', DATA_DIR: dataDir, AUTO_SEED: '0', AGENT_MAX_PENDING: '5' });
+// OCR off: the scanned fixture stays unreadable here (OCR itself is tested in packages/pdf).
+const config = readConfig({ LOG_LEVEL: 'silent', DATA_DIR: dataDir, AUTO_SEED: '0', AGENT_MAX_PENDING: '5', OCR: '0' });
 let app = await buildApp(config, { startRunner: false });
 
 afterAll(async () => {
@@ -399,5 +400,23 @@ describe('glossary PATCH', () => {
       alternatives: ['ایدا بایرن'],
       status: 'proposed',
     });
+  });
+});
+
+describe('books with nothing to translate', () => {
+  it('refuses to start instead of finishing at 0% (scanned PDF without OCR)', async () => {
+    const bookId = await ingestFixture('scanned.pdf');
+    const report = (await app.inject({ url: `/api/v1/books/${bookId}/report` })).json();
+    expect(report.report.stats.pagesWithoutText).toBe(7);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${bookId}/pipeline/start`,
+      payload: {
+        lang: 'fa',
+        settings: { engines: { brief: 'mock', glossary: 'mock', translate: 'mock', edit: 'mock' } },
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('NOTHING_TO_TRANSLATE');
   });
 });

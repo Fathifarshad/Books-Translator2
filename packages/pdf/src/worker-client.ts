@@ -5,9 +5,11 @@ import type { IngestWorkerData, IngestWorkerMessage } from './worker';
 export interface IngestInWorkerOptions {
   lang?: string;
   maxPages?: number;
-  onProgress?: (page: number, total: number) => void;
-  /** Whole-document limit; the worker is terminated when it is exceeded. */
-  timeoutMs?: number;
+  /** Read scanned pages with OCR (default true). */
+  ocr?: boolean;
+  onProgress?: (page: number, total: number, ocrPages: number) => void;
+  /** No progress for this long (ms) terminates the worker; OCR of a long scanned book takes hours, not a hang. */
+  idleTimeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -25,6 +27,7 @@ export function ingestInWorker(filePath: string, opts: IngestInWorkerOptions = {
     filePath,
     ...(opts.lang ? { lang: opts.lang } : {}),
     ...(opts.maxPages ? { maxPages: opts.maxPages } : {}),
+    ...(opts.ocr === false ? { ocr: false } : {}),
   };
   return new Promise((resolve, reject) => {
     const worker = new Worker(url, { workerData: data });
@@ -37,15 +40,16 @@ export function ingestInWorker(filePath: string, opts: IngestInWorkerOptions = {
       fn();
       void worker.terminate();
     };
-    const timer = setTimeout(
-      () => finish(() => reject(new Error('ingestion timed out'))),
-      opts.timeoutMs ?? 10 * 60_000,
-    );
+    const idle = opts.idleTimeoutMs ?? 5 * 60_000;
+    let timer = setTimeout(() => finish(() => reject(new Error('ingestion timed out'))), idle);
     const onAbort = () => finish(() => reject(new Error('ingestion aborted')));
     opts.signal?.addEventListener('abort', onAbort, { once: true });
     worker.on('message', (m: IngestWorkerMessage) => {
-      if (m.type === 'progress') opts.onProgress?.(m.page, m.total);
-      else if (m.type === 'done') finish(() => resolve(m.result));
+      if (m.type === 'progress') {
+        clearTimeout(timer);
+        timer = setTimeout(() => finish(() => reject(new Error('ingestion timed out'))), idle);
+        opts.onProgress?.(m.page, m.total, m.ocrPages);
+      } else if (m.type === 'done') finish(() => resolve(m.result));
       else finish(() => reject(new Error(m.message)));
     });
     worker.on('error', (err) => finish(() => reject(err)));

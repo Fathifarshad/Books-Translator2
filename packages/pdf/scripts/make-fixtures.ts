@@ -3,8 +3,13 @@
  * Run: pnpm fixtures:pdf   (writes fixtures/pdf/*.pdf)
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import PDFDocument from 'pdfkit';
+import { openPdf } from '../src/extract';
 import { Writer } from './pdf-writer';
+
+const require = createRequire(import.meta.url);
 
 const OUT = fileURLToPath(new URL('../../../fixtures/pdf/', import.meta.url));
 const SMALL = { width: 360, height: 480, margin: { top: 62, left: 45, right: 45, bottom: 60 } };
@@ -204,11 +209,36 @@ async function noOutline(): Promise<Buffer> {
   return w.finish();
 }
 
+/** «Weather Notes» as a scanned book: every page is only a picture (no text layer), for the OCR tests. */
+async function scanned(): Promise<Buffer> {
+  const { createCanvas } = require('@napi-rs/canvas') as typeof import('@napi-rs/canvas');
+  const source = await openPdf(new Uint8Array(await noOutline())).promise;
+  const out = new PDFDocument({ size: [SMALL.width, SMALL.height], margin: 0, autoFirstPage: false });
+  out.info.Title = 'Scanned notes';
+  const chunks: Buffer[] = [];
+  out.on('data', (c: Buffer) => chunks.push(c));
+  const done = new Promise<Buffer>((resolve) => out.on('end', () => resolve(Buffer.concat(chunks))));
+  for (let i = 1; i <= source.numPages; i++) {
+    const page = await source.getPage(i);
+    const viewport = page.getViewport({ scale: 2.5 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, canvasContext: context, viewport } as never).promise;
+    out.addPage({ size: [SMALL.width, SMALL.height], margin: 0 });
+    out.image(canvas.toBuffer('image/jpeg', 80), 0, 0, { width: SMALL.width, height: SMALL.height });
+  }
+  out.end();
+  return done;
+}
+
 mkdirSync(OUT, { recursive: true });
 for (const [name, make] of [
   ['outline-book', outlineBook],
   ['two-column', twoColumn],
   ['no-outline', noOutline],
+  ['scanned', scanned],
 ] as const) {
   writeFileSync(`${OUT}${name}.pdf`, await make());
   console.log(`fixtures/pdf/${name}.pdf`);

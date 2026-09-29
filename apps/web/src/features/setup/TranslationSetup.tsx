@@ -335,7 +335,9 @@ function SettingsStep({
                   .map((id) => t(`engines.names.${id}`))
                   .join(t('glossary.listSeparator')),
               })
-            : t('setup.actionFailed')}
+            : start.error instanceof ApiError && start.error.code === 'NOTHING_TO_TRANSLATE'
+              ? t('setup.nothingToTranslate')
+              : t('setup.actionFailed')}
         </p>
       ) : null}
     </section>

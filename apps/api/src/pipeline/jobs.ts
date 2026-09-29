@@ -202,7 +202,7 @@ export interface TranslationPlan {
   segments: number;
 }
 
-function effectiveSkip(bundle: BookBundle): Set<string> {
+export function effectiveSkip(bundle: BookBundle): Set<string> {
   const byId = new Map(bundle.nodes.map((n) => [n.id, n]));
   const out = new Set<string>();
   for (const n of bundle.nodes) {
