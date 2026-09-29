@@ -135,3 +135,63 @@ Format for each entry:
   deleted at startup) and the built web app on 4173 with `/api` proxied to it. The uploaded PDF is the synthetic
   `no-outline.pdf` fixture.
 - **Consequences:** tests are hermetic and never touch the developer's own `data/` folder.
+
+## ADR-018 — Agent mode through batch files, leases and a change feed (2026-09-29)
+- **Context:** Claude Code is the default translator (no API key); it works on files and a CLI, while the web app
+  must show its progress live — whether or not the API is running.
+- **Decision:** a job with engine `agent` is materialized as `data/exchange/outbox/<book>/<task>/<batch>.json` plus an
+  `agent_batches` row (at most `AGENT_MAX_PENDING` open per book). `agent:next` leases one batch
+  (`AGENT_LEASE_MINUTES`, expired leases return to the pool); `agent:submit` validates and imports in one transaction,
+  archives both files and creates the follow-up batches in the same step. The CLI writes events to a `notifications`
+  table; the running API polls it every second and forwards them over SSE.
+- **Consequences:** re-submitting an imported file is a no-op; a crash leaves only leases that expire. Several API
+  instances (Phase 6) would need a shared broker instead of the table poll.
+
+## ADR-019 — The pipeline is a per-section job DAG with a human glossary gate (2026-09-29)
+- **Context:** SPEC §9.1 asks for progressive availability, chunks in chapter order and a glossary review.
+- **Decision:** jobs carry `depends_on` and a document-order `seq`: brief → glossary batches (40 candidates each) →
+  gate (the user approves, or `autoApproveGlossary`) → translate chunks (≤ 2,500 words, sequential within a chapter,
+  chapters in parallel) → edit units per section (≤ 3,000 words) → a chapter pass that re-applies first-mention
+  parentheticals once all its sections are done. Translate/edit jobs are planned only after the gate, so they use the
+  approved glossary. Identical source segments reuse translations (translation memory, low `memory` flag).
+  «ترجمه‌ی این بخش را الان انجام بده» raises the priority of the chapter's jobs up to that section.
+- **Consequences:** the first sections are readable long before the book is done; a restart only re-runs jobs whose
+  lease expired.
+
+## ADR-020 — One task spec and one validation for every engine (2026-09-29)
+- **Context:** agent, API and mock results must be held to the same standard (SPEC §10.1).
+- **Decision:** `packages/ai` task specs pair the zod schemas of Appendix E with domain checks. Blocking rules reject
+  a result (missing/extra/duplicate keys, empty text, markup token mismatch, lost numbers, wrong script, repetition
+  loops); the other QA findings (glossary, names, untranslated fragments, punctuation, length) become review-queue
+  flags. Reports name the key, the rule and the fix. The mock engine writes pseudo-Persian that passes the same checks.
+- **Consequences:** switching engines changes quality only through the model, never through validation.
+
+## ADR-021 — Post-processing masks protected spans and uses safe ZWNJ rules only (2026-09-29)
+- **Context:** deterministic clean-up must never damage code, URLs, markup tokens or Latin names/titles, and wrong
+  ZWNJ insertions are worse than missing ones.
+- **Decision:** protected spans are replaced by private-use placeholders before any rule runs (word-like spans and
+  attached footnote refs in separate ranges), then restored. Joined «می/نمی» forms are fixed only for a whitelist of
+  verb stems (so «میدان»، «میز»، «میان» stay), «تر» is joined only in «… تر از», «ها/های…» and «ترین» after a word.
+  Headings and captions keep dotted section/figure numbers; elsewhere «3.5» becomes «۳٫۵».
+- **Consequences:** some joined forms («کتابها») are left as written; the editor pass handles them.
+
+## ADR-022 — Manual edits live on the server; automation only suggests (2026-09-29)
+- **Context:** SPEC §9.8 requires history and that re-runs never overwrite user edits.
+- **Decision:** `PATCH /segments/:id/translation` sets `user_edited` and writes a revision; undo is an edit back to
+  the previous text (itself a revision). An engine result for a user-edited segment is stored in
+  `translations.suggestion` and shown in the review queue («پذیرفتن پیشنهاد» / «نادیده گرفتن»). Edits made in the
+  browser during Phase 1 are sent to the server once and then removed locally.
+- **Consequences:** the full history stays auditable; the reader patches its cached bundle instead of refetching.
+
+## ADR-023 — Quality profile «بهترین» in Phase 3 (2026-09-29)
+- **Context:** SPEC §9.10 adds a back-translation check for flagged/low-confidence segments, which needs a task type
+  that Appendix E does not define yet.
+- **Decision:** «بهترین» runs like «متعادل» but sends segments with confidence below 0.85 (instead of 0.7) to the review
+  queue; back-translation arrives with the API engines in Phase 4.
+- **Consequences:** more human review for that profile until then; the setting is stored per book, so books keep it.
+
+## ADR-024 — Darker warning colour (2026-09-29)
+- **Context:** axe reported `--warning` (#b7791f) text below 4.5:1 on light surfaces in the new screens.
+- **Decision:** light/sepia `--warning` is #8a5a0f (≈ 5.9:1 on white); dark theme gets #e0a44a (≈ 6.7:1 on the dark
+  surface).
+- **Consequences:** warning chips and texts pass WCAG AA in every theme.

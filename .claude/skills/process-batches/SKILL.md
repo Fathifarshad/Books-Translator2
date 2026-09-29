@@ -34,3 +34,6 @@ Arguments: $ARGUMENTS
 ## Final report (in Persian)
 Batches processed per task, items flagged or low-confidence, problems noticed, what is still pending
 (`pnpm -s agent:status`), and the command to run next.
+If nothing is pending right after the glossary batches, the book is probably waiting for the human glossary review:
+tell the user to approve it in the app (book setup, step 5 «معرفی کتاب و واژه‌نامه», or the glossary page) — the
+translation batches are created as soon as it is approved.

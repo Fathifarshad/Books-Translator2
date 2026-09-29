@@ -6,7 +6,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
 - [~] `pnpm install && pnpm dev` works on a clean machine (Windows included) — verified on Linux (Node 22.22, pnpm 10.33):
   API `/api/v1/health` + web on :5173. Scripts are cross-platform (no shell syntax); Windows not yet tried.
 - [x] Quality gate green (≥ 1 unit test, ≥ 1 Playwright test) — `pnpm lint && pnpm typecheck && pnpm test && pnpm e2e`:
-  130 unit tests, 27 e2e tests (desktop 1440×900 + mobile 390×844, axe included) as of Phase 2.
+  393 unit tests, 33 e2e tests (desktop 1440×900 + mobile 390×844, axe included) as of Phase 3.
 - [x] No Persian literals in components (i18n only) — enforced by `apps/web/src/guards.test.ts` (also: logical CSS only,
   every `t('…')` key exists).
 
@@ -35,9 +35,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
 
 ### Known limitations (to address in later phases)
 - Highlights/notes from the selection toolbar: Phase 5 (annotations). «نمایش صفحه‌ی اصلی PDF»: Phase 5.
-- Glossary «ویرایش» action and the glossary screen: Phase 3.
-- User edits, reading progress, summaries and conversations are still per device (localStorage); they move to the API
-  together with translations in Phase 3. Books, structure and source text come from the API since Phase 2.
+- Glossary screen: done in Phase 3 (`/books/:id/glossary`); the popover's «ویرایش» opens it.
+- User edits moved to the API in Phase 3 (with revisions). Reading progress, summaries and tutor conversations are
+  still per device (localStorage) until Phase 4.
 - UI language is Persian only (`fa.json`); an English UI file comes with Phase 6 language validation.
 
 ## Phase 2 — Backend, database, PDF ingestion, structure review
@@ -67,9 +67,49 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
   preview and split picker), reader reading the API bundle (source-only rows until translated), server search.
 
 ## Phase 3 — Engine layer, agent mode, translation pipeline
-- [ ] Fixture book + one real chapter translated end-to-end via `/process-batches`; counter reaches 100%
-- [ ] `agent:submit` rejects malformed results with actionable errors; double submit is a no-op; restart resumes
-- [ ] Normalizer/QA tests (100+ Persian cases) green; review queue works; user edits survive re-runs
+- [~] Fixture book + one real chapter translated end-to-end via `/process-batches`; counter reaches 100% —
+  **fixture: done.** `fixtures/pdf/outline-book.pdf` was translated in agent mode by following the
+  `/process-batches` loop by hand (`agent:next` → real Persian translation per `prompts/` → `agent:submit`):
+  10 batches (brief 1, glossary 1, translate 4, edit 4). The human glossary review fixed two plural entries and added
+  «gear»; one editor flag (a cultural reference) was approved in the review queue; the counter reached 18/18 and the
+  book became «آماده». Every translatable segment has exactly one final translation. **Real chapter: open** — the
+  owner runs it on their own PDF (agreed option «الف»); the data stays in `data/`.
+- [x] `agent:submit` rejects malformed results with actionable errors; double submit is a no-op; restart resumes —
+  `apps/api/src/pipeline.test.ts` (fake agent: wrong script → report with key/rule/fix, release, fixed resubmit;
+  second submit of the same file → «already imported»; API closed and rebuilt mid-run with an expired lease → the
+  run finishes), plus `packages/ai/src/engine/engine.test.ts` for the validation rules.
+- [x] Normalizer/QA tests (100+ Persian cases) green; review queue works; user edits survive re-runs —
+  `packages/text/src/postprocess.test.ts` (137 table-driven cases), `qa.test.ts` (54), review queue in e2e
+  `translate.spec.ts` and API tests, user edit → re-run → suggestion (text unchanged) in `pipeline.test.ts`.
+
+### Phase 3 — what exists (summary)
+- `packages/text`: Persian post-processing (characters, safe ZWNJ joins, ezafe «ه‌ی»/«هٔ», punctuation, digits with
+  grouping/decimal rules, Latin digits option) that never touches code, URLs, markup tokens or Latin runs;
+  first-mention parentheticals per chapter; QA checks (empty, markup, numbers, target script, untranslated text,
+  repetition, glossary and name consistency, leftover letters, Latin punctuation, length outliers).
+- `packages/shared`: agent batch/result schemas (Appendix E), translation settings and pipeline status types.
+- `packages/ai`: task specs (brief, glossary, translate, edit, summary, quiz, tutor answer) with the same validation
+  for every engine, prompt loading with versions, `agent` and `mock` engines, CLI-ready validation reports.
+- `packages/core`: chunking within sections, short keys, priorities, location paths, glossary candidates (n-grams,
+  names, acronyms, emphasized terms; plurals merged), translation-memory keys.
+- `apps/api`: per-section job DAG (brief → glossary → human review gate → translate chunks in chapter order → edit per
+  section → chapter first-mention pass), translation memory, agent batches with leases and `AGENT_MAX_PENDING`,
+  `agent:status|next|submit|validate|release` (works with or without the API; changes reach open pages within ~1 s),
+  mock engine in-process, pipeline control (estimate/start/pause/resume/cancel/priority/retry), glossary CRUD +
+  approve + apply, manual edits with revisions, review queue actions, suggestions for user-edited segments.
+- `apps/web`: wizard steps 4–6 (settings with estimate, brief & glossary review, progress with the Claude Code hint),
+  pipeline dashboard, glossary screen, review queue (J/K), server-side edits with history and undo, «ترجمه‌ی این
+  بخش را الان انجام بده» moves the section to the front of the queue, progressive availability over SSE, library
+  chips «در انتظار Claude Code: N».
+
+### Known limitations (Phase 3)
+- Quality profile «بهترین» = «متعادل» with a stricter review threshold (0.85); the back-translation check needs an
+  extra task type and comes with the API engines (Phase 4). See ADR-023.
+- Summaries, quizzes and deferred tutor answers through the agent: Phase 4 (schemas and validation exist).
+- Glossary CSV import/export and the global glossary: Phase 5.
+- The reader refetches the whole book bundle (debounced) when segments change; fine for normal books, per-section
+  loading if profiling asks for it (ADR-013).
+- The mock engine writes pseudo-Persian (fixed word mapping) — for demos and tests only.
 
 ## Phase 4 — API engines & real-time tutor
 - [ ] Any task switchable between agent / anthropic / openai / mock without code changes
