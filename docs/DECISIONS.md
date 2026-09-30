@@ -305,3 +305,6 @@ Format for each entry:
   clean page (median word confidence ≥ 80) words below 45 are dropped as figure noise; poor scans keep every word.
 - **Consequences:** ~9.5 s per page (329 pages ≈ 50 min). Text-less pages with large vector charts are OCR'd too
   (cheap, and mostly yield nothing).
+- **Addendum:** PDFs OCR'd by other tools (PDF24, ocrmypdf) carry an invisible Tesseract text layer in
+  `GlyphLessFont`, which pdf.js reports as monospace; it is now plain body text (it had turned 230,000 words into
+  untranslated "code" blocks).
