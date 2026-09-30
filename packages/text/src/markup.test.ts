@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareMarkup, serializeMarkup, stripMarkup, tokenize, tokenSignature } from './markup';
+import { compareMarkup, markupToHtml, serializeMarkup, stripMarkup, tokenize, tokenSignature } from './markup';
 
 describe('markup tokenizer', () => {
   it('parses emphasis, strong, code, refs and URLs', () => {
@@ -65,5 +65,23 @@ describe('serializeMarkup', () => {
     'A literal \\* star.',
   ])('round-trips %s', (src) => {
     expect(serializeMarkup(tokenize(src))).toBe(src);
+  });
+});
+
+describe('markupToHtml', () => {
+  it('renders emphasis, code, footnote markers, references and links', () => {
+    expect(markupToHtml('A *soft* and **bold** `x<y` note[^3] see [[fig:2]] at https://example.org/a.')).toBe(
+      'A <em>soft</em> and <strong>bold</strong> <code>x&lt;y</code> note<sup class="fn">3</sup> see Fig. 2 at <a href="https://example.org/a" rel="noopener noreferrer" target="_blank">https://example.org/a</a>.',
+    );
+  });
+
+  it('escapes everything that comes from the book', () => {
+    const html = markupToHtml('<script>alert("x")</script> & *<img onerror=1>*');
+    expect(html).not.toMatch(/<script|<img/);
+    expect(html).toBe('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; <em>&lt;img onerror=1&gt;</em>');
+  });
+
+  it('uses the language labels for figure and table references', () => {
+    expect(markupToHtml('[[tab:4]]', { fig: 'شکل', tab: 'جدول' })).toBe('جدول 4');
   });
 });

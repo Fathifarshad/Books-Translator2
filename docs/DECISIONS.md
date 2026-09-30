@@ -258,3 +258,25 @@ Format for each entry:
   pages were read with OCR. Bold/italic are not recognized (headings are found by size and the printed contents).
   Pages already carrying an OCR text layer (e.g. from PDF24) are read as text, without OCR.
 
+## ADR-032 — Phones: an offline single-file reader and online access through a tunnel (2026-09-30)
+- **Context:** the owner wants his son (a student, Android) to use translated books on his phone; translation keeps
+  running on the owner's computer. SPEC places mobile apps (Capacitor, hosted API) in Phase 6.
+- **Decision:** two ways now. (1) `GET /books/:id/export/offline`: one self-contained HTML file — book data as
+  escaped HTML fragments, a dependency-free reader (contents, target/bilingual/source, search, glossary, font size,
+  dark mode, position memory), Vazirmatn embedded, strict CSP, no network. (2) `pnpm share`: builds the web app,
+  the API serves it (`SERVE_WEB=1`, one port), and a free Cloudflare quick tunnel gives an https link; the web app
+  is installable (manifest + icons).
+- **Consequences:** no app store and no hosting cost; the offline copy has no tutor; the online link lives while
+  the owner's computer runs `pnpm share` and changes on every start. Capacitor builds stay in Phase 6.
+
+## ADR-033 — Remote readers: access password, read-only role, same-origin writes (2026-09-30)
+- **Context:** exposing the local app through a tunnel must not expose the library, the keys or the settings.
+- **Decision:** requests from this computer (loopback address, localhost Host, no proxy headers) are the owner.
+  Everything else needs the access password (scrypt hash, set only by the owner); a login gives a 30-day HttpOnly
+  SameSite=Lax cookie (HMAC token, re-keyed when the password changes; 10 failures per address per 10 minutes).
+  Remote sessions are **readers**: GET routes, `/assist/*` and sign-out only; settings, uploads, edits and
+  deletions answer `READ_ONLY`. Without a password remote access is off (`REMOTE_DISABLED`). State-changing
+  requests with a foreign `Origin` are refused (`BAD_ORIGIN`), which also closes CSRF against the local app.
+- **Consequences:** the son can read and ask the tutor (on the owner's AI quota) but cannot change anything; the
+  UI hides owner actions for readers and shows a sign-in screen on other devices.
+

@@ -20,7 +20,7 @@ interface Captured extends SelectionContext {
  */
 export function SelectionToolbar({ containerRef }: { containerRef: RefObject<HTMLElement | null> }) {
   const { t } = useTranslation();
-  const { bookId, editSegment } = useReader();
+  const { bookId, editSegment, canEdit } = useReader();
   const coarse = useCoarsePointer();
   const editBeforeSend = useSettings((s) => s.editBeforeSend);
   const [sel, setSel] = useState<Captured | null>(null);
@@ -134,7 +134,7 @@ export function SelectionToolbar({ containerRef }: { containerRef: RefObject<HTM
             done();
           }}
         />
-        {sel.column === 'target' && sel.segmentIds[0] ? (
+        {canEdit && sel.column === 'target' && sel.segmentIds[0] ? (
           <IconButton
             icon="edit"
             label={t('reader.suggestFix')}

@@ -24,7 +24,8 @@
     "agent:next": "pnpm --silent --filter @dozabaneh/api agent next",
     "agent:submit": "pnpm --silent --filter @dozabaneh/api agent submit",
     "agent:validate": "pnpm --silent --filter @dozabaneh/api agent validate",
-    "agent:release": "pnpm --silent --filter @dozabaneh/api agent release"
+    "agent:release": "pnpm --silent --filter @dozabaneh/api agent release",
+    "share": "node scripts/share.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

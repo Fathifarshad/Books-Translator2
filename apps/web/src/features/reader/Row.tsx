@@ -26,7 +26,7 @@ const TEXT_TYPES = new Set(['heading', 'paragraph', 'list_item', 'quote', 'capti
 /** One aligned segment pair — target cell, source cell and the paragraph tool gutter (SPEC §11.4/§11.7). */
 export function Row({ row, layout, editing, flash }: RowProps) {
   const { t } = useTranslation();
-  const { bookId, sourceLang, targetLang, editSegment } = useReader();
+  const { bookId, sourceLang, targetLang, editSegment, canEdit } = useReader();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -119,7 +119,7 @@ export function Row({ row, layout, editing, flash }: RowProps) {
             },
           })
         }
-        onEdit={row.tgt !== undefined ? () => editSegment(row.segmentId) : undefined}
+        onEdit={row.tgt !== undefined && canEdit ? () => editSegment(row.segmentId) : undefined}
         onToggleOriginal={layout === 'target' ? () => setShowOriginal((v) => !v) : undefined}
         originalShown={showOriginal}
       />

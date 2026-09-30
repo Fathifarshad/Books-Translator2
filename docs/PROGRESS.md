@@ -6,8 +6,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance cr
 - [~] `pnpm install && pnpm dev` works on a clean machine (Windows included) — verified on Linux (Node 22.22, pnpm 10.33):
   API `/api/v1/health` + web on :5173. Scripts are cross-platform (no shell syntax); Windows not yet tried.
 - [x] Quality gate green (≥ 1 unit test, ≥ 1 Playwright test) — `pnpm lint && pnpm typecheck && pnpm test && pnpm e2e`:
-  442 unit tests, 36 e2e tests (desktop 1440×900 + mobile 390×844 + providers against a fake server, axe included)
-  as of Phase 4.
+  468 unit tests, 39 e2e tests (desktop 1440×900 + mobile 390×844 + providers against a fake server, axe included)
+  as of Phase 4 + OCR + phones.
 - [x] No Persian literals in components (i18n only) — enforced by `apps/web/src/guards.test.ts` (also: logical CSS only,
   every `t('…')` key exists).
 
@@ -166,6 +166,14 @@ the sandbox has no access to the real services, so the first real connection is 
   > 85% word recall (`packages/pdf/src/ocr.test.ts`, also through the ingestion worker). Unreadable books now get a
   clear alert in the report, an explanation instead of a blank reader, and `NOTHING_TO_TRANSLATE` instead of a
   pipeline that «finishes» at 0%.
+
+- [x] Phones (Phase 6 preview, owner's request) — ADR-032/033: «نسخه‌ی آفلاین برای موبایل» (one HTML file,
+  works offline: `apps/api/src/export/`), `pnpm share` (API serves the built app + Cloudflare quick tunnel,
+  `scripts/share.mjs`), installable web app (manifest, icons), access password with read-only remote readers,
+  same-origin check for writes. Tests: `apps/api/src/export.test.ts`, `access.test.ts` (incl. Host spoofing from the
+  LAN, CSRF, brute force), e2e `remote-mobile.spec.ts` (sign-in, read-only library, offline file opened with the
+  network off). Screens: `docs/screens/mobile/`. The tunnel itself (cloudflared) was not reachable from the build
+  sandbox; its link is parsed from cloudflared's output and shown in Settings.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

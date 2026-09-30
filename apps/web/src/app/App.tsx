@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { createBrowserRouter, Link, Outlet } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { queryClient } from '../data/books';
+import { AccessGate } from '../features/auth/AccessGate';
 import { LibraryPage } from '../features/library/LibraryPage';
 import { ReaderPage } from '../features/reader/ReaderPage';
 import { useMediaQuery } from '../lib/hooks';
@@ -40,7 +41,9 @@ function Shell() {
       >
         {t('app.skipToContent')}
       </a>
-      <Outlet />
+      <AccessGate>
+        <Outlet />
+      </AccessGate>
     </Direction.Provider>
   );
 }

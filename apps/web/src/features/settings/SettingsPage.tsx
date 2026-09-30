@@ -2,13 +2,19 @@ import { LANGUAGES } from '@dozabaneh/text';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Icon } from '../../components/Icon';
+import { Button } from '../../components/ui';
 import { languageName } from '../../lib/format';
+import { useSignOut } from '../auth/AccessGate';
+import { useIsOwner } from '../auth/access';
+import { AccessSection } from './AccessSection';
 import { DisplaySettingsForm } from './DisplaySettingsForm';
 import { EnginesSection } from './EnginesSection';
 
 /** Settings «تنظیمات» (SPEC §13.7): display, AI engines (free providers, keys stay on the server), languages. */
 export function SettingsPage() {
   const { t } = useTranslation();
+  const owner = useIsOwner();
+  const signOut = useSignOut();
   return (
     <main id="main" className="mx-auto min-h-dvh max-w-2xl px-5 py-8">
       <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted hover:text-accent">
@@ -22,7 +28,19 @@ export function SettingsPage() {
         <DisplaySettingsForm />
       </section>
 
-      <EnginesSection />
+      {owner ? (
+        <>
+          <EnginesSection />
+          <AccessSection />
+        </>
+      ) : (
+        <section className="mt-6 rounded-2xl border border-border bg-surface p-5">
+          <p className="text-sm text-muted">{t('access.readerHint')}</p>
+          <Button className="mt-3" onClick={() => signOut.mutate()} disabled={signOut.isPending}>
+            {t('access.signOut')}
+          </Button>
+        </section>
+      )}
 
       <section className="mt-6 rounded-2xl border border-border bg-surface p-5">
         <h2 className="mb-2 text-lg font-bold">{t('settings.languages')}</h2>

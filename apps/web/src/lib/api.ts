@@ -238,6 +238,18 @@ export const api = {
       `/books/${id}/review?lang=${encodeURIComponent(lang)}&filter=${filter}`,
     ),
 
+  // Access from other devices (phone through `pnpm share`)
+  me: () => request<{ role: 'owner' | 'reader' | null; local: boolean; passwordSet: boolean }>('/auth/me'),
+  login: (password: string) =>
+    request<{ role: 'reader' }>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+  logout: () => request<{ ok: true }>('/auth/logout', { method: 'POST' }),
+  accessSettings: () => request<{ passwordSet: boolean; publicUrl: string | null }>('/settings/access'),
+  setAccessPassword: (password: string | null) =>
+    request<{ passwordSet: boolean; publicUrl: string | null }>('/settings/access', {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    }),
+
   // AI engines (Phase 4): free providers, keys are write-only
   providers: () => request<ProviderSettingsResponse>('/settings/providers'),
   updateProvider: (id: ProviderId, patch: ProviderUpdate) =>
@@ -261,6 +273,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
 };
+
+/** «نسخه‌ی آفلاین»: one HTML file with the book and a phone reader (downloaded by the browser). */
+export function offlineExportUrl(bookId: string, lang?: string): string {
+  return apiUrl(`/books/${bookId}/export/offline${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
+}
 
 /** Full-page navigation target of «اتصال با یک کلیک» (OpenRouter's authorization page, then back here). */
 export function openRouterConnectUrl(returnTo: string): string {

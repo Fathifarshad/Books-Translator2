@@ -11,6 +11,7 @@ import { useLayout, useTwoColumns } from '../../lib/hooks';
 import { useLibrary } from '../../stores/library';
 import { TOC_WIDTH, TUTOR_WIDTH, useReaderUi } from '../../stores/reader';
 import { readerCssVars, useSettings } from '../../stores/settings';
+import { useIsOwner } from '../auth/access';
 import { useBookLiveUpdates } from '../pipeline/live';
 import { TutorPanel } from '../tutor/TutorPanel';
 import { ReaderContext, type ReaderContextValue } from './context';
@@ -88,6 +89,7 @@ function Reader({
   const targetLang = targetLangOf(index);
   const sourceLang = index.book.sourceLang;
   const section = useMemo(() => buildSection(index, nodeId, targetLang), [index, nodeId, targetLang]);
+  const canEdit = useIsOwner();
 
   useEffect(() => {
     const store = useReaderUi.getState();
@@ -117,8 +119,9 @@ function Reader({
         ),
       },
       editSegment: (segmentId) => useReaderUi.getState().set({ editingSegmentId: segmentId }),
+      canEdit,
     };
-  }, [bookId, index, section, sourceLang, targetLang]);
+  }, [bookId, index, section, sourceLang, targetLang, canEdit]);
 
   // Document title from the section (isolated runs so mixed-direction titles stay intact).
   useEffect(() => {

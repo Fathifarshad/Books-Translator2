@@ -153,6 +153,49 @@ export function serializeMarkup(tokens: MarkupToken[]): string {
     .join('');
 }
 
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/** Escapes text for HTML element content and attribute values. */
+export function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] as string);
+}
+
+/**
+ * Static HTML for inline markup (exports such as the offline reader). Every text is escaped; only a fixed set
+ * of tags is produced, and links are http(s) only — book text can never inject markup.
+ */
+export function markupToHtml(
+  src: string,
+  refLabels: { fig: string; tab: string } = { fig: 'Fig.', tab: 'Tab.' },
+): string {
+  const render = (tokens: MarkupToken[]): string =>
+    tokens
+      .map((t) => {
+        switch (t.type) {
+          case 'text':
+            return escapeHtml(t.text);
+          case 'em':
+            return `<em>${render(t.children)}</em>`;
+          case 'strong':
+            return `<strong>${render(t.children)}</strong>`;
+          case 'code':
+            return `<code>${escapeHtml(t.text)}</code>`;
+          case 'fnref':
+            return `<sup class="fn">${escapeHtml(t.id)}</sup>`;
+          case 'ref':
+            return escapeHtml(`${refLabels[t.kind]} ${t.id}`);
+          case 'url':
+            return /^https?:\/\//.test(t.url)
+              ? `<a href="${escapeHtml(t.url)}" rel="noopener noreferrer" target="_blank">${escapeHtml(t.url)}</a>`
+              : escapeHtml(t.url);
+          default:
+            return '';
+        }
+      })
+      .join('');
+  return render(tokenize(src));
+}
+
 export function stripMarkup(src: string): string {
   return plainText(tokenize(src));
 }

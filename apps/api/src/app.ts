@@ -1,9 +1,11 @@
+import { join } from 'node:path';
 import { sampleBook } from '@dozabaneh/shared/sample-book';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
-import type { Config } from './config';
+import { AccessControl, accessHook } from './access';
+import { type Config, repoRoot } from './config';
 import { type Db, openDb } from './db/client';
 import { ensureLocalUser, seedBundle } from './db/repo';
 import { EventBus } from './events';
@@ -11,9 +13,11 @@ import { JobRunner, pipelineCtx } from './jobs/runner';
 import { advanceAll } from './pipeline/advance';
 import { NotificationPoller } from './pipeline/notify';
 import { assistRoutes } from './routes/assist';
+import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
+import { exportRoutes } from './routes/export';
 import { glossaryRoutes } from './routes/glossary';
 import { healthRoutes } from './routes/health';
 import { pipelineRoutes } from './routes/pipeline';
@@ -23,6 +27,7 @@ import { settingsRoutes } from './routes/settings';
 import { structureRoutes } from './routes/structure';
 import { ProviderService } from './settings/providers';
 import { createSecretBox } from './settings/secrets';
+import { serveWeb } from './static';
 
 export interface AppContext {
   config: Config;
@@ -30,6 +35,7 @@ export interface AppContext {
   bus: EventBus;
   runner: JobRunner;
   providers: ProviderService;
+  access: AccessControl;
 }
 
 export interface BuildOptions {
@@ -53,7 +59,8 @@ export async function buildApp(
   if (config.AUTO_SEED) seedBundle(db, sampleBook, 'us_local');
   const bus = new EventBus();
   const providers = new ProviderService(db, config, createSecretBox(config.APP_SECRET, config.dataDir));
-  const ctx: AppContext = { config, db, bus, providers, runner: undefined as unknown as JobRunner };
+  const access = new AccessControl(db);
+  const ctx: AppContext = { config, db, bus, providers, access, runner: undefined as unknown as JobRunner };
   ctx.runner = new JobRunner({ db, bus, config, providers, log: app.log });
 
   // CORS only for configured web origins (SPEC §16); the mobile app will use bearer tokens later.
@@ -86,7 +93,10 @@ export async function buildApp(
     });
   });
 
+  // Remote devices: password + read-only role; this computer is the owner (see access.ts).
+  app.addHook('onRequest', accessHook(access, config.webOrigins));
   await app.register(healthRoutes, { config });
+  await app.register(authRoutes, { ctx });
   await app.register(bookRoutes, { ctx });
   await app.register(structureRoutes, { ctx });
   await app.register(searchRoutes, { ctx });
@@ -96,6 +106,11 @@ export async function buildApp(
   await app.register(segmentRoutes, { ctx });
   await app.register(settingsRoutes, { ctx });
   await app.register(assistRoutes, { ctx });
+  await app.register(exportRoutes, { ctx });
+
+  if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
+    app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');
+  }
 
   // Events written by the agent CLI (another process) reach open pages through the notifications table.
   const poller = new NotificationPoller(db, bus, () => ctx.runner.kick());

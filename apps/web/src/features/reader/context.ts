@@ -13,6 +13,8 @@ export interface ReaderContextValue {
   matchers: { source: GlossaryMatcher; target: GlossaryMatcher };
   /** Opens the inline translation editor for a segment. */
   editSegment: (segmentId: string | undefined) => void;
+  /** False for readers signed in from another device (read-only access). */
+  canEdit: boolean;
 }
 
 export const ReaderContext = createContext<ReaderContextValue | null>(null);

@@ -9,6 +9,11 @@ const bool = z
   .default('1')
   .transform((v) => v === '1' || v === 'true');
 
+const flag = z
+  .enum(['0', '1', 'true', 'false'])
+  .default('0')
+  .transform((v) => v === '1' || v === 'true');
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8787),
   HOST: z.string().default('127.0.0.1'),
@@ -22,6 +27,8 @@ const EnvSchema = z.object({
   AUTO_SEED: bool,
   /** Read scanned pages (no text layer) with OCR during ingestion. */
   OCR: bool,
+  /** Serve the built web app (apps/web/dist) from the API — share mode (`pnpm share`). */
+  SERVE_WEB: flag,
   AGENT_MAX_PENDING: z.coerce.number().int().positive().default(40),
   AGENT_LEASE_MINUTES: z.coerce.number().positive().default(60),
   /** Simulated latency of the mock engine per batch (ms), so progress is visible in demos. */

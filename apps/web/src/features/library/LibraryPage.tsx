@@ -7,14 +7,18 @@ import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button, IconButton, ProgressBar } from '../../components/ui';
 import { booksKey, useBooks } from '../../data/books';
-import { api, type BookSummary } from '../../lib/api';
+import { api, type BookSummary, offlineExportUrl } from '../../lib/api';
 import { fmtNum, fmtPct } from '../../lib/format';
 import { useLibrary } from '../../stores/library';
+import { useIsOwner } from '../auth/access';
+import { useAssistantEngine } from '../settings/engines';
 
 /** Library «کتابخانه» (SPEC §13.1), backed by the API. */
 export function LibraryPage() {
   const { t } = useTranslation();
   const books = useBooks();
+  const isOwner = useIsOwner();
+  const assistant = useAssistantEngine();
   const health = useQuery({ queryKey: ['health'], queryFn: api.health, retry: false, staleTime: 30_000 });
 
   return (
@@ -47,18 +51,32 @@ export function LibraryPage() {
       <main id="main" className="mx-auto max-w-6xl px-5 py-8">
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">{t('library.title')}</h1>
-          <Link
-            to="/books/new"
-            className="ms-auto inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
-            data-testid="add-book"
-          >
-            <Icon name="plus" size={16} />
-            {t('library.addBook')}
-          </Link>
+          {isOwner ? (
+            <Link
+              to="/books/new"
+              className="ms-auto inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
+              data-testid="add-book"
+            >
+              <Icon name="plus" size={16} />
+              {t('library.addBook')}
+            </Link>
+          ) : (
+            <span
+              className="ms-auto rounded-full bg-accent-soft px-3 py-1 text-xs text-accent"
+              data-testid="reader-badge"
+            >
+              {t('access.readerBadge')}
+            </span>
+          )}
         </div>
-        <p className="mb-6 rounded-xl border border-border bg-panel px-4 py-3 text-sm text-muted">
-          {t('app.mockNotice')}
-        </p>
+        {isOwner && assistant === 'mock' ? (
+          <p className="mb-6 rounded-xl border border-border bg-panel px-4 py-3 text-sm text-muted">
+            {t('app.mockNotice')}{' '}
+            <Link to="/settings?tab=engines" className="text-accent underline underline-offset-4">
+              {t('setup.connectEngines')}
+            </Link>
+          </p>
+        ) : null}
         {books.isError ? (
           <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
             {t('app.serverDown')}
@@ -205,6 +223,7 @@ function BookCard({ summary }: { summary: BookSummary }) {
 
 function BookMenu({ summary }: { summary: BookSummary }) {
   const { t } = useTranslation();
+  const owner = useIsOwner();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
@@ -230,17 +249,27 @@ function BookMenu({ summary }: { summary: BookSummary }) {
             sideOffset={4}
             className="z-50 w-52 rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-popover)]"
           >
-            <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/setup`)}>
-              <Icon name="sidebar" size={16} />
-              {t('library.review')}
+            <DropdownMenu.Item className={item} asChild>
+              <a href={offlineExportUrl(summary.book.id)} download data-testid="export-offline">
+                <Icon name="download" size={16} />
+                {t('library.exportOffline')}
+              </a>
             </DropdownMenu.Item>
-            <DropdownMenu.Item
-              className={`${item} text-danger data-[highlighted]:bg-danger-soft`}
-              onSelect={() => setConfirm(true)}
-            >
-              <Icon name="trash" size={16} />
-              {t('library.deleteBook')}
-            </DropdownMenu.Item>
+            {owner ? (
+              <>
+                <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/setup`)}>
+                  <Icon name="sidebar" size={16} />
+                  {t('library.review')}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className={`${item} text-danger data-[highlighted]:bg-danger-soft`}
+                  onSelect={() => setConfirm(true)}
+                >
+                  <Icon name="trash" size={16} />
+                  {t('library.deleteBook')}
+                </DropdownMenu.Item>
+              </>
+            ) : null}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
