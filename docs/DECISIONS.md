@@ -259,7 +259,7 @@ Format for each entry:
   Pages already carrying an OCR text layer (e.g. from PDF24) are read as text, without OCR.
 
 ## ADR-032 — Phones: an offline single-file reader and online access through a tunnel (2026-09-30)
-- **Context:** the owner wants his son (a student, Android) to use translated books on his phone; translation keeps
+- **Context:** the owner wants their son (a student, Android) to use translated books on his phone; translation keeps
   running on the owner's computer. SPEC places mobile apps (Capacitor, hosted API) in Phase 6.
 - **Decision:** two ways now. (1) `GET /books/:id/export/offline`: one self-contained HTML file — book data as
   escaped HTML fragments, a dependency-free reader (contents, target/bilingual/source, search, glossary, font size,
@@ -268,6 +268,10 @@ Format for each entry:
   is installable (manifest + icons).
 - **Consequences:** no app store and no hosting cost; the offline copy has no tutor; the online link lives while
   the owner's computer runs `pnpm share` and changes on every start. Capacitor builds stay in Phase 6.
+- **Amendment (first run on Windows):** `pnpm share` prints English — Windows consoles show right-to-left text
+  reversed. It opens `http://localhost:8787` itself (the owner kept using the dev port 5173), lists only real network
+  cards, starts `cloudflared` without a shell (under `cmd.exe` a missing program failed silently) and also finds it
+  in the installer's folders, since a PowerShell opened before `winget install` does not see the new PATH.
 
 ## ADR-033 — Remote readers: access password, read-only role, same-origin writes (2026-09-30)
 - **Context:** exposing the local app through a tunnel must not expose the library, the keys or the settings.
