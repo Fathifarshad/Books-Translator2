@@ -1,0 +1,39 @@
+{
+  "source": "outline",
+  "labels": ["1"],
+  "nodes": [
+    {
+      "kind": "chapter",
+      "depth": 0,
+      "title": "A Note on Wind",
+      "numberLabel": "1",
+      "skip": false,
+      "pages": [0, 0],
+      "segments": [
+        ["heading", "A Note on Wind"],
+        [
+          "paragraph",
+          "Wind is air on the move. It flows from places where the air presses down harder toward places where it presses down less, and the larger the difference, the stronger the wind."
+        ],
+        [
+          "paragraph",
+          "Near the ground, hills, trees and buildings slow the wind and bend its path. Higher up there is less in the way, which is one reason why tall towers catch steadier breezes than short ones do on the same afternoon."
+        ],
+        [
+          "paragraph",
+          "Sailors learned to read the wind long before anyone could measure it. They watched clouds, waves and birds, and they passed what they saw from one crew to the next."
+        ],
+        [
+          "paragraph",
+          "A simple vane shows where the wind comes from, and a cup anemometer shows how fast it blows. Together they turn a feeling on the skin into numbers that can be compared."
+        ]
+      ]
+    }
+  ],
+  "stats": {
+    "mergedContinuations": 1,
+    "dehyphenated": 0,
+    "removedHeaderFooterLines": 0,
+    "suspectedBreaks": 0
+  }
+}

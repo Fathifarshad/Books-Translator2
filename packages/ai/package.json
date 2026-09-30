@@ -1,0 +1,19 @@
+{
+  "name": "@dozabaneh/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI engine layer: task specs, prompt loading, result validation and engines (mock, agent; API engines in Phase 4).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dozabaneh/core": "workspace:*",
+    "@dozabaneh/shared": "workspace:*",
+    "@dozabaneh/text": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

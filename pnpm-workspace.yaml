@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+
+# better-sqlite3 ships prebuilt binaries (Windows, macOS, Linux; x64 and arm64) inside the package; its implicit
+# `node-gyp rebuild` is not needed and fails on machines without node-gyp or a C++ toolchain.
+ignoredBuiltDependencies:
+  - better-sqlite3
+  # Only prints a funding message; the OCR engine is plain WebAssembly.
+  - tesseract.js

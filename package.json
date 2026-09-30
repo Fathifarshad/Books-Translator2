@@ -1,0 +1,41 @@
+{
+  "name": "dozabaneh",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Bilingual PDF book translator and parallel reader with an AI tutor (English to Persian)",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "dev": "concurrently -n api,web -c blue,magenta \"pnpm --filter @dozabaneh/api dev\" \"pnpm --filter @dozabaneh/web dev\"",
+    "build": "pnpm -r build",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "pnpm --filter @dozabaneh/web e2e",
+    "screens": "pnpm --filter @dozabaneh/web screens",
+    "fixtures:pdf": "pnpm --filter @dozabaneh/pdf fixtures",
+    "pdf:inspect": "pnpm --filter @dozabaneh/pdf inspect",
+    "db:migrate": "pnpm --filter @dozabaneh/api db:migrate",
+    "db:seed": "pnpm --filter @dozabaneh/api db:seed",
+    "agent:status": "pnpm --silent --filter @dozabaneh/api agent status",
+    "agent:next": "pnpm --silent --filter @dozabaneh/api agent next",
+    "agent:submit": "pnpm --silent --filter @dozabaneh/api agent submit",
+    "agent:validate": "pnpm --silent --filter @dozabaneh/api agent validate",
+    "agent:release": "pnpm --silent --filter @dozabaneh/api agent release",
+    "share": "node scripts/share.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "^26.6.3",
+    "concurrently": "^10.0.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

@@ -1,0 +1,208 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* Map design tokens to Tailwind utilities; values switch with [data-theme]. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-row-hover: var(--row-hover);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --font-fa: var(--font-fa);
+  --font-en: var(--font-en);
+  --font-mono: var(--font-mono);
+  --radius-card: var(--radius-card);
+  --shadow-popover: var(--shadow-popover);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-fa);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--selection);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Language-specific typography: Arabic-script emphasis uses weight, never fake italics. */
+  :lang(fa) em,
+  :lang(ar) em {
+    font-style: normal;
+    font-weight: 650;
+  }
+
+  :lang(en) {
+    font-family: var(--font-en);
+  }
+
+  :lang(fa) {
+    font-family: var(--font-fa);
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Directional icons mirror in RTL (SPEC §3.1). */
+  [dir="rtl"] .icon-dir {
+    transform: scaleX(-1);
+  }
+
+  .reader-text {
+    font-size: var(--reader-font-size);
+  }
+
+  .reader-text:lang(fa) {
+    line-height: var(--reader-line-height-fa);
+  }
+
+  .reader-text:lang(en) {
+    line-height: var(--reader-line-height-en);
+  }
+
+  .justify .reader-text {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+
+  /* Glossary terms: dotted underline in the accent colour at ~50% opacity. */
+  .term {
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--term-underline);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.35em;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: help;
+  }
+
+  .term:hover,
+  .term[aria-expanded="true"] {
+    text-decoration-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .row-flash {
+    animation: row-flash 2s ease-out;
+  }
+
+  @keyframes row-flash {
+    0%,
+    40% {
+      background: var(--accent-soft);
+    }
+    100% {
+      background: transparent;
+    }
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  /* Tutor answers: each paragraph finds its own direction; Latin runs stay isolated. */
+  .answer p,
+  .answer li {
+    unicode-bidi: plaintext;
+  }
+
+  .answer p + p,
+  .answer ul,
+  .answer ol {
+    margin-block-start: 0.6em;
+  }
+
+  .answer ul {
+    list-style: disc;
+    padding-inline-start: 1.25rem;
+  }
+
+  .answer ol {
+    list-style: decimal;
+    padding-inline-start: 1.25rem;
+  }
+
+  .answer strong {
+    font-weight: 700;
+  }
+
+  .answer blockquote {
+    margin-block-start: 0.6em;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 2px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85em;
+  }
+
+  .answer code {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-size: 0.85em;
+    background: var(--panel);
+    padding-inline: 0.3em;
+    border-radius: 4px;
+  }
+
+  .sr-only-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

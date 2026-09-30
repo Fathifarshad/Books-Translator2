@@ -1,0 +1,29 @@
+{
+  "name": "@dozabaneh/pdf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PDF → ExtractedBook → BookStructure (pdf.js in a worker thread) + inspect tool.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "inspect": "tsx src/cli/inspect.ts",
+    "fixtures": "tsx scripts/make-fixtures.ts"
+  },
+  "dependencies": {
+    "@dozabaneh/shared": "workspace:*",
+    "@dozabaneh/text": "workspace:*",
+    "@napi-rs/canvas": "^1.0.9",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pdfkit": "^0.17.6",
+    "pdfkit": "^0.20.2",
+    "tsx": "^4.23.15"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@dozabaneh/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "e2e": "playwright test --project=desktop --project=mobile --project=providers",
+    "screens": "playwright test --project=screens"
+  },
+  "dependencies": {
+    "@dozabaneh/ai": "workspace:*",
+    "@dozabaneh/core": "workspace:*",
+    "@dozabaneh/shared": "workspace:*",
+    "@dozabaneh/text": "workspace:*",
+    "@floating-ui/react": "^0.27.20",
+    "@fontsource-variable/literata": "^5.3.0",
+    "@fontsource-variable/vazirmatn": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@tanstack/react-query": "^5.104.0",
+    "i18next": "^26.4.2",
+    "radix-ui": "^1.6.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-i18next": "^17.0.15",
+    "react-markdown": "^10.1.0",
+    "react-router": "^8.4.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "unist-util-visit": "^5.0.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/react": "^16.3.3",
+    "@types/mdast": "^4.0.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.1.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.1"
+  }
+}
