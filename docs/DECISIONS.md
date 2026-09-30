@@ -296,3 +296,15 @@ Format for each entry:
   owner asked for free options only); Claude quality is available at no extra cost through agent mode with Claude Code.
 - **Consequences:** each start rebuilds the web app (~30 s); `pnpm share` remains the way to reach phones. Adding the
   paid engine later is a new provider in `packages/ai` behind the existing engine interface.
+
+## ADR-035 — OCR for pages whose text is drawn as vector outlines; figure noise filter (2026-09-30)
+- **Context:** the owner's 329-page book is not a scan: its text was "printed" as ~4,000 filled glyph paths per page,
+  with no text layer and no images, so the image-coverage test never triggered OCR (12 words extracted). OCR of such
+  pages also read figure labels and photos as garbage lines (confidence < 45) that could become fake headings.
+- **Decision:** a text-less page with ≥ 300 path operations (`OUTLINED_TEXT_MIN_PATHS`) is OCR'd like a scan. On a
+  clean page (median word confidence ≥ 80) words below 45 are dropped as figure noise; poor scans keep every word.
+- **Consequences:** ~9.5 s per page (329 pages ≈ 50 min). Text-less pages with large vector charts are OCR'd too
+  (cheap, and mostly yield nothing).
+- **Addendum:** PDFs OCR'd by other tools (PDF24, ocrmypdf) carry an invisible Tesseract text layer in
+  `GlyphLessFont`, which pdf.js reports as monospace; it is now plain body text (it had turned 230,000 words into
+  untranslated "code" blocks).

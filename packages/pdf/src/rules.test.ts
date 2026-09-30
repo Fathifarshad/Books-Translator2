@@ -5,6 +5,7 @@ import { headerPattern, inferPageLabels, removeHeadersFooters, toRoman } from '.
 import { orderPage } from './layout';
 import { buildLines, type RawItem } from './lines';
 import { mergeContinuations } from './merge';
+import { fontStyle } from './normalize';
 import { normTitle, stripNumbering, titleSimilarity } from './similarity';
 import type { Block, Line, PageData } from './types';
 import { ingestInWorker } from './worker-client';
@@ -204,5 +205,12 @@ describe('worker thread', () => {
 
   it('rejects files that are not PDFs', async () => {
     await expect(ingestInWorker(fileURLToPath(import.meta.url))).rejects.toThrow();
+  });
+});
+
+describe('OCR text layers', () => {
+  it('treats the invisible GlyphLessFont as plain body text even though pdf.js calls it monospace', () => {
+    expect(fontStyle('GlyphLessFont', { family: 'monospace' })).toEqual({ bold: false, italic: false, mono: false });
+    expect(fontStyle('ABCDEF+Courier', { family: 'monospace' }).mono).toBe(true);
   });
 });

@@ -23,6 +23,7 @@ export function normalizeRunText(text: string): string {
 
 const BOLD = /bold|black|heavy|semibold|demi|[-,]b$|extrabold|ultrabold/i;
 const ITALIC = /italic|oblique|[-,]it$|[-,]i$|slanted/i;
+const OCR_LAYER_FONT = /^GlyphLessFont$/i;
 const MONO = /mono|courier|consol|menlo|inconsolata|typewriter|code|fixed|lucidaconsole/i;
 
 export interface FontStyle {
@@ -37,6 +38,9 @@ export function fontStyle(
   hints: { family?: string; bold?: boolean; italic?: boolean; mono?: boolean } = {},
 ): FontStyle {
   const clean = name.replace(/^[A-Z]{6}\+/, '');
+  // Invisible OCR text layers (Tesseract via PDF24, ocrmypdf…) use GlyphLessFont, which pdf.js reports as
+  // monospace; it carries no style at all, so it is plain body text, never code.
+  if (OCR_LAYER_FONT.test(clean)) return { bold: false, italic: false, mono: false };
   return {
     bold: Boolean(hints.bold) || BOLD.test(clean),
     italic: Boolean(hints.italic) || ITALIC.test(clean) || /BoldIt|[a-z]It\b/.test(clean),
