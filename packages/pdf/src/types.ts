@@ -42,6 +42,8 @@ export interface PageData {
   height: number;
   lines: Line[];
   images: Box[];
+  /** Path-drawing operations on the page (glyph outlines when a PDF was printed with text as shapes). */
+  vectorPaths?: number;
   /** The text of this page was recognized with OCR (scanned page). */
   ocr?: boolean;
 }
