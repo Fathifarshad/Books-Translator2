@@ -32,24 +32,27 @@ pnpm --version
 
 ## ۲. گرفتن کد برنامه
 
-کد فعلی در شاخه‌ی `claude/pdf-book-translation-app-jz6i99` است (PR شماره‌ی ۱). یکی از این دو راه:
+یکی از این دو راه:
 
-- **پیشنهادی:** PR را در GitHub ادغام (Merge) کنید، سپس:
+- **بدون Git (ساده‌ترین، برای دوستان):** در `https://github.com/Fathifarshad/Books-Translator2` دکمه‌ی سبز
+  **Code** ← **Download ZIP** را بزنید (یا در بخش **Releases** فایل «Source code (zip)» آخرین نسخه را بگیرید) و
+  فایل را از حالت فشرده خارج کنید. سپس روی **`start.cmd`** دوبار کلیک کنید (در مک/لینوکس: `./start.sh`) و بقیه‌ی
+  کارها خودکار انجام می‌شود.
+- **با Git (برای به‌روزرسانی آسان):**
 
 ```bash
 git clone https://github.com/Fathifarshad/Books-Translator2.git
 cd Books-Translator2
 ```
 
-- یا بدون ادغام:
-
-```bash
-git clone https://github.com/Fathifarshad/Books-Translator2.git
-cd Books-Translator2
-git checkout claude/pdf-book-translation-app-jz6i99
-```
+برای گرفتن نسخه‌های تازه بعداً فقط `git pull` بزنید.
 
 ## ۳. نصب و اجرا
+
+**راه ساده:** روی `start.cmd` دوبار کلیک کنید (مک/لینوکس: `./start.sh`). برنامه نصب، ساخته و در
+`http://localhost:8787` باز می‌شود. در این حالت برنامه فقط روی همین رایانه در دسترس است.
+
+**راه برنامه‌نویسی** (با بارگذاری خودکار تغییرات کد):
 
 ```bash
 pnpm install

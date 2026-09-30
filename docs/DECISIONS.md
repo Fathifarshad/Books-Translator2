@@ -284,3 +284,15 @@ Format for each entry:
 - **Consequences:** the son can read and ask the tutor (on the owner's AI quota) but cannot change anything; the
   UI hides owner actions for readers and shows a sign-in screen on other devices.
 
+
+## ADR-034 — Open-source release for non-developers: one-click start, CI, free engines only (2026-09-30)
+- **Context:** the owner wants friends to download and run the app without developer help, at no cost.
+- **Decision:** `start.cmd` (Windows) and `start.sh` (macOS/Linux) are thin wrappers around `scripts/start.mjs`, which
+  checks Node ≥ 22.22, enables pnpm (corepack, falling back to `npm install -g pnpm@10.33.0`), installs when
+  `node_modules` is missing or older than the lockfile, then runs `scripts/share.mjs --local`: the built app served by
+  the API on port 8787 bound to 127.0.0.1 (no tunnel, no remote access). Friends download the ZIP or a GitHub release;
+  data stays in each person's `data/`. CI runs lint, typecheck and unit tests on Windows and Linux (e2e stays local:
+  browsers and fake servers make it slow on free runners). The paid `anthropic`/`openai` engines stay unbuilt (the
+  owner asked for free options only); Claude quality is available at no extra cost through agent mode with Claude Code.
+- **Consequences:** each start rebuilds the web app (~30 s); `pnpm share` remains the way to reach phones. Adding the
+  paid engine later is a new provider in `packages/ai` behind the existing engine interface.

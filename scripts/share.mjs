@@ -8,6 +8,7 @@
  * Other devices must sign in with the access password (Settings → دسترسی از موبایل) and are read-only.
  * Terminal messages are English: Windows consoles print right-to-left text reversed.
  * Cross-platform: plain Node, no shell syntax. `--no-open` skips opening the browser.
+ * `--local` (used by `pnpm start` / start.cmd) serves this computer only: no tunnel, bound to 127.0.0.1.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -20,6 +21,7 @@ const port = Number(process.env.PORT ?? 8787);
 const local = `http://localhost:${port}`;
 const isWin = process.platform === 'win32';
 const pnpm = isWin ? 'pnpm.cmd' : 'pnpm';
+const localOnly = process.argv.includes('--local');
 const children = [];
 
 const say = (line = '') => process.stdout.write(`${line}\n`);
@@ -120,7 +122,7 @@ function installHint() {
   }
 }
 
-say('Dozabaneh - sharing mode for phones');
+say(localOnly ? 'Dozabaneh' : 'Dozabaneh - sharing mode for phones');
 say('[1/3] Building the web app...');
 const build = spawnSync(pnpm, ['--filter', '@dozabaneh/web', 'build'], { cwd: root, stdio: 'inherit', shell: isWin });
 if (build.status !== 0 || !existsSync(join(root, 'apps/web/dist/index.html'))) {
@@ -130,7 +132,12 @@ if (build.status !== 0 || !existsSync(join(root, 'apps/web/dist/index.html'))) {
 
 say('[2/3] Starting the app...');
 const api = run(pnpm, ['--filter', '@dozabaneh/api', 'start'], {
-  env: { ...process.env, SERVE_WEB: '1', PORT: String(port), HOST: process.env.HOST ?? '0.0.0.0' },
+  env: {
+    ...process.env,
+    SERVE_WEB: '1',
+    PORT: String(port),
+    HOST: process.env.HOST ?? (localOnly ? '127.0.0.1' : '0.0.0.0'),
+  },
 });
 api.on('exit', (code) => {
   say(`The app stopped (${code ?? 0}).`);
@@ -143,10 +150,16 @@ if (!(await waitForApi())) {
 await publishLink(null);
 say('');
 say(`On this computer open:  ${local}   (not 5173 - in sharing mode everything is on port ${port})`);
-const lan = lanAddresses();
+const lan = localOnly ? [] : lanAddresses();
 if (lan.length) say(`On the same Wi-Fi:      ${lan.join('   ')}`);
 say('');
 openBrowser(local);
+
+if (localOnly) {
+  say('Keep this window open while you use the app. To stop: Ctrl+C');
+  // The API child keeps the process alive; stopAll() exits when it stops or on Ctrl+C.
+  await new Promise(() => {});
+}
 
 say('[3/3] Creating a secure internet link (Cloudflare)...');
 const tunnelLog = [];

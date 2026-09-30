@@ -176,6 +176,12 @@ the sandbox has no access to the real services, so the first real connection is 
   network off). Screens: `docs/screens/mobile/`. The tunnel itself (cloudflared) was not reachable from the build
   sandbox; its link is parsed from cloudflared's output and shown in Settings.
 
+- [x] Open-source release v1.0.0 (owner's request) — ADR-034: one-click `start.cmd` / `start.sh` / `pnpm start`
+  (`scripts/start.mjs`: Node check, pnpm via corepack/npm, install when needed, build, serve on 127.0.0.1:8787, open
+  the browser; verified on Windows), GitHub Actions CI (lint, typecheck, test on Windows + Linux), English README,
+  Persian quick start, CONTRIBUTING, PR #1 merged into `main`, GitHub release `v1.0.0`. Paid `anthropic` engine
+  deliberately not built (owner: free only).
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

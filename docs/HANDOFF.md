@@ -5,8 +5,8 @@
 > «Kickoff prompt» (پایین همین صفحه) را کپی کنید و به Claude Code یا Codex بدهید. سند محصول (PRD) در
 > `docs/PRD.md` است و مشخصات کامل فنی در `docs/SPEC.md`.
 
-Last updated: 2026-09-30 · Branch: `claude/pdf-book-translation-app-jz6i99` · Pull request:
-https://github.com/Fathifarshad/Books-Translator2/pull/1 (open, not merged) · Head: `38b45cf`.
+Last updated: 2026-09-30 · PR #1 merged into `main`; release `v1.0.0` (open source, MIT). Friends start the app with
+`start.cmd` / `start.sh` (ADR-034). New work: branch from `main`.
 
 ---
 
