@@ -3,8 +3,9 @@
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done. Details and acceptance criteria: docs/SPEC.md §19.
 
 ## Phase 0 — Foundation
-- [~] `pnpm install && pnpm dev` works on a clean machine (Windows included) — verified on Linux (Node 22.22, pnpm 10.33):
-  API `/api/v1/health` + web on :5173. Scripts are cross-platform (no shell syntax); Windows not yet tried.
+- [x] `pnpm install && pnpm dev` works on a clean machine (Windows included) — verified on Linux (Node 22.22, pnpm 10.33)
+  and by the owner on Windows (Node 22.23, pnpm 10.33) after two fixes: better-sqlite3 prebuilds instead of node-gyp,
+  and the `/data/` ignore rule anchored to the repo root.
 - [x] Quality gate green (≥ 1 unit test, ≥ 1 Playwright test) — `pnpm lint && pnpm typecheck && pnpm test && pnpm e2e`:
   468 unit tests, 39 e2e tests (desktop 1440×900 + mobile 390×844 + providers against a fake server, axe included)
   as of Phase 4 + OCR + phones.

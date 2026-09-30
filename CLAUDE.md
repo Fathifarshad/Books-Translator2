@@ -5,6 +5,7 @@ Bilingual book translator & reader: PDF → structured book → glossary → tra
 
 - **Spec (source of truth):** `docs/SPEC.md` — read the relevant sections before every phase.
 - **Progress:** `docs/PROGRESS.md` · **Decisions (ADR log):** `docs/DECISIONS.md`
+- **Handoff (current state, next steps) · PRD:** `docs/HANDOFF.md` · `docs/PRD.md`
 - **Prototype screenshots:** `docs/design/*.png` — the target look & feel (SPEC §4 lists what to keep and what to fix).
 
 ## How we work
