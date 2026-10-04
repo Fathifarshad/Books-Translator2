@@ -1,6 +1,7 @@
 import {
   ASSISTANT_ENGINES,
   type AssistantEngine,
+  modelCost,
   type ProviderId,
   type ProviderModelInfo,
   type ProviderTestResult,
@@ -140,7 +141,7 @@ function ProviderCard({ view, children }: { view: ProviderView; children: ReactN
   );
 }
 
-export function UsageLine({ view }: { view: Pick<ProviderView, 'model' | 'usage' | 'limits'> }) {
+export function UsageLine({ view }: { view: Pick<ProviderView, 'id' | 'model' | 'usage' | 'limits'> }) {
   const { t } = useTranslation();
   const time = view.usage.waitUntil
     ? new Intl.DateTimeFormat(uiLocale(), { hour: '2-digit', minute: '2-digit' }).format(new Date(view.usage.waitUntil))
@@ -152,7 +153,8 @@ export function UsageLine({ view }: { view: Pick<ProviderView, 'model' | 'usage'
           {t('engines.modelLabel')}{' '}
           <bdi dir="ltr" className="font-mono">
             {view.model}
-          </bdi>
+          </bdi>{' '}
+          {t(`engines.cost.${modelCost(view.id, view.model)}`)}
         </span>
       ) : null}
       <span>{t('engines.usage', { used: fmtNum(view.usage.usedToday), limit: fmtNum(view.limits.rpd) })}</span>
@@ -537,7 +539,7 @@ function Advanced({
     staleTime: 60_000,
   });
   // Paid OpenRouter models are opt-in and listed cheapest first; free ones stay the default.
-  const [showPaid, setShowPaid] = useState(Boolean(view.model) && !view.model.endsWith(':free'));
+  const [showPaid, setShowPaid] = useState(modelCost(view.id, view.model) === 'paid');
   const all = models.data?.models ?? [];
   const list =
     freeOnly && showPaid ? [...all].sort((a, b) => costOf(a) - costOf(b)) : all.filter((m) => !freeOnly || m.free);

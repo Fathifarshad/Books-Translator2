@@ -321,3 +321,18 @@ Format for each entry:
   gets pay-as-you-go limits instead of the free daily cap.
 - **Consequences:** no wasted chunks; the review queue shows the items to check. A few dollars of OpenRouter credit
   (cards or crypto) finish a 300-page book with a cheap model; the free path is unchanged.
+
+## ADR-037 — Engine labels name the model and what it costs (2026-10-04)
+- **Context:** «تنظیمات ترجمه» labelled every engine from a fixed i18n string («OpenRouter (رایگان)»), so after
+  choosing a paid OpenRouter model (ADR-036) the page still promised «رایگان» and never said which model would run.
+  The rule «is this model paid?» (`:free` suffix) was duplicated in the runner limits, the settings toggle and nowhere
+  in the wizard.
+- **Decision:** `modelCost(provider, model)` in `packages/shared` is the single source of truth and returns
+  `free | paid | local`. The wizard builds its label at render time — «OpenRouter · ⁨vendor/model⁩ (پولی)» — with the
+  model id isolated in FSI … PDI, because an `<option>` cannot hold a `<bdi>` (golden rule 1). The same tag follows
+  the model in Settings and on the pipeline dashboard (`UsageLine`); the free-tier limits (ADR-036) and the «show paid
+  models» toggle call the same function.
+- **Consequences:** engine names in `fa.json` no longer carry a cost word (the dashboard's engine line shows the bare
+  name). Gemini counts as free because its free tier depends on the key's billing tier, not on the model, so a paid
+  Gemini key is still labelled «رایگان». Long model ids shrink the select (`min-w-0`) instead of widening the row, and
+  the `:free` suffix is not repeated in the label.

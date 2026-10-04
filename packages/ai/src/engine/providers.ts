@@ -3,7 +3,7 @@
  * (free models, one-click key). One fetch-based client talks to all of them — no SDK, so it runs in Node and tests
  * can inject a fake `fetch`. Model ids and free-tier limits change often, so both are settings, not constants.
  */
-import { isProviderId, PROVIDER_IDS, type ProviderId, type ProviderLimits } from '@dozabaneh/shared';
+import { isProviderId, modelCost, PROVIDER_IDS, type ProviderId, type ProviderLimits } from '@dozabaneh/shared';
 
 export { isProviderId, PROVIDER_IDS, type ProviderId };
 
@@ -163,7 +163,7 @@ const PAID_OPENROUTER_LIMITS: ProviderLimits = { rpm: 60, rpd: 100_000 };
 
 /** A provider's default limits for the chosen model: paid OpenRouter models are not held to the free daily cap. */
 export function defaultLimitsFor(provider: ProviderId, model: string | undefined): ProviderLimits {
-  if (provider === 'openrouter' && model && !model.endsWith(':free')) return PAID_OPENROUTER_LIMITS;
+  if (modelCost(provider, model) === 'paid') return PAID_OPENROUTER_LIMITS;
   return PROVIDERS[provider].limits;
 }
 

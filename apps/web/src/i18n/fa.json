@@ -156,9 +156,9 @@
     "engines": {
       "agent": "Claude Code",
       "mock": "آزمایشی (بدون هوش مصنوعی)",
-      "gemini": "Gemini (رایگان)",
-      "openrouter": "OpenRouter (رایگان)",
-      "ollama": "Ollama (محلی)"
+      "gemini": "Gemini",
+      "openrouter": "OpenRouter",
+      "ollama": "Ollama"
     },
     "engineHint": "موتورهای رایگان (Gemini، OpenRouter، Ollama) پس از وصل شدن در «تنظیمات» قابل انتخاب‌اند. با Claude Code نیازی به کلید نیست؛ کارها به‌صورت بسته در Claude Code با /process-batches انجام می‌شوند.",
     "tasks": {
@@ -705,6 +705,11 @@
     "chooseModel": "مدل",
     "pickModel": "یک مدل انتخاب کنید",
     "freeSuffix": "(رایگان)",
+    "cost": {
+      "free": "(رایگان)",
+      "paid": "(پولی)",
+      "local": "(محلی)"
+    },
     "priceSuffix": "({{input}} / {{output}} دلار)",
     "showPaid": "مدل‌های پولی را هم نشان بده (ارزان‌ترین‌ها اول)",
     "priceHint": "عددها: دلار برای هر یک میلیون توکن ورودی / خروجی. برای مدل‌های پولی باید در سایت OpenRouter اعتبار (Credits) بخرید؛ سقف روزانه‌ی رایگان برایشان برداشته می‌شود.",

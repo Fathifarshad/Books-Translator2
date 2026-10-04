@@ -182,6 +182,12 @@ the sandbox has no access to the real services, so the first real connection is 
   Persian quick start, CONTRIBUTING, PR #1 merged into `main`, GitHub release `v1.0.0`. Paid `anthropic` engine
   deliberately not built (owner: free only).
 
+- [x] Engine labels name the model and its cost (owner's request, 2026-10-04) — ADR-037: «تنظیمات ترجمه» shows
+  «OpenRouter · ⁨vendor/model⁩ (پولی)» instead of a fixed «(رایگان)», and the same tag follows the model in Settings
+  and on the dashboard. `modelCost()` in `packages/shared` is the one rule for «is this model paid?» (request limits,
+  the «show paid models» toggle, the labels). Tests: `packages/shared/src/providers.test.ts`, e2e
+  `providers.spec.ts`; screens: `docs/screens/phase-4/{desktop,mobile}-{light,dark}-wizard-engines.png`.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

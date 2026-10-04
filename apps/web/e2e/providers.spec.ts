@@ -30,6 +30,15 @@ async function shoot(page: Page, name: string, path: string, ready: (p: Page) =>
   await page.setViewportSize({ width: 1440, height: 900 });
 }
 
+const FREE = '(رایگان)';
+const PAID = '(پولی)';
+
+/**
+ * How the wizard labels an engine: the engine, the model it will run and what that model costs. The model id is an
+ * LTR run inside a Persian label and an <option> cannot hold a <bdi>, so it is isolated with FSI … PDI.
+ */
+const engineLabel = (engine: string, model: string, cost: string) => `${engine} · \u2068${model}\u2069 ${cost}`;
+
 /** A fresh copy of a fixture (a trailing PDF comment changes its hash, so it is not a duplicate). */
 async function freshBook(request: APIRequestContext): Promise<string> {
   const file = fileURLToPath(new URL('../../../fixtures/pdf/no-outline.pdf', import.meta.url));
@@ -132,8 +141,28 @@ test.describe
         await expect(page.getByTestId(`engine-${task}`)).toHaveValue('gemini');
       }
       await expect(page.getByTestId('engine-all')).toHaveValue('gemini');
+      // The engine label names the model that will run and whether it costs money (ADR-037).
+      const option = (engine: string) => page.getByTestId('engine-translate').locator(`option[value="${engine}"]`);
+      await expect(option('gemini')).toHaveText(engineLabel('Gemini', 'gemini-flash-lite-latest', FREE));
+      await expect(option('openrouter')).toHaveText(engineLabel('OpenRouter', 'vendor/good-model', FREE));
+      // A paid OpenRouter model is labelled «پولی», not «رایگان».
+      await request.put('/api/v1/settings/providers/openrouter', { data: { model: 'vendor/big-model' } });
+      await page.reload();
+      await expect(option('openrouter')).toHaveText(engineLabel('OpenRouter', 'vendor/big-model', PAID));
+      await request.put('/api/v1/settings/providers/openrouter', { data: { model: 'vendor/good-model:free' } });
+      await page.reload();
       await expect(page.getByTestId('estimate')).toBeVisible();
-      await page.screenshot({ path: `${OUT}desktop-light-wizard-engines.png`, fullPage: true });
+      await shoot(
+        page,
+        'wizard-engines',
+        `/books/${bookId}/setup`,
+        (p) => expect(p.getByTestId('translation-settings')).toBeVisible(),
+        true,
+      );
+      // `shoot` leaves the dark theme seeded; the rest of this test (and its a11y check) runs on the light one.
+      await seedSettings(page, { theme: 'light' });
+      await page.goto(`/books/${bookId}/setup`);
+      await expect(page.getByTestId('translation-settings')).toBeVisible();
       await page.getByTestId('start-translation').click();
 
       const step = page.getByTestId('glossary-step');

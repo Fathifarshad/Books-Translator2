@@ -11,6 +11,20 @@ export function isProviderId(id: string): id is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(id);
 }
 
+/** What a provider's chosen model costs: free tier, pay-as-you-go, or a local model that costs nothing. */
+export type ModelCost = 'free' | 'paid' | 'local';
+
+/**
+ * The single source of truth for «is this model paid?»: used for the free-tier request limits (runner), the
+ * «show paid models» toggle (settings) and the engine labels (wizard). OpenRouter marks its free models with a
+ * `:free` suffix; Gemini's free tier depends on the key's billing tier, not on the model, so it counts as free.
+ */
+export function modelCost(provider: ProviderId, model: string | undefined): ModelCost {
+  if (provider === 'ollama') return 'local';
+  if (provider === 'openrouter' && model && !model.endsWith(':free')) return 'paid';
+  return 'free';
+}
+
 export const ProviderLimitsSchema = z.object({
   rpm: z.number().int().min(1).max(1000),
   rpd: z.number().int().min(1).max(1_000_000),
