@@ -308,3 +308,16 @@ Format for each entry:
 - **Addendum:** PDFs OCR'd by other tools (PDF24, ocrmypdf) carry an invisible Tesseract text layer in
   `GlyphLessFont`, which pdf.js reports as monospace; it is now plain body text (it had turned 230,000 words into
   untranslated "code" blocks).
+
+## ADR-036 — Weak/limited free engines: keep item-level QA issues; cheap paid OpenRouter models (2026-10-04)
+- **Context:** on the owner's real book the free engines stalled: Gemini answers 403 from the owner's network
+  (region block), OpenRouter free models allow ~50 requests a day, Ollama Cloud's free quota ran out after 23% and the
+  local `qwen3:14b` fails validation (Latin left in place, dropped numbers). One bad item rejected a whole 36-item chunk,
+  which was then retried from scratch.
+- **Decision:** (1) after the provider's repair round, an answer whose remaining errors are only `numbers`,
+  `target_script` or `markup` is kept (SPEC §9.7: reject → repair → flag); post-processing QA flags those items for the
+  review queue. Missing keys, empty translations and schema errors stay fatal; agent results stay strict. (2) The
+  OpenRouter model list can include paid models (opt-in, cheapest first, price per million tokens shown); a paid model
+  gets pay-as-you-go limits instead of the free daily cap.
+- **Consequences:** no wasted chunks; the review queue shows the items to check. A few dollars of OpenRouter credit
+  (cards or crypto) finish a 300-page book with a cheap model; the free path is unchanged.

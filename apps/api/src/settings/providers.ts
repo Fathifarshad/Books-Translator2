@@ -1,5 +1,6 @@
 import {
   createProviderClient,
+  defaultLimitsFor,
   type LimiterSnapshot,
   PROVIDERS,
   type ProviderClient,
@@ -76,7 +77,8 @@ export class ProviderService {
   }
 
   private limits(id: ProviderId): ProviderLimits {
-    return this.stored(id).limits ?? PROVIDERS[id].limits;
+    const s = this.stored(id);
+    return s.limits ?? defaultLimitsFor(id, s.model);
   }
 
   /** The decrypted key; null when none is stored; undefined when it cannot be decrypted. */
@@ -121,7 +123,7 @@ export class ProviderService {
       baseUrl: this.baseUrl(id),
       defaultBaseUrl: this.defaultBaseUrl(id),
       limits: this.limits(id),
-      defaultLimits: preset.limits,
+      defaultLimits: defaultLimitsFor(id, model),
       usage: {
         usedLastMinute: state.usedLastMinute,
         usedToday: state.usedToday,
@@ -188,7 +190,7 @@ export class ProviderService {
     delete next.problem;
     this.save(id, next);
     const lim = this.limiter(id);
-    lim.setLimits(next.limits ?? PROVIDERS[id].limits);
+    lim.setLimits(next.limits ?? defaultLimitsFor(id, next.model));
     lim.unblock();
     this.persistLimiter(id);
     return this.view(id);

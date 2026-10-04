@@ -72,6 +72,8 @@ export interface ProviderView {
 export interface ProviderModelInfo {
   id: string;
   free?: boolean;
+  /** US dollars per million input / output tokens (paid OpenRouter models). */
+  price?: { input: number; output: number };
 }
 
 export interface ProviderTestResult {

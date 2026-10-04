@@ -38,6 +38,7 @@ afterAll(async () => {
 beforeEach(() => {
   fake.failures.length = 0;
   fake.contents.length = 0;
+  fake.rewrite = null;
 });
 
 const views = async (): Promise<ProviderView[]> =>
@@ -295,6 +296,36 @@ describe('pipeline on a free provider', () => {
     expect(status.errors).toEqual([]);
     const repair = fake.requests.find((r) => JSON.stringify(r.body).includes('was not valid JSON'));
     expect(repair).toBeTruthy();
+  });
+
+  it('keeps translations that still miss numbers after the repair round and flags them for review', async () => {
+    // Earlier books hold the same sentences; remove them so translation memory does not answer instead.
+    const listed = (await app.inject({ url: '/api/v1/books' })).json().books as { book: { id: string } }[];
+    for (const { book } of listed) await app.inject({ method: 'DELETE', url: `/api/v1/books/${book.id}` });
+    const weak = await ingestFixture('outline-book.pdf');
+    // A weak model: every translation loses its digits, also after being told about it.
+    fake.rewrite = (content) => {
+      try {
+        const answer = JSON.parse(content) as { items?: { tgt?: string }[] };
+        if (!answer.items?.some((i) => typeof i.tgt === 'string')) return content;
+        for (const item of answer.items) if (item.tgt) item.tgt = item.tgt.replace(/[0-9۰-۹]/gu, '');
+        return JSON.stringify(answer);
+      } catch {
+        return content;
+      }
+    };
+    expect((await start(weak, 'gemini')).statusCode).toBe(200);
+    await app.ctx.runner.drain();
+    const status = await statusOf(weak);
+    expect(status.state).toBe('done');
+    expect(status.errors).toEqual([]);
+    expect(status.flagged).toBeGreaterThan(0);
+    const flagged = app.ctx.db.$client
+      .prepare(
+        "SELECT COUNT(*) AS n FROM translations t JOIN segments s ON s.id = t.segment_id WHERE s.book_id = ? AND t.flags LIKE '%numbers%'",
+      )
+      .get(weak) as { n: number };
+    expect(flagged.n).toBeGreaterThan(0);
   });
 
   it('uses smaller chunks for slow local models', () => {

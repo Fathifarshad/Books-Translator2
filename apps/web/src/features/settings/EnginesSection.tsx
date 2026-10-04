@@ -500,11 +500,16 @@ function ModelSelect({
         <option key={m.id} value={m.id}>
           {m.id}
           {m.free ? ` ${t('engines.freeSuffix')}` : ''}
+          {m.price ? ` ${t('engines.priceSuffix', { input: usd(m.price.input), output: usd(m.price.output) })}` : ''}
         </option>
       ))}
     </select>
   );
 }
+
+/** A per-million-token price with two significant digits (0.075 → "0.075", 1.1 → "1.1"). */
+const usd = (n: number) => String(Number(n.toPrecision(2)));
+const costOf = (m: ProviderModelInfo) => (m.price ? m.price.input + m.price.output : 0);
 
 /** Model, request limits and (Ollama) the service address. */
 function Advanced({
@@ -531,7 +536,11 @@ function Advanced({
     retry: false,
     staleTime: 60_000,
   });
-  const list = (models.data?.models ?? []).filter((m) => !freeOnly || m.free);
+  // Paid OpenRouter models are opt-in and listed cheapest first; free ones stay the default.
+  const [showPaid, setShowPaid] = useState(Boolean(view.model) && !view.model.endsWith(':free'));
+  const all = models.data?.models ?? [];
+  const list =
+    freeOnly && showPaid ? [...all].sort((a, b) => costOf(a) - costOf(b)) : all.filter((m) => !freeOnly || m.free);
 
   return (
     <details className="mt-3" onToggle={(e) => setOpen(e.currentTarget.open)}>
@@ -545,6 +554,18 @@ function Advanced({
             ) : (
               <span className="text-xs text-muted">{models.isFetching ? t('app.loading') : view.model || '—'}</span>
             )}
+            {freeOnly ? (
+              <label className="mt-1 flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={showPaid}
+                  onChange={(e) => setShowPaid(e.target.checked)}
+                  data-testid={`show-paid-${view.id}`}
+                />
+                {t('engines.showPaid')}
+              </label>
+            ) : null}
+            {freeOnly && showPaid ? <span className="text-xs text-muted">{t('engines.priceHint')}</span> : null}
           </div>
         ) : null}
         <fieldset className="flex flex-wrap items-end gap-3">

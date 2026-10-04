@@ -9,6 +9,7 @@ import { batchKeys, type CheckContext, TASK_SPECS, type ValidationIssue } from '
  */
 export interface ValidationReport<T extends AgentTask = AgentTask> {
   ok: boolean;
+  /** The parsed output; also present on a failed report when only the domain checks failed. */
   output?: TaskResult<T>;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
@@ -96,7 +97,9 @@ export function validateResult<T extends AgentTask>(
   const issues = spec.check(input.data, parsed.data, ctx);
   const errors = issues.filter((i) => i.level === 'error');
   const warnings = issues.filter((i) => i.level === 'warning');
-  return errors.length ? { ok: false, errors, warnings } : { ok: true, output: parsed.data, errors, warnings };
+  return errors.length
+    ? { ok: false, output: parsed.data, errors, warnings }
+    : { ok: true, output: parsed.data, errors, warnings };
 }
 
 /** Human-readable report for the agent CLI (one line per issue, errors first). */

@@ -2,7 +2,7 @@ import type { AgentBatch } from '@dozabaneh/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from './limiter';
 import { buildMessages, createProviderEngine, extractJson } from './provider-engine';
-import { createProviderClient, PROVIDERS, ProviderError, pickDefaultModel } from './providers';
+import { createProviderClient, defaultLimitsFor, PROVIDERS, ProviderError, pickDefaultModel } from './providers';
 import { validateResult } from './validate';
 
 type FetchArgs = [string, RequestInit | undefined];
@@ -164,7 +164,7 @@ describe('provider client', () => {
     }).listModels();
     expect(models).toEqual([
       { id: 'a/model:free', free: true },
-      { id: 'b/paid', free: false },
+      { id: 'b/paid', free: false, price: { input: 1, output: 2 } },
     ]);
   });
 });
@@ -260,6 +260,31 @@ describe('provider engine', () => {
     expect(second.at(-1).content).toContain('[key 02]');
   });
 
+  it('keeps an answer whose only remaining problems are item-level QA issues (they are flagged later)', async () => {
+    const lost = { items: [good.items[0], { key: '02', tgt: 'یک چرخ‌دنده دندانه دارد.' }] };
+    const f = fakeFetch([completion(JSON.stringify(lost)), completion(JSON.stringify(lost))]);
+    const engine = createProviderEngine({
+      client: createProviderClient({ provider: 'openrouter', model: 'm', apiKey: 'k', fetch: f.fetch }),
+      systemPrompt: () => 'P',
+      validate,
+    });
+    const result = await engine.run(batch, {});
+    expect(result).toMatchObject({ kind: 'done', output: lost });
+    expect(f.calls).toHaveLength(2);
+    expect(JSON.parse(String((f.calls[1] as FetchArgs)[1]?.body)).messages.at(-1).content).toContain('numbers');
+  });
+
+  it('still rejects missing keys after the repair round', async () => {
+    const short = { items: [good.items[0]] };
+    const f = fakeFetch([completion(JSON.stringify(short)), completion(JSON.stringify(short))]);
+    const engine = createProviderEngine({
+      client: createProviderClient({ provider: 'openrouter', model: 'm', apiKey: 'k', fetch: f.fetch }),
+      systemPrompt: () => 'P',
+      validate,
+    });
+    await expect(engine.run(batch, {})).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+  });
+
   it('gives up with BAD_RESPONSE after the repair round', async () => {
     const f = fakeFetch([completion('not json at all'), completion('still not json')]);
     const engine = createProviderEngine({
@@ -275,6 +300,31 @@ describe('provider engine', () => {
     expect(extractJson('Here you go: {"a": 1} hope it helps')).toEqual({ a: 1 });
     expect(() => extractJson('nothing here')).toThrow();
     expect(buildMessages(batch, 'S')).toHaveLength(2);
+  });
+});
+
+describe('paid OpenRouter models', () => {
+  it('lists prices per million tokens and marks free models', async () => {
+    const f = fakeFetch([
+      json({
+        data: [
+          { id: 'deepseek/deepseek-chat', pricing: { prompt: '0.00000027', completion: '0.0000011' } },
+          { id: 'qwen/qwen3:free', pricing: { prompt: '0', completion: '0' } },
+        ],
+      }),
+    ]);
+    const client = createProviderClient({ provider: 'openrouter', model: 'm', apiKey: 'k', fetch: f.fetch });
+    const models = await client.listModels();
+    expect(models).toEqual([
+      { id: 'deepseek/deepseek-chat', free: false, price: { input: 0.27, output: 1.1 } },
+      { id: 'qwen/qwen3:free', free: true },
+    ]);
+  });
+
+  it('lifts the free daily cap for paid OpenRouter models only', () => {
+    expect(defaultLimitsFor('openrouter', 'qwen/qwen3:free')).toEqual(PROVIDERS.openrouter.limits);
+    expect(defaultLimitsFor('openrouter', 'deepseek/deepseek-chat').rpd).toBeGreaterThan(10_000);
+    expect(defaultLimitsFor('gemini', 'gemini-flash-lite-latest')).toEqual(PROVIDERS.gemini.limits);
   });
 });
 

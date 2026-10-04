@@ -20,6 +20,13 @@ export interface ProviderEngineOptions {
   repairs?: number;
 }
 
+/**
+ * Item-level problems that the post-processing QA also detects and sends to the review queue. When they survive the
+ * repair round the answer is kept (SPEC §9.7: reject → repair → flag) instead of discarding a whole chunk; missing
+ * keys, empty translations and schema errors stay fatal.
+ */
+export const SOFT_RULES: ReadonlySet<string> = new Set(['numbers', 'target_script', 'markup']);
+
 /** The first JSON object in a model answer (tolerates code fences and chatter around it). */
 export function extractJson(text: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(text)?.[1];
@@ -97,6 +104,10 @@ export function createProviderEngine(opts: ProviderEngineOptions): Engine {
         }
         const report = opts.validate(batch, { schemaVersion: 1, batchId: batch.batchId, ...(parsed as object) });
         if (report.ok && report.output) {
+          return { kind: 'done', output: report.output as TaskResult<T>, usage, model: answer.model };
+        }
+        const lastAttempt = attempt === (opts.repairs ?? 1);
+        if (lastAttempt && report.output && report.errors.every((e) => SOFT_RULES.has(e.rule))) {
           return { kind: 'done', output: report.output as TaskResult<T>, usage, model: answer.model };
         }
         lastProblem = report.errors.map((e) => `${e.key ? `[${e.key}] ` : ''}${e.rule}: ${e.message}`).join(' · ');

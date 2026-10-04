@@ -6,6 +6,7 @@ import {
   type Engine,
   loadTaskPrompt,
   ProviderError,
+  SOFT_RULES,
   validateResult,
 } from '@dozabaneh/ai';
 import { ingestInWorker } from '@dozabaneh/pdf';
@@ -100,7 +101,9 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
   if (res.usage) addUsage(deps.db, job.id, res.usage);
   // Provider answers were validated inside the engine (with a repair round); validate every engine's output here.
   const report = validate(batch, { schemaVersion: 1, batchId: batch.batchId, ...res.output });
-  if (!report.ok || !report.output) {
+  // Item-level QA issues that survived a provider's repair round are kept; post-processing QA flags them for review.
+  const softOnly = isProviderId(job.engine) && report.errors.every((e) => SOFT_RULES.has(e.rule));
+  if ((!report.ok && !softOnly) || !report.output) {
     throw new Error(report.errors.map((e) => `${e.key ? `[${e.key}] ` : ''}${e.rule}: ${e.message}`).join(' · '));
   }
   importResult(ctx, job, keyMap, report.output, {

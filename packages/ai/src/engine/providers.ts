@@ -3,7 +3,7 @@
  * (free models, one-click key). One fetch-based client talks to all of them — no SDK, so it runs in Node and tests
  * can inject a fake `fetch`. Model ids and free-tier limits change often, so both are settings, not constants.
  */
-import { isProviderId, PROVIDER_IDS, type ProviderId } from '@dozabaneh/shared';
+import { isProviderId, PROVIDER_IDS, type ProviderId, type ProviderLimits } from '@dozabaneh/shared';
 
 export { isProviderId, PROVIDER_IDS, type ProviderId };
 
@@ -73,6 +73,14 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
  * A sensible model when the user has not chosen one: the first preferred pattern that matches a listed model. For
  * OpenRouter only free models qualify. Returns '' when nothing fits (the user picks from the list).
  */
+function pricingOf(p: { prompt?: string; completion?: string }): Pick<ProviderModel, 'free' | 'price'> {
+  // Per-token prices as strings (e.g. "0.00000027"); toPrecision drops float noise such as 0.9999999999999999.
+  const input = Number((Number(p.prompt) * 1e6).toPrecision(6));
+  const output = Number((Number(p.completion) * 1e6).toPrecision(6));
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return {};
+  return input === 0 && output === 0 ? { free: true } : { free: false, price: { input, output } };
+}
+
 export function pickDefaultModel(provider: ProviderId, models: ProviderModel[]): string {
   const candidates = provider === 'openrouter' ? models.filter((m) => m.free) : models;
   const preset = PROVIDERS[provider];
@@ -146,6 +154,17 @@ export interface ProviderModel {
   id: string;
   /** True when the provider reports it as free (OpenRouter pricing). */
   free?: boolean;
+  /** US dollars per million input / output tokens, for paid models (OpenRouter pricing). */
+  price?: { input: number; output: number };
+}
+
+/** OpenRouter's limits for pay-as-you-go models; the small free-tier caps apply to `:free` models only. */
+const PAID_OPENROUTER_LIMITS: ProviderLimits = { rpm: 60, rpd: 100_000 };
+
+/** A provider's default limits for the chosen model: paid OpenRouter models are not held to the free daily cap. */
+export function defaultLimitsFor(provider: ProviderId, model: string | undefined): ProviderLimits {
+  if (provider === 'openrouter' && model && !model.endsWith(':free')) return PAID_OPENROUTER_LIMITS;
+  return PROVIDERS[provider].limits;
 }
 
 export interface ProviderClient {
@@ -389,7 +408,7 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
       return list
         .map((m) => ({
           id: m.id.replace(/^models\//u, ''),
-          ...(m.pricing ? { free: Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 } : {}),
+          ...(m.pricing ? pricingOf(m.pricing) : {}),
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
     },
