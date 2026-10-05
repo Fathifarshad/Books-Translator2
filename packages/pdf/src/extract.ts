@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { buildLines, type RawItem } from './lines';
+import { buildLines, plausibleWidth, type RawItem } from './lines';
 import { fontStyle, normalizeRunText } from './normalize';
 import { createTesseractEngine, type OcrEngine, ocrItems, renderPagePng } from './ocr';
 import type { Box, ExtractedBook, OutlineEntry, PageData } from './types';
@@ -162,7 +162,7 @@ async function extractPage(page: PdfPage, index: number): Promise<PageData> {
       text,
       x: e,
       y: height - f,
-      width: it.width,
+      width: plausibleWidth(it.width, size, text),
       size,
       font: name,
       ...fontStyle(name, {

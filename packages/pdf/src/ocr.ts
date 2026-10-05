@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { RawItem } from './lines';
+import { plausibleWidth, type RawItem } from './lines';
 import { normalizeRunText } from './normalize';
 
 /**
@@ -117,13 +117,15 @@ export function ocrItems(words: OcrWord[], scale = OCR_SCALE): RawItem[] {
     if (!text || (w.confidence < MIN_CONFIDENCE && !WORDLIKE.test(text))) continue;
     if (clean && w.confidence < FIGURE_NOISE_CONFIDENCE) continue;
     const ascent = Math.max(1, w.baseline - w.lineTop) / scale;
+    const size = Math.max(4, Math.round((ascent / 0.72) * 2) / 2);
     items.push({
       // Tesseract already separated the words; a trailing space keeps them apart whatever the gap.
       text: `${text} `,
       x: w.x0 / scale,
       y: w.baseline / scale,
-      width: Math.max(1, (w.x1 - w.x0) / scale),
-      size: Math.max(4, Math.round((ascent / 0.72) * 2) / 2),
+      // A table rule or a dotted leader swallowed into a word box comes back hundreds of points wide.
+      width: plausibleWidth((w.x1 - w.x0) / scale, size, text),
+      size,
       font: 'ocr',
       bold: false,
       italic: false,

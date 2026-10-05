@@ -212,6 +212,15 @@ the sandbox has no access to the real services, so the first real connection is 
     overridable (`PW_WEB_PORT`) because another program on the owner's computer holds 4173 and `reuseExistingServer`
     would otherwise run the whole suite against it.
 
+- [x] Two-column pages read as two columns (owner's chapter was unreadable, 2026-10-05) — ADR-039. An OCR tool's
+  text layer reported widths of hundreds of points, which moved the middle of the page out of the gutter; short
+  lines near the middle ended the column region; and the gutter itself was exactly on the old 1.8 em threshold.
+  Widths are now capped at what the characters can cover, the page extent comes from percentiles clamped to the
+  paper, only a line that crosses the page interrupts the columns, the gutter test is 1.6 em, and a block of
+  fewer than five words is no longer treated as a sentence cut off by the column. On the owner's chapter:
+  2,231 → 1,384 segments, 1,234 → 487 paragraphs, 24 → 55 words per paragraph. Tests:
+  `packages/pdf/src/rules.test.ts` (gutter, reading order with nonsense-wide lines, `plausibleWidth`).
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

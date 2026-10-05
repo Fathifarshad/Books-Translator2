@@ -396,3 +396,33 @@ The engine ran, but every call hit the 600 s timeout. Three further causes, foun
   which used to come back to life (and be re-queued) behind the user's «توقف موقت».
 Measured afterwards on a real batch of the owner's book: 60 items in 80 s, 60/60 keys, accepted with one item
 flagged — about 35 minutes for the whole chapter at three jobs at a time.
+
+## ADR-039 — Two columns read as two columns: the geometry that made a chapter unreadable (2026-10-05)
+- **Context:** the owner's chapter came out of extraction as 2,231 tiny segments whose text wove the two columns
+  into each other — «more recent human trials demonstrate the use The placenta is a remarkable organ», «over the
+  time of gestation. At term, the plasma volume is By the end of the first trimester, maternal cardiac output».
+  No engine can translate that and no reader can read it. The PDF carries a text layer written by an OCR tool
+  (PDF24, `GlyphLessFont`), so our own OCR never ran: the geometry in that layer is what everything downstream
+  believed.
+- **Decision** — four changes, each one a separate reason the columns were lost:
+  1. **An item's width is capped at what its characters can cover** (`plausibleWidth`, 1.1 em per character, used
+     for the text layer and for OCR words). That layer reported 1,639 points for «Tidal volume» on a 612-point
+     page.
+  2. **A page's text extent comes from percentiles, clamped to the paper** (`orderPage`). One line claiming to end
+     at 1,966 used to put the middle of the page at 1,012, where there is no gutter — so the second column was
+     never found and the page was read line by line across both.
+  3. **Only a line that really runs across the page interrupts the columns.** A short line near the middle (a wide
+     table cell, a figure label) used to end the column region, and everything below it was read side to side.
+     Such a line now joins the column it sits in.
+  4. **The gutter threshold is 1.6 em, not 1.8** (`splitAtGutters`). This book's gutter is exactly 1.8 em, so the
+     old test (`gap > 1.8 em`) was false by a hair and the two columns became one line — which no later step can
+     take apart. Justified Latin text stretches its spaces to about 1.2 em, so 1.6 em still only ever means a
+     gutter.
+  5. A block of fewer than five words is a label or a sub-heading, not a sentence the column ran out of room for,
+     so it is no longer merged with whatever follows the break («Cardiac Output» had been glued to the table
+     beside it and then to the pages after it).
+- **Consequences** (measured on the owner's chapter): 2,231 → 1,384 segments, 1,234 → 487 paragraphs, 24 → 55
+  words per paragraph, and paragraphs that read as prose. Books already in the library keep the text they were
+  ingested with — the fix applies when a book is uploaded again. The synthetic fixtures could not be regenerated
+  on Windows (pdf.js draws pdfkit's standard-14 fonts as empty boxes here, so a re-rendered "scan" would be
+  unreadable), so the new tests pin the geometry directly instead of through a new fixture.

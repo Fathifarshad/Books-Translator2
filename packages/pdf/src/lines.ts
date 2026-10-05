@@ -13,6 +13,19 @@ export interface RawItem {
   mono: boolean;
 }
 
+/** Widest a character can plausibly be, as a share of the font size (a wide capital M is about 0.9 em). */
+const MAX_WIDTH_PER_CHAR = 1.1;
+
+/**
+ * An item's width, with a nonsense value brought back to what its characters can cover (ADR-039). A text layer
+ * written by an OCR tool (PDF24, ocrmypdf: `GlyphLessFont`) reports widths of hundreds of points for a short
+ * word, and such an item decides where the page appears to end — which is where its columns are looked for.
+ */
+export function plausibleWidth(width: number, size: number, text: string): number {
+  const chars = Math.max(1, text.trim().length);
+  return Math.min(Math.max(1, width), size * MAX_WIDTH_PER_CHAR * chars);
+}
+
 /**
  * Groups text items into lines by baseline (tolerance ≈ 0.3 × font size) and orders them by x
  * (SPEC §8.4). Smaller items raised above the baseline become superscripts (footnote markers).
@@ -57,12 +70,20 @@ export function buildLines(items: RawItem[], page: number): Line[] {
     .sort((a, b) => a.y - b.y || a.x0 - b.x0);
 }
 
+/**
+ * A gap this many font sizes wide, on one baseline, is a column gutter and not word spacing. Justified Latin
+ * text stretches its spaces to about 1.2 em at the very most; a two-column medical page leaves 1.8 em between
+ * the columns, and at the old threshold of 1.8 em that gutter fell exactly on the boundary — the two columns
+ * became one line, which no later step can take apart (ADR-039).
+ */
+const GUTTER_EMS = 1.6;
+
 function splitAtGutters(group: RawItem[]): RawItem[][] {
   const items = [...group].sort((a, b) => a.x - b.x);
   const out: RawItem[][] = [[]];
   let prevEnd: number | null = null;
   for (const it of items) {
-    if (prevEnd !== null && it.x - prevEnd > Math.max(it.size, 6) * 1.8 && it.text.trim()) out.push([]);
+    if (prevEnd !== null && it.x - prevEnd > Math.max(it.size, 6) * GUTTER_EMS && it.text.trim()) out.push([]);
     (out[out.length - 1] as RawItem[]).push(it);
     prevEnd = Math.max(prevEnd ?? 0, it.x + it.width);
   }
