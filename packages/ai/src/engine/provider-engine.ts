@@ -27,6 +27,41 @@ export interface ProviderEngineOptions {
  */
 export const SOFT_RULES: ReadonlySet<string> = new Set(['numbers', 'target_script', 'markup']);
 
+/** How many items of a chunk may come back empty and still be rescued instead of rejecting the whole answer. */
+const MAX_EMPTY_SHARE = 0.1;
+
+type OutputItems = { items?: { key: string; tgt?: string }[] };
+type InputItems = { items?: { key: string; src?: string; draft?: string }[] };
+
+/**
+ * A book extracted from a two-column scan has "paragraphs" that are single broken lines («pressure» on its own),
+ * and a translator asked for them sometimes answers nothing at all — there is nothing to say. An empty item is
+ * normally fatal (ADR-036), but throwing away 59 good translations because of one shredded fragment leaves the
+ * book stuck forever. On the last round such an item keeps its source text, which post-processing QA flags
+ * (`target_script`) and the review queue shows. Only a small minority may be rescued: an engine that answers
+ * nothing at all is still a failure.
+ */
+export function rescueEmptyItems(
+  batch: AgentBatch,
+  output: unknown,
+  errors: { rule: string; key?: string }[],
+): boolean {
+  const emptyKeys = new Set(errors.filter((e) => e.rule === 'empty' && e.key).map((e) => e.key as string));
+  if (emptyKeys.size === 0) return true;
+  const items = (output as OutputItems).items ?? [];
+  if (items.length === 0 || emptyKeys.size > Math.max(1, Math.ceil(items.length * MAX_EMPTY_SHARE))) return false;
+  const source = new Map(
+    ((batch.input as InputItems).items ?? []).map((i) => [i.key, (i.draft ?? i.src ?? '').trim()]),
+  );
+  for (const item of items) {
+    if (!emptyKeys.has(item.key)) continue;
+    const fallback = source.get(item.key);
+    if (!fallback) return false;
+    item.tgt = fallback;
+  }
+  return true;
+}
+
 /** The first JSON object in a model answer (tolerates code fences and chatter around it). */
 export function extractJson(text: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(text)?.[1];
@@ -107,8 +142,11 @@ export function createProviderEngine(opts: ProviderEngineOptions): Engine {
           return { kind: 'done', output: report.output as TaskResult<T>, usage, model: answer.model };
         }
         const lastAttempt = attempt === (opts.repairs ?? 1);
-        if (lastAttempt && report.output && report.errors.every((e) => SOFT_RULES.has(e.rule))) {
-          return { kind: 'done', output: report.output as TaskResult<T>, usage, model: answer.model };
+        if (lastAttempt && report.output) {
+          const rest = report.errors.filter((e) => e.rule !== 'empty');
+          if (rest.every((e) => SOFT_RULES.has(e.rule)) && rescueEmptyItems(batch, report.output, report.errors)) {
+            return { kind: 'done', output: report.output as TaskResult<T>, usage, model: answer.model };
+          }
         }
         lastProblem = report.errors.map((e) => `${e.key ? `[${e.key}] ` : ''}${e.rule}: ${e.message}`).join(' · ');
         messages.push(

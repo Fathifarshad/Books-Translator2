@@ -376,3 +376,23 @@ Format for each entry:
   reset time) instead of failing. Chunks that run side by side see fewer already-translated neighbours as context,
   which the chapter pass and the edit stage absorb. Measured on a real batch: 60 items (≈600 words) in ~2.5
   minutes, 60/60 keys correct — about an hour for the owner's chapter at concurrency 3.
+
+### ADR-038 — addendum: why it was still not moving (2026-10-05)
+The engine ran, but every call hit the 600 s timeout. Three further causes, found on the owner's own machine:
+- **`CLAUDE_EFFORT` is a name Claude Code already uses.** A session exports it into the terminals it opens, so an
+  app started with `pnpm dev` in the VS Code terminal silently inherited `xhigh` and translated the book at the
+  session's effort level. The setting is now `TRANSLATE_EFFORT`, and the child no longer inherits `CLAUDECODE`,
+  `CLAUDE_CODE_SSE_PORT`, `CLAUDE_CODE_ENTRYPOINT` or `CLAUDE_EFFORT` (`childEnv`).
+- **Thinking, not translating.** `--effort low` alone was not enough: a 60-item chunk spent 48,400 output tokens
+  and 518 s on thinking for 600 words of text. At the default effort the engine now also sets
+  `MAX_THINKING_TOKENS=0`; the same chunk takes 80 s and 7,368 tokens and passes the same validation.
+  `TRANSLATE_EFFORT=medium` or higher gives thinking back.
+- **One shredded fragment killed a whole chunk.** In this two-column scan a "paragraph" is often a broken line
+  («pressure» on its own), and the translator answers nothing for it. `empty` is fatal (ADR-036), so 59 good
+  translations were thrown away over one fragment, every time, forever. Up to 10% of a chunk's items may now keep
+  their source text instead (`rescueEmptyItems`); QA flags them (`target_script`) and the review queue shows them.
+  An engine that answers nothing for most of a chunk still fails.
+- A job of a **paused** pipeline is no longer claimed, not even one left `running` by a process that died —
+  which used to come back to life (and be re-queued) behind the user's «توقف موقت».
+Measured afterwards on a real batch of the owner's book: 60 items in 80 s, 60/60 keys, accepted with one item
+flagged — about 35 minutes for the whole chapter at three jobs at a time.

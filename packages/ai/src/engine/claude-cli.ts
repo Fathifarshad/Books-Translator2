@@ -29,8 +29,11 @@ export interface ClaudeCliOptions {
   /** Working directory of the CLI process (default: the current one). */
   cwd?: string;
   /**
-   * How much the model may think before answering. Translating a chunk is a direct task, not a puzzle: the
-   * default `low` keeps the answers as good and cuts the time (and the subscription usage) several times over.
+   * How much the model may think before answering. Translating a chunk is a direct task, not a puzzle, and
+   * thinking grows out of all proportion to the work: a 60-item chunk of a medical book took 518 s and 48,400
+   * output tokens with thinking, and 81 s and 7,833 with it off — same text, same validation. So `low` (the
+   * default) also turns extended thinking off; `medium` and above leave it to Claude Code, for a book that
+   * needs it.
    */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Injected in tests. */
@@ -88,6 +91,20 @@ export function resolveClaudeCli(command?: string): ResolvedCli | null {
     }
   }
   return null;
+}
+
+/**
+ * Variables a Claude Code session exports into the terminals it opens. The server may well have been started
+ * from one (`pnpm dev` in the VS Code terminal), and the batch we run is a plain model call, not a nested
+ * session: inheriting them makes the child follow that session's effort level and talk to its IDE socket.
+ */
+const SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_EFFORT'];
+
+/** The child's environment: this process's, without the parent session's own settings. */
+export function childEnv(base: NodeJS.ProcessEnv, extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const name of SESSION_VARS) delete env[name];
+  return { ...env, ...extra };
 }
 
 const NOT_INSTALLED =
@@ -170,6 +187,7 @@ interface RunOutcome {
 
 export function createClaudeCliClient(config: ProviderConfig): ProviderClient {
   const cli = config.cli ?? {};
+  const effort = cli.effort ?? 'low';
   const spawnFn: SpawnFn = cli.spawn ?? nodeSpawn;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const model = config.model || 'sonnet';
@@ -191,7 +209,7 @@ export function createClaudeCliClient(config: ProviderConfig): ProviderClient {
       '--permission-prompts',
       'none',
     ];
-    args.push('--effort', cli.effort ?? 'low');
+    args.push('--effort', effort);
     if (format === 'stream-json') args.push('--verbose', '--include-partial-messages');
     if (system && !inlineSystem) args.push('--system-prompt', system);
     return { args, inlineSystem };
@@ -206,7 +224,11 @@ export function createClaudeCliClient(config: ProviderConfig): ProviderClient {
         ...(cli.cwd ? { cwd: cli.cwd } : {}),
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
-        env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'dozabaneh' },
+        env: childEnv(process.env, {
+          CLAUDE_CODE_ENTRYPOINT: 'dozabaneh',
+          // Six times faster at the same quality (see `effort` above); any other level keeps thinking on.
+          ...(effort === 'low' ? { MAX_THINKING_TOKENS: '0' } : {}),
+        }),
       });
     } catch (err) {
       throw new ProviderError('NOT_FOUND', `${NOT_INSTALLED} (${(err as Error).message})`);

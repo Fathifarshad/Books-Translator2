@@ -159,6 +159,34 @@ describe('a book that is one long chapter', () => {
   }, 180_000);
 });
 
+describe('«توقف موقت»', () => {
+  it('leaves a job that a dead process left running alone instead of bringing it back', async () => {
+    const bookId = await ingestOneChapterBook(14);
+    expect((await start(bookId, { brief: 'mock', glossary: 'mock', translate: 'mock', edit: 'mock' })).statusCode).toBe(
+      200,
+    );
+    await app.ctx.runner.drain();
+    // A crash in the middle of a run: the job stays 'running' with a lease nobody renews.
+    app.ctx.db.$client
+      .prepare(
+        `UPDATE jobs SET status = 'running', lease_until = '2020-01-01T00:00:00.000Z'
+          WHERE book_id = ? AND stage = 'translate' LIMIT 1`,
+      )
+      .run(bookId);
+    expect(
+      (await app.inject({ method: 'POST', url: `/api/v1/books/${bookId}/pipeline/pause`, payload: { lang: 'fa' } }))
+        .statusCode,
+    ).toBe(200);
+
+    await app.ctx.runner.drain();
+    const revived = count(
+      `SELECT COUNT(*) n FROM jobs WHERE book_id = '${bookId}' AND stage = 'translate' AND status IN ('queued', 'running')`,
+    );
+    expect(revived).toBe(1); // the stale one, untouched — not claimed, not re-queued
+    expect((await statusOf(bookId)).state).toBe('paused');
+  }, 180_000);
+});
+
 describe('switching the engine while a book is half-way through', () => {
   it('moves the work that is still queued and withdraws the open Claude Code batches', async () => {
     const bookId = await ingestOneChapterBook(16);

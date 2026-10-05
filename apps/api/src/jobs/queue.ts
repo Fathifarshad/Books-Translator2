@@ -38,7 +38,9 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
   const stageFilter = stages?.length ? `AND j.stage IN (${stages.map(() => '?').join(',')})` : '';
   // Providers that are not connected or wait for their rate limits.
   const engineFilter = excludeEngines.length ? `AND j.engine NOT IN (${excludeEngines.map(() => '?').join(',')})` : '';
-  // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded.
+  // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded. A job of a
+  // paused pipeline is never claimed — not even one left 'running' by a process that died, which would otherwise
+  // come back to life (and be re-queued) behind the user's «توقف موقت».
   const row = db.$client
     .prepare(
       `UPDATE jobs SET status = 'running', attempts = attempts + 1, lease_until = ?, started_at = COALESCE(started_at, ?)
@@ -48,6 +50,9 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
              AND j.engine <> 'agent'
              AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(j.depends_on, '[]')) d
                                JOIN jobs p ON p.id = d.value WHERE p.status <> 'succeeded')
+             AND NOT EXISTS (SELECT 1 FROM books bk
+                              WHERE bk.id = j.book_id AND j.target_lang IS NOT NULL
+                                AND json_extract(bk.settings, '$.pipeline.' || j.target_lang || '.paused') = 1)
            ORDER BY j.priority DESC, j.seq ASC, j.created_at ASC LIMIT 1)
         RETURNING id`,
     )

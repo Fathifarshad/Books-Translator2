@@ -214,7 +214,7 @@ export class ProviderService {
           ...(this.config.CLAUDE_CLI ? { command: this.config.CLAUDE_CLI } : {}),
           // Run outside the repository: the engine must never pick up project files or settings.
           cwd: this.config.dataDir,
-          effort: this.config.CLAUDE_EFFORT,
+          effort: this.config.TRANSLATE_EFFORT,
         },
       });
     }

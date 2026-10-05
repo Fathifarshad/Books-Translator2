@@ -44,10 +44,16 @@ function fakeSpawn(reply: Reply): { spawn: SpawnFn; calls: Call[] } {
       final(cb) {
         const call: Call = { file, args, stdin };
         calls.push(call);
-        const resolved = typeof reply === 'function' ? reply(call) : reply;
-        const out = typeof resolved === 'string' ? { stdout: resolved } : resolved;
+        let out: { stdout?: string; stderr?: string; code?: number };
+        try {
+          const resolved = typeof reply === 'function' ? reply(call) : reply;
+          out = typeof resolved === 'string' ? { stdout: resolved } : resolved;
+        } catch (err) {
+          // A throwing stand-in must look like a failed run, not hang the test.
+          out = { stdout: '', stderr: String(err), code: 1 };
+        }
         stdout.end(out.stdout ?? '');
-        stderr.end((out as { stderr?: string }).stderr ?? '');
+        stderr.end(out.stderr ?? '');
         setImmediate(() => child.emit('close', out.code ?? 0));
         cb();
       },
@@ -59,6 +65,12 @@ function fakeSpawn(reply: Reply): { spawn: SpawnFn; calls: Call[] } {
 
 const repoRoot = new URL('../../../../', import.meta.url);
 const readPrompt = (ref: string) => readFileSync(new URL(ref, repoRoot), 'utf8');
+
+/** The payload the stand-in was given; on a repair round the prompt carries the earlier exchange after it. */
+function payloadOf(call: Call): AgentBatch {
+  const end = call.stdin.indexOf('--- Your previous answer');
+  return JSON.parse(end === -1 ? call.stdin : call.stdin.slice(0, end)) as AgentBatch;
+}
 
 const cliAnswer = (result: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -98,6 +110,47 @@ describe('claude code cli client', () => {
     expect(call.args.join(' ')).toContain('--permission-prompts none');
     // Translating a chunk is a direct task: little thinking keeps it fast and cheap (ADR-038).
     expect(call.args.join(' ')).toContain('--effort low');
+  });
+
+  it('turns extended thinking off at the default effort and leaves it on above it', async () => {
+    const envs: (NodeJS.ProcessEnv | undefined)[] = [];
+    const spawn = ((file: string, args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+      envs.push(opts.env);
+      return fakeSpawn(cliAnswer('{}')).spawn(file, args, opts);
+    }) as unknown as SpawnFn;
+    const message = [{ role: 'user' as const, content: 'hi' }];
+    await createClaudeCliClient({ provider: 'claude_code', model: 'sonnet', cli: { spawn } }).chat(message);
+    // A 60-item chunk took 518 s with thinking and 81 s without it, for the same validated answer.
+    expect(envs[0]?.MAX_THINKING_TOKENS).toBe('0');
+    await createClaudeCliClient({
+      provider: 'claude_code',
+      model: 'sonnet',
+      cli: { spawn, effort: 'medium' },
+    }).chat(message);
+    expect(envs[1]?.MAX_THINKING_TOKENS).toBeUndefined();
+  });
+
+  it('does not hand the child the session variables of the Claude Code it may run inside', async () => {
+    const before = { ...process.env };
+    process.env.CLAUDECODE = '1';
+    process.env.CLAUDE_EFFORT = 'xhigh';
+    process.env.CLAUDE_CODE_SSE_PORT = '1234';
+    try {
+      const envs: (NodeJS.ProcessEnv | undefined)[] = [];
+      const spawn = ((file: string, args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+        envs.push(opts.env);
+        return fakeSpawn(cliAnswer('{}')).spawn(file, args, opts);
+      }) as unknown as SpawnFn;
+      await createClaudeCliClient({ provider: 'claude_code', model: 'sonnet', cli: { spawn } }).chat([
+        { role: 'user', content: 'hi' },
+      ]);
+      expect(envs[0]?.CLAUDECODE).toBeUndefined();
+      expect(envs[0]?.CLAUDE_EFFORT).toBeUndefined();
+      expect(envs[0]?.CLAUDE_CODE_SSE_PORT).toBeUndefined();
+      expect(envs[0]?.CLAUDE_CODE_ENTRYPOINT).toBe('dozabaneh');
+    } finally {
+      process.env = before;
+    }
   });
 
   it('sends the earlier exchange along when the repair round asks for a correction', () => {
@@ -240,12 +293,61 @@ function translateBatch(): AgentBatch<TaskInput<'translate'>> {
   };
 }
 
+describe('a chunk with a shredded source fragment', () => {
+  it('keeps the fragment as its source text instead of throwing the whole chunk away', async () => {
+    const batch = translateBatch();
+    // The model answers nothing for item 02 — a broken OCR line with nothing to say.
+    const { spawn } = fakeSpawn((call) => {
+      const payload = payloadOf(call);
+      const output = mockOutput({ ...batch, input: payload.input } as AgentBatch) as {
+        items: { key: string; tgt: string }[];
+      };
+      for (const item of output.items) if (item.key === '02') item.tgt = '';
+      return { stdout: cliAnswer(JSON.stringify(output)) };
+    });
+    const engine = createProviderEngine({
+      client: createClaudeCliClient({ provider: 'claude_code', model: 'sonnet', cli: { spawn } }),
+      systemPrompt: (b: AgentBatch) =>
+        loadTaskPrompt(b.task as AgentTask, { sourceLang: b.sourceLanguage, targetLang: b.targetLanguage }, readPrompt)
+          .system,
+      validate: (b: AgentBatch, raw: unknown) =>
+        validateResult(b, raw, { sourceLang: b.sourceLanguage, targetLang: b.targetLanguage, glossary: [] }),
+    });
+    const res = await engine.run(batch, {});
+    expect(res.kind).toBe('done');
+    if (res.kind !== 'done') return;
+    const items = (res.output as { items: { key: string; tgt: string }[] }).items;
+    // Nothing is lost: the English stays, and post-processing QA sends it to the review queue.
+    expect(items.find((i) => i.key === '02')?.tgt).toBe('A lever lifts 20 kilograms with *little* effort.');
+    expect(items.find((i) => i.key === '01')?.tgt).toBeTruthy();
+  });
+
+  it('still fails when the engine answers nothing for most of the chunk', async () => {
+    const batch = translateBatch();
+    const { spawn } = fakeSpawn((call) => {
+      const payload = payloadOf(call);
+      const output = mockOutput({ ...batch, input: payload.input } as AgentBatch) as {
+        items: { key: string; tgt: string }[];
+      };
+      for (const item of output.items) item.tgt = '';
+      return { stdout: cliAnswer(JSON.stringify(output)) };
+    });
+    const engine = createProviderEngine({
+      client: createClaudeCliClient({ provider: 'claude_code', model: 'sonnet', cli: { spawn } }),
+      systemPrompt: () => 'translate',
+      validate: (b: AgentBatch, raw: unknown) =>
+        validateResult(b, raw, { sourceLang: b.sourceLanguage, targetLang: b.targetLanguage, glossary: [] }),
+    });
+    await expect(engine.run(batch, {})).rejects.toThrow(/failed validation/u);
+  });
+});
+
 describe('the pipeline engine on Claude Code', () => {
   it('translates a batch end to end: prompt in, validated items out', async () => {
     const batch = translateBatch();
     // The stand-in answers like the model would: the mock translation of the payload it was given.
     const { spawn, calls } = fakeSpawn((call) => {
-      const payload = JSON.parse(call.stdin) as AgentBatch;
+      const payload = payloadOf(call);
       const output = mockOutput({ ...batch, input: payload.input } as AgentBatch);
       return { stdout: cliAnswer(JSON.stringify(output)) };
     });

@@ -42,8 +42,12 @@ const EnvSchema = z.object({
   /**
    * How much Claude Code may think per batch. Translating a chunk is a direct task: `low` is as good, several
    * times faster and uses much less of the subscription. Raise it only for a book that needs it.
+   *
+   * Deliberately **not** called CLAUDE_EFFORT: Claude Code exports that name for its own session, so an app
+   * started from a Claude Code terminal would silently inherit that session's level (and translate a whole book
+   * at `xhigh` — six times slower, for the same text).
    */
-  CLAUDE_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('low'),
+  TRANSLATE_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('low'),
   /**
    * Encrypts API keys stored in the database. When unset (or left at the example value) a random key is created
    * once in DATA_DIR/secret.key.
