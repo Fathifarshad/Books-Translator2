@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-const EngineSchema = z.enum(['agent', 'mock', 'gemini', 'ollama', 'openrouter']);
+const EngineSchema = z.enum(['agent', 'mock', 'claude_code', 'gemini', 'ollama', 'openrouter']);
 const bool = z
   .enum(['0', '1', 'true', 'false'])
   .default('1')
@@ -23,6 +23,8 @@ const EnvSchema = z.object({
   MAX_UPLOAD_MB: z.coerce.number().positive().default(200),
   MAX_PAGES: z.coerce.number().int().positive().default(2000),
   WORKER_MODE: z.enum(['inline', 'separate']).default('inline'),
+  /** How many pipeline jobs run side by side (translation of a long book is the slow part). */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(3),
   /** Seed the original sample book into an empty database at startup. */
   AUTO_SEED: bool,
   /** Read scanned pages (no text layer) with OCR during ingestion. */
@@ -34,7 +36,14 @@ const EnvSchema = z.object({
   /** Simulated latency of the mock engine per batch (ms), so progress is visible in demos. */
   MOCK_LATENCY_MS: z.coerce.number().int().nonnegative().default(0),
   ENGINE_DEFAULT: EngineSchema.default('agent'),
-  TUTOR_ENGINE: z.enum(['local', 'mock', 'gemini', 'ollama', 'openrouter']).default('local'),
+  TUTOR_ENGINE: z.enum(['local', 'mock', 'claude_code', 'gemini', 'ollama', 'openrouter']).default('local'),
+  /** Program of the `claude_code` engine; by default the `claude` on PATH is found automatically. */
+  CLAUDE_CLI: z.string().optional(),
+  /**
+   * How much Claude Code may think per batch. Translating a chunk is a direct task: `low` is as good, several
+   * times faster and uses much less of the subscription. Raise it only for a book that needs it.
+   */
+  CLAUDE_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('low'),
   /**
    * Encrypts API keys stored in the database. When unset (or left at the example value) a random key is created
    * once in DATA_DIR/secret.key.

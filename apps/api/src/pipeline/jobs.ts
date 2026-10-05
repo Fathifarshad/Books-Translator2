@@ -23,8 +23,13 @@ import { glossaryTerms, jobs, translations } from '../db/schema';
 
 /**
  * Job planning for one book × target language (SPEC §9.1). Jobs form a DAG through `depends_on`:
- * brief → glossary batches → (glossary review) → translate chunks (sequential within a chapter) → edit units
- * (per section, after its chunks). A job is runnable when it is queued and all its dependencies succeeded.
+ * brief → glossary batches → (glossary review) → translate chunks → edit units (per section, after its chunks).
+ * A job is runnable when it is queued and all its dependencies succeeded.
+ *
+ * Translate chunks of a chapter do **not** wait for each other (ADR-038): a book whose text is one long chapter
+ * would otherwise allow exactly one chunk at a time — one batch for Claude Code, no parallel provider calls, weeks
+ * for a textbook. They are still ordered by `seq`, so they are picked in document order, and the chapter's
+ * first-mention pass (`finalizeChapter`) fixes the parentheticals once the whole chapter is translated.
  */
 export type JobRow = typeof jobs.$inferSelect;
 
@@ -255,7 +260,8 @@ export function planTranslation(bundle: BookBundle, lang: string, settings: Tran
 
 /**
  * Creates translate and edit jobs for every section with remaining work (after the glossary is approved) and marks
- * the segments as queued. Translate chunks of one chapter run in order; a section's edit waits for its chunks.
+ * the segments as queued. Translate chunks are independent of each other (document order through `seq`); a
+ * section's edit waits for its own chunks.
  */
 export function createTranslationJobs(
   db: Db,
@@ -278,7 +284,6 @@ export function createTranslationJobs(
       const prioritized = priorityChapters.has(unit.chapterId) || priorityChapters.has(unit.nodeId);
       const translateIds: string[] = [];
       unit.chunks.forEach((segmentIds, k) => {
-        const prev = lastInChapter.get(unit.chapterId);
         const id = insertJob(db, {
           bookId,
           lang,
@@ -287,8 +292,8 @@ export function createTranslationJobs(
           priority: taskPriority('translate', prioritized),
           seq: unit.seq + k,
           scope: { nodeId: unit.nodeId, chapterId: unit.chapterId, segmentIds },
-          ...(prev ? { dependsOn: [prev] } : {}),
         });
+        // Only used so that a section without chunks of its own still edits after the chapter's last translation.
         lastInChapter.set(unit.chapterId, id);
         translateIds.push(id);
         created++;

@@ -24,22 +24,32 @@ export interface ChunkOptions {
   lang: string;
   /** Upper bound per chunk; a single longer segment forms its own chunk. */
   maxWords: number;
+  /** Upper bound on items per chunk (default CHUNK_MAX_ITEMS). */
+  maxItems?: number;
 }
 
 export const TRANSLATE_CHUNK_WORDS = 2500;
 export const EDIT_UNIT_WORDS = 3000;
+/**
+ * Keys per chunk (ADR-038). Words alone are not enough: in a two-column or OCR'd book a "paragraph" is often a
+ * single broken line, so 2,500 words can be 230 items — and one model answer then has to carry 230 exact keys.
+ * A missing key rejects the whole chunk, so the book stalls on the longest, most fragmented sections.
+ */
+export const CHUNK_MAX_ITEMS = 60;
 
 /**
- * Cuts consecutive segments of one section into chunks of at most `maxWords` source words, never splitting a
- * segment. Callers pass one section at a time, so chunks never cross a section boundary.
+ * Cuts consecutive segments of one section into chunks of at most `maxWords` source words and `maxItems`
+ * segments, never splitting a segment. Callers pass one section at a time, so chunks never cross a section
+ * boundary.
  */
 export function chunkSegments<T extends { src: string }>(segments: T[], opts: ChunkOptions): T[][] {
+  const maxItems = Math.max(1, opts.maxItems ?? CHUNK_MAX_ITEMS);
   const chunks: T[][] = [];
   let current: T[] = [];
   let words = 0;
   for (const s of segments) {
     const n = countWords(stripMarkup(s.src), opts.lang);
-    if (current.length > 0 && words + n > opts.maxWords) {
+    if (current.length > 0 && (words + n > opts.maxWords || current.length >= maxItems)) {
       chunks.push(current);
       current = [];
       words = 0;

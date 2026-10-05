@@ -4,10 +4,20 @@ import { mockOutput } from './mock';
 
 /**
  * Engines (SPEC §10.2): where a task runs. Every engine receives the same batch envelope built from the task spec,
- * so switching engines is configuration only: `mock`, `agent` (Claude Code), and the free OpenAI-compatible
- * providers (`gemini`, `ollama`, `openrouter`); `anthropic` / `openai` (paid APIs) fit the same interface.
+ * so switching engines is configuration only: `mock`, `agent` (Claude Code batch files for a human to process),
+ * `claude_code` (the same Claude Code, run automatically by the server) and the OpenAI-compatible providers
+ * (`gemini`, `ollama`, `openrouter`); `anthropic` / `openai` (paid APIs) fit the same interface.
  */
-export const ENGINE_IDS = ['agent', 'anthropic', 'openai', 'mock', 'gemini', 'ollama', 'openrouter'] as const;
+export const ENGINE_IDS = [
+  'agent',
+  'claude_code',
+  'anthropic',
+  'openai',
+  'mock',
+  'gemini',
+  'ollama',
+  'openrouter',
+] as const;
 export type EngineId = (typeof ENGINE_IDS)[number];
 
 export interface Usage {

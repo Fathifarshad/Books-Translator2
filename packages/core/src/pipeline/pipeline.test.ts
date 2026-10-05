@@ -2,7 +2,16 @@ import { sampleBook } from '@dozabaneh/shared/sample-book';
 import { describe, expect, it } from 'vitest';
 import { createBookIndex } from '../book';
 import { extractCandidates } from './candidates';
-import { chunkSegments, introducedIn, itemKeys, locationPath, memoryKey, needsTranslation, taskPriority } from './plan';
+import {
+  CHUNK_MAX_ITEMS,
+  chunkSegments,
+  introducedIn,
+  itemKeys,
+  locationPath,
+  memoryKey,
+  needsTranslation,
+  taskPriority,
+} from './plan';
 
 const words = (n: number, w = 'word') => Array.from({ length: n }, () => w).join(' ');
 
@@ -45,6 +54,20 @@ describe('chunkSegments', () => {
   it('counts words of the text, not markup', () => {
     const segs = [{ src: `*${words(10)}* \`code\` [^1]` }];
     expect(chunkSegments(segs, { lang: 'en', maxWords: 11 })).toHaveLength(1);
+  });
+
+  // ADR-038: in a two-column or OCR'd book a "paragraph" is one broken line, so the word budget alone would put
+  // hundreds of keys in a single model answer — and one missing key throws the whole chunk away.
+  it('caps the number of items even when the words would fit', () => {
+    const segs = Array.from({ length: 230 }, () => ({ src: words(10) }));
+    const sizes = chunkSegments(segs, { lang: 'en', maxWords: 2500 }).map((c) => c.length);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(CHUNK_MAX_ITEMS);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(230);
+  });
+
+  it('takes a smaller item cap from the caller', () => {
+    const segs = Array.from({ length: 10 }, () => ({ src: words(5) }));
+    expect(chunkSegments(segs, { lang: 'en', maxWords: 2500, maxItems: 4 }).map((c) => c.length)).toEqual([4, 4, 2]);
   });
 });
 

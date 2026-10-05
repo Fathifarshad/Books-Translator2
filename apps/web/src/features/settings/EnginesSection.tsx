@@ -19,6 +19,7 @@ import { api, openRouterConnectUrl } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { providersKey, useProviders } from './engines';
 
+const CLAUDE_CODE_DOCS = 'https://docs.claude.com/en/docs/claude-code/setup';
 const OLLAMA_DOWNLOAD = 'https://ollama.com/download';
 const OLLAMA_LIBRARY = 'https://ollama.com/library';
 /** Example only; the guide and the page point to the library for current model names. */
@@ -87,6 +88,7 @@ export function EnginesSection() {
         <p className="mt-4 text-sm text-muted">{t('app.loading')}</p>
       ) : (
         <div className="mt-5 flex flex-col gap-4">
+          <ClaudeCodeCard view={byId('claude_code') as ProviderView} />
           <GeminiCard view={byId('gemini') as ProviderView} />
           <OpenRouterCard view={byId('openrouter') as ProviderView} />
           <OllamaCard view={byId('ollama') as ProviderView} />
@@ -228,6 +230,62 @@ function ExternalLink({ href, children, primary = false }: { href: string; child
       {children}
       <Icon name="link" size={14} />
     </a>
+  );
+}
+
+/**
+ * Claude Code: the `claude` program already installed on this computer, run by the server for every batch. No key
+ * and no manual step — the user's own Claude subscription pays for it — so the card is only: install, model, test.
+ */
+function ClaudeCodeCard({ view }: { view: ProviderView }) {
+  const { t } = useTranslation();
+  const { save, test } = useProviderActions('claude_code');
+  const models = useQuery({
+    queryKey: ['provider-models', 'claude_code'],
+    queryFn: () => api.providerModels('claude_code'),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const notFound = test.data?.ok === false && test.data.error?.code === 'NOT_FOUND';
+  return (
+    <ProviderCard view={view}>
+      <ol className="flex flex-col gap-3">
+        <Step n={1}>
+          <p>{t('engines.claude_code.step1')}</p>
+          <div className="mt-2">
+            <ExternalLink href={CLAUDE_CODE_DOCS}>{t('engines.claude_code.install')}</ExternalLink>
+          </div>
+        </Step>
+        <Step n={2}>
+          <p>{t('engines.claude_code.step2')}</p>
+          <div className="mt-2">
+            <ModelSelect
+              value={view.model}
+              models={models.data?.models ?? []}
+              onChange={(model) => save.mutate({ model }, { onSuccess: () => test.mutate() })}
+              testId="claude-code-model"
+            />
+          </div>
+        </Step>
+        <Step n={3}>
+          <p>{t('engines.claude_code.step3')}</p>
+          <div className="mt-2">
+            <Button onClick={() => test.mutate()} disabled={test.isPending} data-testid="test-claude-code">
+              {test.isPending ? t('engines.testing') : t('engines.test')}
+            </Button>
+          </div>
+        </Step>
+      </ol>
+      {notFound ? (
+        <p role="alert" className="mt-2 text-sm text-danger" data-testid="claude-code-missing">
+          {t('engines.claude_code.notFound')}
+        </p>
+      ) : (
+        <TestOutcome result={test.data} />
+      )}
+      <p className="mt-3 text-xs leading-6 text-muted">{t('engines.claude_code.hint')}</p>
+      <Advanced view={view} showModel={false} />
+    </ProviderCard>
   );
 }
 

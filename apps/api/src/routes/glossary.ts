@@ -8,6 +8,7 @@ import { getBookRow, newId } from '../db/repo';
 import { glossaryTerms } from '../db/schema';
 import { pipelineCtx } from '../jobs/runner';
 import { advancePipeline, approveGlossary } from '../pipeline/advance';
+import { rebuildGlossary } from '../pipeline/control';
 import { applyGlossaryTerm, ReviewError } from '../pipeline/review';
 import { translationSettings } from '../pipeline/state';
 import { httpError } from './errors';
@@ -34,6 +35,7 @@ const PatchBody = z.object({
   status: z.enum(['proposed', 'approved', 'locked']).optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
+const RebuildBody = z.object({ lang: z.string().min(2).max(12) });
 const ApproveBody = z.object({
   lang: z.string().min(2).max(12),
   /** Specific terms; without ids every proposed term is approved and translation can start. */
@@ -159,6 +161,20 @@ export async function glossaryRoutes(app: FastifyInstance, { ctx }: { ctx: AppCo
     if (!body.ids) advancePipeline(pctx, row.id, body.lang);
     ctx.runner.kick();
     return { approved };
+  });
+
+  /**
+   * «ساختن دوباره‌ی واژه‌نامه»: throw away the machine-made terms and plan the glossary stage again with the
+   * engine chosen now. A weak model can fill a medical book with equivalents like «pregnancy → بازگشت», and every
+   * later translation then repeats them, so a book must be able to start its glossary over without being
+   * re-uploaded (and without losing its OCR). Terms the user locked are kept.
+   */
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/books/:id/glossary/rebuild`, async (req) => {
+    const row = bookOr404(req.params.id);
+    const { lang } = RebuildBody.parse(req.body ?? {});
+    const removed = rebuildGlossary(pctx, row.id, lang);
+    ctx.runner.kick();
+    return { removed };
   });
 
   /** «اعمال در متن ترجمه‌شده»: targeted edit jobs for the segments that contain the term. */

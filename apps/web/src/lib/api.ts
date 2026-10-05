@@ -218,6 +218,12 @@ export const api = {
     }),
   applyTerm: (id: string, termId: string) =>
     request<{ segments: number }>(`/books/${id}/glossary/${termId}/apply`, { method: 'POST' }),
+  /** Throw away the machine-made terms and build the glossary again with the engine chosen now. */
+  rebuildGlossary: (id: string, lang: string) =>
+    request<{ removed: number }>(`/books/${id}/glossary/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({ lang }),
+    }),
 
   // Edits, history and review (SPEC §9.8, §13.5)
   /** `reason`: "undo", "edit" or the user's own short note (stored with the revision). */

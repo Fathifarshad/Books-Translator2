@@ -15,9 +15,9 @@ import {
   type TranslationSettings,
   TranslationSettingsSchema,
 } from '@dozabaneh/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getBookRow, getBundle, refreshCounters } from '../db/repo';
-import { agentBatches, books, bookTargets, jobs, translations } from '../db/schema';
+import { agentBatches, books, bookTargets, glossaryTerms, jobs, translations } from '../db/schema';
 import { advancePipeline, agentCounts } from './advance';
 import { effectiveSkip, type JobRow, pipelineJobs, planTranslation, scopeOf } from './jobs';
 import {
@@ -60,6 +60,7 @@ export function startPipeline(
   if (!STARTABLE.has(row.status)) throw new PipelineError('BOOK_NOT_READY');
   if (lang === row.sourceLang) throw new PipelineError('SAME_LANGUAGE', 400);
   const settings = TranslationSettingsSchema.parse({ ...translationSettings(row, lang), ...input });
+  let moved = 0;
   // A free provider must be connected (key + model) before its jobs are created.
   const notReady = (ctx.providers?.status(PIPELINE_TASKS.map((t) => settings.engines[t])) ?? []).filter(
     (p) => !p.ready,
@@ -91,6 +92,7 @@ export function startPipeline(
     });
     // Resume paused work too.
     resumeJobs(ctx, bookId, lang);
+    moved = retargetJobs(ctx, bookId, lang, settings);
     db.update(books)
       .set({ status: 'translating', updatedAt: new Date().toISOString() })
       .where(eq(books.id, bookId))
@@ -99,7 +101,45 @@ export function startPipeline(
   refreshCounters(db, bookId);
   ctx.notify(bookId, { type: 'book', status: 'translating' });
   logPipeline(ctx, bookId, lang, `pipeline started (${settings.profile})`);
+  if (moved) logPipeline(ctx, bookId, lang, `${moved} queued job(s) moved to the new engine`);
   advancePipeline(ctx, bookId, lang);
+}
+
+/**
+ * Starting again with another engine must move the work that is still queued, not only the jobs created from now
+ * on — otherwise a book that is half-way through keeps calling the engine the user just gave up on, and the only
+ * way out is cancelling the whole run. Batches already written for Claude Code are withdrawn when their job
+ * changes hands; finished translations are never touched.
+ */
+function retargetJobs(ctx: PipelineCtx, bookId: string, lang: string, settings: TranslationSettings): number {
+  const { db } = ctx;
+  let moved = 0;
+  for (const task of PIPELINE_TASKS) {
+    const engine = settings.engines[task];
+    const open = db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.bookId, bookId),
+          eq(jobs.targetLang, lang),
+          eq(jobs.stage, task),
+          inArray(jobs.status, ['queued', 'awaiting_agent']),
+          ne(jobs.engine, engine),
+        ),
+      )
+      .all()
+      .map((j) => j.id);
+    if (open.length === 0) continue;
+    db.update(agentBatches)
+      .set({ status: 'cancelled' })
+      .where(and(inArray(agentBatches.jobId, open), inArray(agentBatches.status, ['pending', 'leased'])))
+      .run();
+    db.update(jobs).set({ engine, status: 'queued', error: null }).where(inArray(jobs.id, open)).run();
+    moved += open.length;
+  }
+  if (moved) ctx.notify(bookId, { type: 'agent', ...agentCounts(ctx, bookId) });
+  return moved;
 }
 
 function resumeJobs(ctx: PipelineCtx, bookId: string, lang: string): void {
@@ -110,6 +150,55 @@ function resumeJobs(ctx: PipelineCtx, bookId: string, lang: string): void {
         WHERE book_id = ? AND target_lang = ? AND status = 'paused'`,
     )
     .run(bookId, lang);
+}
+
+/**
+ * Throws away the glossary the engine proposed and plans the stage again (the terms the user locked stay). A
+ * glossary from a weak model poisons every later chunk — the prompts tell the engine to use its equivalents — so
+ * this is the way out that does not need the book to be uploaded and OCR'd again. Text that is already
+ * translated keeps its wording until it is re-run from the review queue.
+ */
+export function rebuildGlossary(ctx: PipelineCtx, bookId: string, lang: string): number {
+  const { db } = ctx;
+  let removed = 0;
+  db.transaction(() => {
+    removed = db
+      .delete(glossaryTerms)
+      .where(
+        and(
+          eq(glossaryTerms.bookId, bookId),
+          eq(glossaryTerms.tgtLang, lang),
+          inArray(glossaryTerms.status, ['proposed', 'approved']),
+        ),
+      )
+      .run().changes;
+    // Every glossary job is retired, succeeded ones included: otherwise the stage still looks complete.
+    const old = db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.bookId, bookId), eq(jobs.targetLang, lang), eq(jobs.stage, 'glossary')))
+      .all()
+      .map((j) => j.id);
+    if (old.length) {
+      db.update(jobs)
+        .set({ status: 'cancelled', finishedAt: new Date().toISOString() })
+        .where(inArray(jobs.id, old))
+        .run();
+      db.update(agentBatches)
+        .set({ status: 'cancelled' })
+        .where(and(inArray(agentBatches.jobId, old), inArray(agentBatches.status, ['pending', 'leased'])))
+        .run();
+    }
+    updatePipelineState(db, bookId, lang, (s) => {
+      s.glossaryPlanned = false;
+      s.glossaryApproved = false;
+    });
+  });
+  ctx.notify(bookId, { type: 'glossary', lang });
+  ctx.notify(bookId, { type: 'agent', ...agentCounts(ctx, bookId) });
+  logPipeline(ctx, bookId, lang, `glossary: rebuilt (${removed} machine term(s) removed)`, 'warn');
+  advancePipeline(ctx, bookId, lang);
+  return removed;
 }
 
 export function pausePipeline(ctx: PipelineCtx, bookId: string, lang: string): void {

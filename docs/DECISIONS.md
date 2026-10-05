@@ -336,3 +336,43 @@ Format for each entry:
   name). Gemini counts as free because its free tier depends on the key's billing tier, not on the model, so a paid
   Gemini key is still labelled «رایگان». Long model ids shrink the select (`min-w-0`) instead of widening the row, and
   the `:free` suffix is not repeated in the label.
+
+## ADR-038 — Claude Code as an automatic engine; chunks that really run in parallel (2026-10-04)
+- **Context:** on the owner's real book (a 45-page Miller's Anesthesia chapter, 2,231 segments) translation sat at
+  1% for days. Four separate causes, all of them blocking:
+  1. **Every translate chunk waited for the previous chunk of its chapter.** The book is *one* chapter, so exactly
+     one chunk was ever runnable: the dashboard showed «۲ بسته در انتظار» forever, and no engine — agent or
+     provider — could do more than one piece at a time.
+  2. **Agent mode is manual.** Claude Code only works through `/process-batches`, typed by hand, one batch per
+     round trip. Fifty chunks is fifty invocations.
+  3. **Chunks were cut by words only.** In a two-column OCR'd book a "paragraph" is one broken line, so 2,500
+     words became 231 items — one model answer had to carry 231 exact keys, and a single missing key threw the
+     whole chunk away.
+  4. **No engine the owner can reach works.** Gemini answers 403 from their network, OpenRouter's free models give
+     ~50 requests a day and empty answers, Ollama Cloud's quota ran out, local `qwen3:14b` fails validation.
+- **Decision:**
+  1. A new engine **`claude_code`**: the server runs the `claude` program that is already installed on the owner's
+     computer, headless (`claude -p --output-format json`), with the project's own prompts as the system prompt and
+     no tools, MCP servers, project settings or session files. No API key — it is paid for by the Claude
+     subscription the owner already has — and the answer goes through exactly the same validation and repair round
+     as any provider. `--effort low`: translating a chunk is a direct task, and on a real batch low effort was
+     2.4× faster, used 2.9× fewer tokens and read better than the default. The client needs Node, so it lives
+     behind the `@dozabaneh/ai/claude-cli` subpath and `packages/ai` stays browser-safe.
+  2. Translate chunks no longer depend on each other. Document order survives through `seq`, the per-chapter
+     first-mention pass (`finalizeChapter`) still fixes the parentheticals, and the edit unit still waits for the
+     chunks of its own section. Migration `0004_parallel_chunks.sql` unchains the books already in the queue.
+  3. `WORKER_CONCURRENCY` (default 3): the runner keeps three jobs busy instead of one.
+  4. `CHUNK_MAX_ITEMS = 60` caps keys per chunk next to the word budget.
+  5. Starting again with another engine moves the work that is still queued (`retargetJobs`) and withdraws the open
+     Claude Code batches, instead of forcing a cancel-and-restart of the whole book.
+  6. «ساختن دوباره‌ی واژه‌نامه» (`POST /books/:id/glossary/rebuild`): the owner's glossary had been written by a
+     weak local model — `pregnancy → بازگشت`, `labor → تولید`, `cardiac output → خرج قلبی` — and the prompts tell
+     every engine to use those equivalents, so each new chunk repeated the mistakes. The action drops the
+     machine-made terms, keeps the ones the user locked, leaves finished translations alone and plans the stage
+     again with the engine chosen now. Without it the only way out was deleting the book and OCR'ing it again.
+- **Consequences:** a book translates without a key, without a daily quota and without anyone typing a command;
+  `claude_code` is first in `PROVIDER_IDS`, so a new book defaults to it. It spends the owner's Claude plan, which
+  the settings card says plainly; when the plan's limit is reached the engine waits and resumes (QUOTA with the
+  reset time) instead of failing. Chunks that run side by side see fewer already-translated neighbours as context,
+  which the chapter pass and the edit stage absorb. Measured on a real batch: 60 items (≈600 words) in ~2.5
+  minutes, 60/60 keys correct — about an hour for the owner's chapter at concurrency 3.

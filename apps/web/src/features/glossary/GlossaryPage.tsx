@@ -38,6 +38,7 @@ export function GlossaryPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [applyTerm, setApplyTerm] = useState<GlossaryTermRow | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
   const [notice, setNotice] = useState('');
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: glossaryKey(bookId, lang) });
@@ -52,6 +53,17 @@ export function GlossaryPage() {
   const apply = useMutation({
     mutationFn: (termId: string) => api.applyTerm(bookId, termId),
     onSuccess: (r) => setNotice(t('glossary.applied', { count: fmtNum(r.segments) })),
+  });
+  // A glossary from a weak engine («pregnancy → بازگشت») poisons every later chunk; this starts the stage over.
+  const rebuild = useMutation({
+    mutationFn: () => api.rebuildGlossary(bookId, lang),
+    onSuccess: (r) => {
+      setRebuilding(false);
+      setNotice(t('glossary.rebuilt', { count: fmtNum(r.removed) }));
+      void refresh();
+      void queryClient.invalidateQueries({ queryKey: ['pipeline', bookId] });
+      void queryClient.invalidateQueries({ queryKey: ['book', bookId] });
+    },
   });
 
   const terms = glossary.data?.terms ?? [];
@@ -89,6 +101,11 @@ export function GlossaryPage() {
           <Button icon="plus" onClick={() => setAdding(true)} data-testid="add-term">
             {t('glossary.add')}
           </Button>
+          {terms.length ? (
+            <Button icon="history" onClick={() => setRebuilding(true)} data-testid="rebuild-glossary">
+              {t('glossary.rebuild')}
+            </Button>
+          ) : null}
           {proposedSelected.length ? (
             <Button icon="check" onClick={() => approve.mutate(proposedSelected)} disabled={approve.isPending}>
               {t('glossary.approveSelected')}
@@ -289,6 +306,33 @@ export function GlossaryPage() {
               <AlertDialog.Action asChild>
                 <Button variant="primary" onClick={() => applyTerm && apply.mutate(applyTerm.id)}>
                   {t('glossary.applyToText')}
+                </Button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root open={rebuilding} onOpenChange={setRebuilding}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+          <AlertDialog.Content className="fixed inset-x-3 top-[20dvh] z-50 mx-auto max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-popover)]">
+            <AlertDialog.Title className="text-lg font-bold">{t('glossary.rebuild')}</AlertDialog.Title>
+            <AlertDialog.Description className="mt-2 text-sm leading-7 text-muted">
+              {t('glossary.rebuildPrompt')}
+            </AlertDialog.Description>
+            <div className="mt-5 flex justify-end gap-2">
+              <AlertDialog.Cancel asChild>
+                <Button>{t('app.cancel')}</Button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <Button
+                  variant="primary"
+                  onClick={() => rebuild.mutate()}
+                  disabled={rebuild.isPending}
+                  data-testid="rebuild-confirm"
+                >
+                  {t('glossary.rebuild')}
                 </Button>
               </AlertDialog.Action>
             </div>

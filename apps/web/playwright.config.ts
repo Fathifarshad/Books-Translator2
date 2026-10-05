@@ -1,11 +1,14 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 // Set PW_CHROMIUM_PATH to use a pre-installed Chromium instead of `playwright install chromium`.
 const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
-const PORT = 4173;
-const API_PORT = 8797;
+// Ports can be moved (PW_WEB_PORT=4273 pnpm e2e) when another program on the computer already uses one: with
+// `reuseExistingServer` Playwright would otherwise run the whole suite against that foreign server.
+const PORT = Number(process.env.PW_WEB_PORT || 4173);
+const API_PORT = Number(process.env.PW_API_PORT || 8797);
 /** Fake OpenAI-compatible provider (Gemini, Ollama, OpenRouter + its OAuth page) for the Phase 4 specs. */
-const FAKE_PORT = 8798;
+const FAKE_PORT = Number(process.env.PW_FAKE_PORT || 8798);
 const FAKE = `http://127.0.0.1:${FAKE_PORT}`;
 
 export default defineConfig({
@@ -68,6 +71,8 @@ export default defineConfig({
         OPENROUTER_BASE_URL: `${FAKE}/openrouter/api/v1`,
         OPENROUTER_AUTH_URL: `${FAKE}/openrouter/auth`,
         TUTOR_ENGINE: 'local',
+        // Never run the real `claude` program (and never spend the user's Claude plan) in a test.
+        CLAUDE_CLI: fileURLToPath(new URL('../api/src/testing/fake-claude-cli.mjs', import.meta.url)),
       },
       reuseExistingServer: false,
       timeout: 120_000,

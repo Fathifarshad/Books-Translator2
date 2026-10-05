@@ -137,16 +137,23 @@ async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<
 }
 
 /**
- * Inline worker (WORKER_MODE=inline): polls the DB-backed queue and runs one job at a time. PDF parsing
- * itself happens in a worker thread, so the API stays responsive during a 300+ page ingestion.
+ * Inline worker (WORKER_MODE=inline): polls the DB-backed queue and runs up to WORKER_CONCURRENCY jobs side by
+ * side. One model call per chunk takes tens of seconds, so a book of fifty chunks is only usable when several run
+ * at once. PDF parsing itself happens in a worker thread, so the API stays responsive during a 300+ page ingestion.
  */
 export class JobRunner {
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private running = false;
+  /** Jobs currently being run; each promise settles (never rejects) when its job is finished. */
+  private readonly inFlight = new Set<Promise<void>>();
+  private draining = false;
   /** Not started until start() — tests drive the queue with drain(). */
   private stopped = true;
 
   constructor(private readonly deps: RunnerDeps) {}
+
+  private get concurrency(): number {
+    return Math.max(1, this.deps.config.WORKER_CONCURRENCY);
+  }
 
   start(): void {
     this.stopped = false;
@@ -160,7 +167,7 @@ export class JobRunner {
 
   /** Wake up now (e.g. right after an upload) instead of waiting for the next poll. */
   kick(): void {
-    if (!this.running && !this.stopped) this.schedule(0);
+    if (!this.draining && !this.stopped) this.schedule(0);
   }
 
   private schedule(ms: number): void {
@@ -168,15 +175,38 @@ export class JobRunner {
     this.timer = setTimeout(() => void this.tick(), ms);
   }
 
-  /** Runs jobs until the queue is empty; resolves when idle (used by tests). */
+  /** Runs jobs until the queue is empty, `concurrency` at a time; resolves when idle (used by tests). */
   async drain(): Promise<void> {
-    while (await this.runOne()) {
-      // keep going
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (;;) {
+        while (this.inFlight.size < this.concurrency) {
+          const job = this.claim();
+          if (!job) break;
+          this.track(job);
+        }
+        if (this.inFlight.size === 0) return;
+        await Promise.race([...this.inFlight]);
+      }
+    } finally {
+      this.draining = false;
     }
   }
 
+  private track(job: JobRow): void {
+    const done: Promise<void> = this.runJob(job)
+      .catch((err: unknown) => {
+        this.deps.log.error({ jobId: job.id, err }, 'job runner crashed');
+      })
+      .finally(() => {
+        this.inFlight.delete(done);
+      });
+    this.inFlight.add(done);
+  }
+
   private async tick(): Promise<void> {
-    if (this.running || this.stopped) return;
+    if (this.draining || this.stopped) return;
     await this.drain();
     if (!this.stopped) this.schedule(1000);
   }
@@ -186,16 +216,13 @@ export class JobRunner {
     return claimNext(this.deps.db, Object.keys(handlers) as JobRow['stage'][], this.deps.providers.blockedEngines());
   }
 
-  private async runOne(): Promise<boolean> {
-    if (this.running) return false;
+  private async runJob(job: JobRow): Promise<void> {
     const { db, bus, log } = this.deps;
-    const job = this.claim();
-    if (!job) return false;
-    this.running = true;
     bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: 'running' });
     const pipeline = PIPELINE.has(job.stage) && job.targetLang ? job.targetLang : null;
     // Slow providers (a local model on a CPU) can take minutes: keep the lease alive.
     const beat = setInterval(() => heartbeat(db, job.id), 60_000);
+    beat.unref?.();
     try {
       await handlers[job.stage]?.(job, this.deps);
       succeed(db, job.id);
@@ -209,7 +236,7 @@ export class JobRunner {
           if (pipeline && err.status !== 0)
             logPipeline(pipelineCtx(this.deps), job.bookId, pipeline, `${job.engine}: ${message}`, 'warn');
           bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: 'queued' });
-          return true;
+          return;
         }
       }
       // A broken or oversized PDF will not get better on retry.
@@ -231,8 +258,6 @@ export class JobRunner {
       bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: outcome, error: message });
     } finally {
       clearInterval(beat);
-      this.running = false;
     }
-    return true;
   }
 }

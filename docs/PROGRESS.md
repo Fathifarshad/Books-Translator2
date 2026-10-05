@@ -188,6 +188,30 @@ the sandbox has no access to the real services, so the first real connection is 
   the «show paid models» toggle, the labels). Tests: `packages/shared/src/providers.test.ts`, e2e
   `providers.spec.ts`; screens: `docs/screens/phase-4/{desktop,mobile}-{light,dark}-wizard-engines.png`.
 
+- [x] Translation that finishes without a key and without hand-work (owner's book stuck at 1%, 2026-10-05) —
+  ADR-038. Five fixes, each of which alone kept the book stalled:
+  - **`claude_code` engine**: the server runs the `claude` program on this computer headless (`claude -p
+    --output-format json`, `--effort low`, no tools / MCP / project settings / session files), with the prompts
+    from `prompts/` and the same validation and repair round as every provider. No key, no daily quota, no
+    `/process-batches` by hand; it is paid for by the user's own Claude subscription and is first in
+    `PROVIDER_IDS`, so a new book defaults to it. Node-only, so it lives behind `@dozabaneh/ai/claude-cli` and
+    `packages/ai` stays browser-safe. Tests: `packages/ai/src/engine/claude-cli.test.ts` (12: flags, stdin
+    payload, repair round, quota/auth/empty/missing-program errors, streaming, a real batch through the provider
+    engine), `apps/api/src/providers.test.ts` (4, against `testing/fake-claude-cli.mjs`), e2e `providers.spec.ts`.
+  - **Chunks run in parallel**: a translate chunk no longer waits for the previous chunk of its chapter, so a
+    one-chapter book is no longer one batch at a time. Migration `0004_parallel_chunks.sql` unchains books
+    already in the queue. Test: `apps/api/src/parallel.test.ts`.
+  - **`WORKER_CONCURRENCY`** (default 3): three jobs run side by side. Same test file.
+  - **`CHUNK_MAX_ITEMS = 60`**: a chunk is capped by keys as well as words — 2,500 words of two-column OCR had
+    become 231 keys in one answer, and one missing key rejected the lot. Test: `packages/core/.../pipeline.test.ts`.
+  - **Switching engine mid-book** moves the queued jobs and withdraws the open Claude Code batches instead of
+    needing a cancel-and-restart; **«ساختن دوباره‌ی واژه‌نامه»** throws away a glossary a weak model poisoned
+    (`pregnancy → بازگشت`) and plans the stage again, keeping locked terms and finished translations. Tests:
+    `apps/api/src/parallel.test.ts`, `apps/api/src/pipeline.test.ts`.
+  - Screens: `docs/screens/phase-4/{desktop,mobile}-{light,dark}-settings-claude-code.png`. Playwright ports are
+    overridable (`PW_WEB_PORT`) because another program on the owner's computer holds 4173 and `reuseExistingServer`
+    would otherwise run the whole suite against it.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

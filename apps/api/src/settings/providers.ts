@@ -9,6 +9,7 @@ import {
   pickDefaultModel,
   RateLimiter,
 } from '@dozabaneh/ai';
+import { createClaudeCliClient } from '@dozabaneh/ai/claude-cli';
 import {
   type AssistantEngine,
   isProviderId,
@@ -67,9 +68,13 @@ export class ProviderService {
   }
 
   defaultBaseUrl(id: ProviderId): string {
-    const env = { gemini: this.config.GEMINI_BASE_URL, ollama: this.config.OLLAMA_BASE_URL };
-    const fromEnv = id === 'openrouter' ? this.config.OPENROUTER_BASE_URL : env[id];
-    return (fromEnv || PROVIDERS[id].baseUrl).replace(/\/+$/u, '');
+    const env: Partial<Record<ProviderId, string | undefined>> = {
+      gemini: this.config.GEMINI_BASE_URL,
+      ollama: this.config.OLLAMA_BASE_URL,
+      openrouter: this.config.OPENROUTER_BASE_URL,
+    };
+    // claude_code is a local program, not an endpoint: it has no address.
+    return (env[id] || PROVIDERS[id].baseUrl).replace(/\/+$/u, '');
   }
 
   baseUrl(id: ProviderId): string {
@@ -109,7 +114,8 @@ export class ProviderService {
     const key = this.apiKey(id);
     const state = this.limiter(id).state();
     const hasKey = typeof key === 'string';
-    const model = s.model ?? '';
+    // Providers with a fixed model list (Claude Code) are usable straight away; the others start empty.
+    const model = s.model || preset.defaultModel;
     return {
       id,
       needsKey: preset.needsKey,
@@ -198,12 +204,26 @@ export class ProviderService {
 
   client(id: ProviderId, model?: string): ProviderClient {
     const key = this.apiKey(id);
+    // Claude Code is a program on this computer, not an endpoint (and its client needs Node, so it is imported
+    // from the package's Node-only subpath).
+    if (id === 'claude_code') {
+      return createClaudeCliClient({
+        provider: id,
+        model: model ?? this.stored(id).model ?? PROVIDERS[id].defaultModel,
+        cli: {
+          ...(this.config.CLAUDE_CLI ? { command: this.config.CLAUDE_CLI } : {}),
+          // Run outside the repository: the engine must never pick up project files or settings.
+          cwd: this.config.dataDir,
+          effort: this.config.CLAUDE_EFFORT,
+        },
+      });
+    }
     if (PROVIDERS[id].needsKey && typeof key !== 'string') {
       throw new ProviderError('AUTH', key === undefined ? 'The stored key cannot be read; enter it again.' : 'No key.');
     }
     return createProviderClient({
       provider: id,
-      model: model ?? this.stored(id).model ?? '',
+      model: model ?? this.stored(id).model ?? PROVIDERS[id].defaultModel,
       baseUrl: this.baseUrl(id),
       ...(typeof key === 'string' ? { apiKey: key } : {}),
       ...(this.fetchImpl ? { fetch: this.fetchImpl } : {}),

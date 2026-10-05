@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BookBundle, PipelineStatus, ProviderTestResult, ProviderView } from '@dozabaneh/shared';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { readConfig } from './config';
 import { chunkWordsFor } from './pipeline/jobs';
@@ -26,6 +26,8 @@ const config = readConfig({
   OLLAMA_BASE_URL: `${fake.url}/ollama/v1`,
   OPENROUTER_BASE_URL: `${fake.url}/openrouter/api/v1`,
   OPENROUTER_AUTH_URL: `${fake.url}/openrouter/auth`,
+  // The Claude Code engine runs a program, not an endpoint: point it at the stand-in.
+  CLAUDE_CLI: fileURLToPath(new URL('./testing/fake-claude-cli.mjs', import.meta.url)),
 });
 const app = await buildApp(config, { startRunner: false });
 
@@ -98,15 +100,77 @@ describe('secret box', () => {
   });
 });
 
+describe('Claude Code engine (the `claude` program on this computer)', () => {
+  afterEach(() => {
+    delete process.env.FAKE_CLAUDE_MODE;
+  });
+
+  it('is ready without a key and answers the connection test', async () => {
+    const before = await viewOf('claude_code');
+    expect(before).toMatchObject({ needsKey: false, hasKey: false, model: 'sonnet', ready: true });
+    const result = await test('claude_code');
+    expect(result).toMatchObject({ ok: true, model: 'sonnet', sample: 'OK' });
+    expect(result.models?.map((m) => m.id)).toEqual(['sonnet', 'haiku', 'opus']);
+  });
+
+  it('runs the program with the task prompt and the batch on its input', async () => {
+    const log = join(dataDir, 'claude-calls.log');
+    process.env.FAKE_CLAUDE_LOG = log;
+    try {
+      await test('claude_code');
+      const calls = readFileSync(log, 'utf8')
+        .trim()
+        .split(/\r?\n/u)
+        .map((l) => JSON.parse(l) as { args: string[]; prompt: string });
+      const call = calls.at(-1) as { args: string[]; prompt: string };
+      expect(call.args.join(' ')).toContain('--print');
+      expect(call.args.join(' ')).toContain('--model sonnet');
+      expect(call.args).toContain('--safe-mode');
+      expect(call.prompt).toContain('Reply with the single word');
+    } finally {
+      delete process.env.FAKE_CLAUDE_LOG;
+    }
+  });
+
+  it('waits instead of failing when the Claude subscription quota is used up', async () => {
+    process.env.FAKE_CLAUDE_MODE = 'quota';
+    const result = await test('claude_code');
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('QUOTA');
+    // The provider is held back so queued jobs wait for the reset instead of burning their attempts.
+    expect(app.ctx.providers.blockedEngines()).toContain('claude_code');
+    expect((await viewOf('claude_code')).problem).toMatchObject({ code: 'QUOTA', blocking: false });
+
+    process.env.FAKE_CLAUDE_MODE = 'ok';
+    expect((await test('claude_code')).ok).toBe(true);
+    expect((await viewOf('claude_code')).problem).toBeNull();
+  });
+
+  it('asks the user to sign in when the program is not signed in', async () => {
+    process.env.FAKE_CLAUDE_MODE = 'logged_out';
+    const result = await test('claude_code');
+    expect(result.error?.code).toBe('AUTH');
+    expect(await viewOf('claude_code')).toMatchObject({ ready: false });
+    process.env.FAKE_CLAUDE_MODE = 'ok';
+    await test('claude_code');
+  });
+});
+
 describe('provider settings', () => {
   it('lists the providers, none ready before setup (Ollama needs no key)', async () => {
     const list = await views();
-    expect(list.map((p) => p.id)).toEqual(['gemini', 'ollama', 'openrouter']);
-    const gemini = list[0] as ProviderView;
+    expect(list.map((p) => p.id)).toEqual(['claude_code', 'gemini', 'ollama', 'openrouter']);
+    const gemini = list.find((p) => p.id === 'gemini') as ProviderView;
     expect(gemini).toMatchObject({ needsKey: true, hasKey: false, ready: false, oneClick: false });
     expect(gemini.keyUrl).toContain('aistudio.google.com');
     expect(list.find((p) => p.id === 'ollama')).toMatchObject({ needsKey: false, ready: false });
     expect(list.find((p) => p.id === 'openrouter')?.oneClick).toBe(true);
+    // Claude Code needs no key and has a fixed model, so it is usable as soon as the CLI is installed.
+    expect(list.find((p) => p.id === 'claude_code')).toMatchObject({
+      needsKey: false,
+      model: 'sonnet',
+      ready: true,
+    });
   });
 
   it('stores a pasted key encrypted and never returns it', async () => {

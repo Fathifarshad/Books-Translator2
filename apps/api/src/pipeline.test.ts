@@ -217,6 +217,50 @@ describe('pipeline with the mock engine', () => {
     const del = await app.inject({ method: 'DELETE', url: `/api/v1/books/${bookId}/glossary/${term.id}` });
     expect(del.statusCode).toBe(204);
   });
+
+  /**
+   * A glossary from a weak engine poisons every later chunk, and re-uploading the book would throw away the OCR.
+   * Rebuilding drops the machine-made terms, keeps the ones the user locked and plans the stage again.
+   */
+  it('rebuilds a bad glossary without touching locked terms or finished translations', async () => {
+    const locked = await app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${bookId}/glossary`,
+      payload: { lang: 'fa', src: 'fulcrum point', tgt: 'نقطه‌ی تکیه‌گاه', kind: 'term', status: 'locked' },
+    });
+    expect(locked.statusCode).toBe(201);
+    const before = (await app.inject({ url: `/api/v1/books/${bookId}/glossary?lang=fa` })).json().terms as {
+      status: string;
+    }[];
+    const machine = before.filter((g) => g.status !== 'locked').length;
+    expect(machine).toBeGreaterThan(0);
+    const translatedBefore = (await bundleOf(bookId)).translations.filter((t) => t.lang === 'fa' && t.text).length;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${bookId}/glossary/rebuild`,
+      payload: { lang: 'fa' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().removed).toBe(machine);
+
+    const after = (await app.inject({ url: `/api/v1/books/${bookId}/glossary?lang=fa` })).json().terms as {
+      src: string;
+      status: string;
+    }[];
+    expect(after.every((g) => g.status === 'locked')).toBe(true);
+    expect(after.map((g) => g.src)).toContain('fulcrum point');
+    // The text already translated is left alone.
+    expect((await bundleOf(bookId)).translations.filter((t) => t.lang === 'fa' && t.text).length).toBe(
+      translatedBefore,
+    );
+    // The stage is open again and the engine proposes terms once more.
+    const status = await statusOf(bookId);
+    expect(status.stages.glossary.total).toBeGreaterThan(0);
+    await app.ctx.runner.drain();
+    const rebuilt = (await app.inject({ url: `/api/v1/books/${bookId}/glossary?lang=fa` })).json().terms as unknown[];
+    expect(rebuilt.length).toBeGreaterThan(1);
+  });
 });
 
 describe('pipeline in agent mode (fake agent + submit)', () => {

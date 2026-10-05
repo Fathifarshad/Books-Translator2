@@ -4,8 +4,10 @@
  * can inject a fake `fetch`. Model ids and free-tier limits change often, so both are settings, not constants.
  */
 import { isProviderId, modelCost, PROVIDER_IDS, type ProviderId, type ProviderLimits } from '@dozabaneh/shared';
+import type { ClaudeCliOptions } from './claude-cli';
+import { ProviderError, type ProviderErrorCode } from './provider-errors';
 
-export { isProviderId, PROVIDER_IDS, type ProviderId };
+export { isProviderId, PROVIDER_IDS, ProviderError, type ProviderErrorCode, type ProviderId };
 
 export interface ProviderPreset {
   id: ProviderId;
@@ -33,6 +35,20 @@ export interface ProviderPreset {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
+  claude_code: {
+    id: 'claude_code',
+    // Not an HTTP service: the client runs the `claude` CLI installed on this computer.
+    baseUrl: '',
+    needsKey: false,
+    defaultModel: 'sonnet',
+    // The subscription's own limits apply; these only keep the queue from starting dozens of CLI processes at once.
+    limits: { rpm: 20, rpd: 5_000 },
+    jsonMode: 'prompt',
+    timeoutMs: 10 * 60_000,
+    // Smaller pieces than the default 2,500: one rejected item costs less, and more chunks run side by side.
+    chunkWords: { translate: 1_200, edit: 1_500 },
+    preferredModels: [/^sonnet$/u, /^haiku$/u, /^opus$/u],
+  },
   gemini: {
     id: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -102,33 +118,6 @@ export interface ProviderUsage {
   tokensOut: number;
 }
 
-export type ProviderErrorCode =
-  | 'AUTH'
-  | 'RATE_LIMIT'
-  | 'QUOTA'
-  | 'OVERLOADED'
-  | 'NETWORK'
-  | 'TIMEOUT'
-  | 'NOT_FOUND'
-  | 'BAD_RESPONSE'
-  | 'UNKNOWN';
-
-/** A typed provider failure; `retryAfterMs` tells the scheduler when to try again. */
-export class ProviderError extends Error {
-  constructor(
-    readonly code: ProviderErrorCode,
-    message: string,
-    readonly status = 0,
-    readonly retryAfterMs?: number,
-  ) {
-    super(message);
-  }
-
-  get retryable(): boolean {
-    return ['RATE_LIMIT', 'QUOTA', 'OVERLOADED', 'NETWORK', 'TIMEOUT'].includes(this.code);
-  }
-}
-
 export interface ProviderConfig {
   provider: ProviderId;
   model: string;
@@ -139,6 +128,8 @@ export interface ProviderConfig {
   timeoutMs?: number;
   /** Ollama context window (default: the preset's). */
   contextTokens?: number;
+  /** Claude Code: the executable to run (default `claude`), its working directory and an injectable spawn. */
+  cli?: ClaudeCliOptions;
 }
 
 export interface ChatOptions {
@@ -237,7 +228,15 @@ async function* lines(body: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
   if (rest) yield rest;
 }
 
+/**
+ * OpenAI-compatible providers only. Claude Code is a local program, not an endpoint: its client lives in
+ * `@dozabaneh/ai/claude-cli` so that this package stays usable in the browser (the web app imports the mock
+ * engines from it), and the server builds it there.
+ */
 export function createProviderClient(config: ProviderConfig): ProviderClient {
+  if (config.provider === 'claude_code') {
+    throw new ProviderError('UNKNOWN', 'Use createClaudeCliClient() from @dozabaneh/ai/claude-cli for Claude Code.');
+  }
   const preset = PROVIDERS[config.provider];
   const base = (config.baseUrl || preset.baseUrl).replace(/\/+$/u, '');
   const doFetch = config.fetch ?? fetch;
