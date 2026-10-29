@@ -442,3 +442,27 @@ flagged — about 35 minutes for the whole chapter at three jobs at a time.
 - **Consequences:** exports need no new service and no key. The printable page carries Vazirmatn as data URLs
   (≈110 KB) like the offline reader. A book that is only half translated exports what it has: in `target` mode an
   untranslated row falls back to its source text, which is visible rather than silently missing.
+
+## ADR-041 — Reading a book aloud: four sources, because Claude has no voice (2026-10-29)
+- **Context:** the owner wants the translation as audio — the whole book and, separately, a shorter telling of it —
+  to listen to and to put on a phone. No Claude model produces speech, so the sound has to come from somewhere
+  else, and that choice is the owner's: it decides what it costs, how natural it sounds, and whether a file comes
+  out at all.
+- **Decision:** one setting, four sources (`packages/shared/src/tts.ts`, `apps/api/src/tts/`):
+  - `browser` — the voice Windows or the phone already has. Free, nothing to install, and it reads the section on
+    screen («بخوان» in the reader, `ReadAloud.tsx`, text taken from the target column as rendered). It **speaks**;
+    it does not write a file, so the app says so plainly instead of offering a download that cannot work.
+  - `piper` — a small program on this computer with a Persian voice: free, offline, no limit, writes WAV (MP3 when
+    ffmpeg is installed).
+  - `azure` / `google` / `openai` — natural voices over the internet; a key per service, kept encrypted on the
+    server like every translation key (golden rule 7), paid per character.
+- **One file per chapter.** A 300-page book as one recording is unusable: a phone's player shows chapters as a
+  playlist and remembers where it stopped. Recording takes minutes, so it is a job in the same queue as
+  everything else (`stage: 'audio'`), with the progress the page follows.
+- **Two kinds.** `full` reads the translation; `summary` reads a chapter summary the assistant engine writes
+  first, through the same `/assist` path the reader's summaries use (extracted to `assist/task.ts`, so there is
+  one way to ask for a summary).
+- **Consequences:** each service's own limit on request size is handled by splitting at sentence ends and joining
+  the pieces (MP3 end to end, WAV with one header over the sum). Nothing here was verified against a real Azure,
+  Google or OpenAI account or a real Piper install — the services are tested with an injected `fetch` and Piper
+  with a stand-in program, exactly as the translation providers are. The first real connection is the owner's.

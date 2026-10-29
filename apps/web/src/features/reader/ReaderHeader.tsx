@@ -9,6 +9,7 @@ import { copyText, type Layout } from '../../lib/hooks';
 import { useLibrary } from '../../stores/library';
 import { type MobileMode, useReaderUi } from '../../stores/reader';
 import { useReader } from './context';
+import { ReadAloud } from './ReadAloud';
 import { SummaryCard } from './SummaryCard';
 
 /** Breadcrumb, titles, column toggles, prev/next, ⋯ menu, tutor toggle and summary (SPEC §11.2). */
@@ -138,6 +139,7 @@ export function ReaderHeader({ layout, twoColumns }: { layout: Layout; twoColumn
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {columnToggles}
+        <ReadAloud lang={targetLang} />
         <div className="ms-auto flex gap-1.5">
           <Button icon="back" onClick={() => go(section.prevId)} disabled={!section.prevId} data-testid="prev-section">
             {t('reader.prev')}

@@ -13,7 +13,14 @@ const iso = (ms = Date.now()) => new Date(ms).toISOString();
 
 export function enqueue(
   db: Db,
-  job: { bookId: string; stage: Stage; priority?: number; scope?: Record<string, unknown> },
+  job: {
+    bookId: string;
+    stage: Stage;
+    priority?: number;
+    scope?: Record<string, unknown>;
+    /** Set for work that belongs to one target language (a recording, a pipeline stage). */
+    targetLang?: string;
+  },
 ): string {
   const id = newId('jb');
   db.insert(jobs)
@@ -24,6 +31,7 @@ export function enqueue(
       status: 'queued',
       priority: job.priority ?? 0,
       scope: job.scope ?? null,
+      ...(job.targetLang ? { targetLang: job.targetLang } : {}),
     })
     .run();
   return id;

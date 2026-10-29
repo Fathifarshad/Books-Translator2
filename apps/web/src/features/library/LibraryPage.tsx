@@ -305,6 +305,10 @@ function BookMenu({ summary }: { summary: BookSummary }) {
                 {t('library.exportOffline')}
               </a>
             </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/audio`)}>
+              <Icon name="sparkle" size={16} />
+              {t('audio.open')}
+            </DropdownMenu.Item>
             <DropdownMenu.Separator className="my-1 h-px bg-border" />
             {owner ? (
               <>

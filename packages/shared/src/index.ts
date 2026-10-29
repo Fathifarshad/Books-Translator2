@@ -5,3 +5,4 @@ export * from './domain';
 export * from './pipeline';
 export * from './providers';
 export * from './quiz';
+export * from './tts';

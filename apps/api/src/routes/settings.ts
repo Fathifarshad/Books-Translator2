@@ -6,6 +6,7 @@ import {
   type ProviderId,
   type ProviderSettingsResponse,
   ProviderUpdateSchema,
+  TtsUpdateSchema,
 } from '@dozabaneh/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -62,6 +63,28 @@ export async function settingsRoutes(app: FastifyInstance, { ctx }: { ctx: AppCo
     providers.setAssistantEngine(engine);
     return providers.assistant();
   });
+
+  /** Settings → «صدا»: which voice reads the book, and the key of the service that supplies it. */
+  const ttsBase = `${API_PREFIX}/settings/tts`;
+  const langOf = (req: FastifyRequest) =>
+    z.object({ lang: z.string().min(2).max(12).default('fa') }).parse(req.query ?? {}).lang;
+
+  app.get(ttsBase, async () => ctx.tts.view());
+
+  app.put(ttsBase, async (req) => {
+    ctx.tts.update(TtsUpdateSchema.parse(req.body ?? {}));
+    return ctx.tts.view();
+  });
+
+  app.get(`${ttsBase}/voices`, async (req) => {
+    try {
+      return { voices: await ctx.tts.voices(langOf(req)) };
+    } catch (err) {
+      return { voices: [], error: (err as Error).message };
+    }
+  });
+
+  app.post(`${ttsBase}/test`, async (req) => ctx.tts.test(langOf(req)));
 
   app.put<{ Params: { id: string } }>(`${base}/:id`, async (req) => {
     const id = providerOf(req.params.id);

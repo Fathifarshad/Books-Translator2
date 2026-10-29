@@ -2,6 +2,8 @@ import type { SearchResults, SearchSide, StructureOp } from '@dozabaneh/core';
 import {
   API_PREFIX,
   type AssistantEngine,
+  type AudioKind,
+  type AudioStatus,
   type BookBundle,
   type BookRecord,
   type ChatEvent,
@@ -22,6 +24,10 @@ import {
   type SummaryRequest,
   type TranslationSettings,
   type TranslationStatus,
+  type TtsTestResult,
+  type TtsUpdate,
+  type TtsView,
+  type TtsVoice,
   type TutorEngineInput,
 } from '@dozabaneh/shared';
 
@@ -268,6 +274,23 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ engine }),
     }),
+  // Voice (SPEC §13.9): which source reads the book, and the recordings it produced
+  tts: () => request<TtsView>('/settings/tts'),
+  updateTts: (patch: TtsUpdate) => request<TtsView>('/settings/tts', { method: 'PUT', body: JSON.stringify(patch) }),
+  ttsVoices: (lang: string) =>
+    request<{ voices: TtsVoice[]; error?: string }>(`/settings/tts/voices?lang=${encodeURIComponent(lang)}`),
+  testTts: (lang: string) =>
+    request<TtsTestResult>(`/settings/tts/test?lang=${encodeURIComponent(lang)}`, { method: 'POST' }),
+  audio: (bookId: string, kind: AudioKind, lang?: string) => {
+    const params = new URLSearchParams({ kind });
+    if (lang) params.set('lang', lang);
+    return request<AudioStatus>(`/books/${bookId}/audio?${params.toString()}`);
+  },
+  startAudio: (bookId: string, kind: AudioKind, lang?: string) =>
+    request<AudioStatus>(`/books/${bookId}/audio`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, ...(lang ? { lang } : {}) }),
+    }),
   summary: (body: SummaryRequest) =>
     request<{ markdown: string; engine: ProviderId; model: string }>('/assist/summary', {
       method: 'POST',
@@ -283,6 +306,13 @@ export const api = {
 /** «نسخه‌ی آفلاین»: one HTML file with the book and a phone reader (downloaded by the browser). */
 export function offlineExportUrl(bookId: string, lang?: string): string {
   return apiUrl(`/books/${bookId}/export/offline${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
+}
+
+/** «فایل صوتی» (SPEC §13.9): the recording of a book, one file per chapter. */
+export function audioTrackUrl(bookId: string, trackId: string, kind: AudioKind, lang?: string): string {
+  const params = new URLSearchParams({ kind });
+  if (lang) params.set('lang', lang);
+  return apiUrl(`/books/${bookId}/audio/${trackId}?${params.toString()}`);
 }
 
 /** «گرفتن خروجی» (SPEC §13.8): Markdown, Word, or the printable page the browser saves as a PDF. */

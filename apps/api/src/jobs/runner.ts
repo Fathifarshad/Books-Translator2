@@ -10,7 +10,7 @@ import {
   validateResult,
 } from '@dozabaneh/ai';
 import { ingestInWorker } from '@dozabaneh/pdf';
-import { type AgentBatch, isProviderId } from '@dozabaneh/shared';
+import { type AgentBatch, type AudioKind, isProviderId } from '@dozabaneh/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { type Config, repoRoot } from '../config';
@@ -24,6 +24,8 @@ import { approvedTerms, planBatch } from '../pipeline/batches';
 import { promptVersionOf } from '../pipeline/prompts';
 import { logPipeline, type PipelineCtx } from '../pipeline/state';
 import type { ProviderService } from '../settings/providers';
+import { buildAudio } from '../tts/audio';
+import type { TtsService } from '../tts/service';
 import { addUsage, claimNext, fail, heartbeat, type JobRow, requeue, succeed } from './queue';
 
 export interface RunnerDeps {
@@ -31,6 +33,7 @@ export interface RunnerDeps {
   bus: EventBus;
   config: Config;
   providers: ProviderService;
+  tts: TtsService;
   log: FastifyBaseLogger;
 }
 
@@ -48,6 +51,7 @@ const handlers: Partial<Record<JobRow['stage'], (job: JobRow, deps: RunnerDeps) 
   glossary: runPipelineJob,
   translate: runPipelineJob,
   edit: runPipelineJob,
+  audio: runAudioJob,
 };
 
 export function pipelineCtx({
@@ -111,6 +115,26 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
     ...(res.model ? { model: res.model } : {}),
     promptVersion: promptVersionOf(batch.promptRefs[0] ?? ''),
   });
+}
+
+/** Reading a book aloud: one file per chapter, with the progress the dashboard and the library show. */
+async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
+  const { db, bus, config, tts, providers } = deps;
+  const lang = job.targetLang as string;
+  const kind = ((job.scope as { kind?: AudioKind } | null)?.kind ?? 'full') as AudioKind;
+  await buildAudio(
+    { db, config, tts, providers },
+    {
+      bookId: job.bookId,
+      lang,
+      kind,
+      onProgress: (done, total) => {
+        heartbeat(db, job.id, { done, total });
+        bus.publish(job.bookId, { type: 'progress', stage: 'audio', done, total });
+      },
+    },
+  );
+  bus.publish(job.bookId, { type: 'audio', lang, kind });
 }
 
 async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<void> {

@@ -230,6 +230,13 @@ the sandbox has no access to the real services, so the first real connection is 
   which is where a 991-page book stopped. It is now QUOTA (the queue waits and looks again within the hour), and
   «resets 8am» is read as a clock time. Test: `packages/ai/src/engine/claude-cli.test.ts`.
 
+- [x] «صدا و پادکست» (owner's request, 2026-10-29) — ADR-041: the book read aloud from one of four sources — the
+  browser's own voice (reads in the reader, writes no file), Piper (free, offline, on this computer), or Azure /
+  Google / OpenAI (a key, paid per character) — one file per chapter, as a job, for the whole translation or for
+  a summary the assistant engine writes first. Keys stay encrypted on the server. Tests:
+  `apps/api/src/tts.test.ts` (15: splitting, joining, each service with an injected `fetch`, Piper with a
+  stand-in, the whole route path from book to downloaded file, and that the key never appears in an answer).
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

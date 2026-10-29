@@ -1,16 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createProviderTutorEngine, PROMPT_REFS, ProviderError } from '@dozabaneh/ai';
 import {
-  createProviderEngine,
-  createProviderTutorEngine,
-  loadTaskPrompt,
-  PROMPT_REFS,
-  ProviderError,
-  promptRefsFor,
-  validateResult,
-} from '@dozabaneh/ai';
-import {
-  type AgentBatch,
   API_PREFIX,
   type ChatEvent,
   isProviderId,
@@ -21,8 +12,8 @@ import {
 } from '@dozabaneh/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../app';
+import { runAssistTask } from '../assist/task';
 import { repoRoot } from '../config';
-import { newId } from '../db/repo';
 import { httpError } from './errors';
 
 /** A reader waits for these; a longer queue for the provider's limits is reported instead of waiting. */
@@ -95,40 +86,15 @@ export async function assistRoutes(app: FastifyInstance, { ctx }: { ctx: AppCont
     res.end();
   });
 
-  /** Runs a JSON task (summary, quiz) through the provider engine: prompts/, JSON schema, validation, one repair. */
+  /** Runs a JSON task (summary, quiz) on the assistant engine; the shared path is in `assist/task.ts`. */
   async function runTask<T extends 'summary' | 'quiz'>(
     task: T,
     body: { sourceLang: string; targetLang: string; book: { title: string; authors: string[] } },
     input: Record<string, unknown>,
   ) {
-    const engine = engineOrThrow();
-    const batch: AgentBatch = {
-      schemaVersion: 1,
-      batchId: newId('as'),
-      task,
-      promptRefs: promptRefsFor(task, body.targetLang),
-      sourceLanguage: body.sourceLang,
-      targetLanguage: body.targetLang,
-      options: { ezafe: 'yeh', parenthetical: 'first_in_chapter' },
-      book: body.book,
-      input,
-      resultPath: '',
-      createdAt: new Date().toISOString(),
-    };
-    const run = createProviderEngine({
-      client: providers.client(engine),
-      systemPrompt: (b) =>
-        loadTaskPrompt(b.task, { sourceLang: b.sourceLanguage, targetLang: b.targetLanguage }, readPrompt).system,
-      validate: (b, raw) => validateResult(b, raw, { sourceLang: body.sourceLang, targetLang: body.targetLang }),
-      beforeRequest: () => providers.acquire(engine, MAX_WAIT_MS),
-    });
     try {
-      const res = await run.run<T>(batch, {});
-      if (res.kind !== 'done') throw new Error('provider engines answer in real time');
-      providers.reportSuccess(engine);
-      return { ...res.output, engine, model: res.model ?? providers.view(engine).model };
+      return await runAssistTask(providers, engineOrThrow(), task, body, input, MAX_WAIT_MS);
     } catch (err) {
-      if (err instanceof ProviderError) providers.reportError(engine, err);
       throw failure(err);
     }
   }

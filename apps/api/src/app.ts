@@ -13,6 +13,7 @@ import { JobRunner, pipelineCtx } from './jobs/runner';
 import { advanceAll } from './pipeline/advance';
 import { NotificationPoller } from './pipeline/notify';
 import { assistRoutes } from './routes/assist';
+import { audioRoutes } from './routes/audio';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { HttpError } from './routes/errors';
@@ -28,6 +29,7 @@ import { structureRoutes } from './routes/structure';
 import { ProviderService } from './settings/providers';
 import { createSecretBox } from './settings/secrets';
 import { serveWeb } from './static';
+import { TtsService } from './tts/service';
 
 export interface AppContext {
   config: Config;
@@ -35,6 +37,7 @@ export interface AppContext {
   bus: EventBus;
   runner: JobRunner;
   providers: ProviderService;
+  tts: TtsService;
   access: AccessControl;
 }
 
@@ -58,10 +61,12 @@ export async function buildApp(
   ensureLocalUser(db);
   if (config.AUTO_SEED) seedBundle(db, sampleBook, 'us_local');
   const bus = new EventBus();
-  const providers = new ProviderService(db, config, createSecretBox(config.APP_SECRET, config.dataDir));
+  const secrets = createSecretBox(config.APP_SECRET, config.dataDir);
+  const providers = new ProviderService(db, config, secrets);
+  const tts = new TtsService(db, config, secrets);
   const access = new AccessControl(db);
-  const ctx: AppContext = { config, db, bus, providers, access, runner: undefined as unknown as JobRunner };
-  ctx.runner = new JobRunner({ db, bus, config, providers, log: app.log });
+  const ctx: AppContext = { config, db, bus, providers, tts, access, runner: undefined as unknown as JobRunner };
+  ctx.runner = new JobRunner({ db, bus, config, providers, tts, log: app.log });
 
   // CORS only for configured web origins (SPEC §16); the mobile app will use bearer tokens later.
   await app.register(cors, {
@@ -107,6 +112,7 @@ export async function buildApp(
   await app.register(settingsRoutes, { ctx });
   await app.register(assistRoutes, { ctx });
   await app.register(exportRoutes, { ctx });
+  await app.register(audioRoutes, { ctx });
 
   if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
     app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');

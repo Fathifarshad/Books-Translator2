@@ -11,7 +11,9 @@ export type BookEvent =
   | { type: 'pipeline'; lang: string }
   /** Agent batches were created, leased or imported. */
   | { type: 'agent'; pending: number; leased: number }
-  | { type: 'glossary'; lang: string };
+  | { type: 'glossary'; lang: string }
+  /** A recording finished (library and reader refresh their audio list). */
+  | { type: 'audio'; lang: string; kind: string };
 
 /** In-process pub/sub per book. (Phase 6 with several API instances swaps this for a shared broker.) */
 export class EventBus {
