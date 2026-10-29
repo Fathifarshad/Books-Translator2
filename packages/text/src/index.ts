@@ -10,3 +10,4 @@ export * from './postprocess';
 export * from './qa';
 export * from './search';
 export * from './sentences';
+export * from './speech';

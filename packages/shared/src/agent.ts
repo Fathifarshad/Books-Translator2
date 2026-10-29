@@ -6,7 +6,16 @@ import { z } from 'zod';
  * result to `resultPath`; `agent:submit` validates it against these schemas plus the domain checks.
  * API engines reuse the same input/output schemas, so quality and validation are identical across engines.
  */
-export const AGENT_TASKS = ['brief', 'glossary', 'translate', 'edit', 'summary', 'quiz', 'tutor_answer'] as const;
+export const AGENT_TASKS = [
+  'brief',
+  'glossary',
+  'translate',
+  'edit',
+  'speech',
+  'summary',
+  'quiz',
+  'tutor_answer',
+] as const;
 export const AgentTaskSchema = z.enum(AGENT_TASKS);
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
 
@@ -42,6 +51,12 @@ export const TranslateInputSchema = z.object({
   items: z.array(z.object({ key, type: ItemTypeSchema, src: z.string() })).min(1),
 });
 export type TranslateInput = z.infer<typeof TranslateInputSchema>;
+
+/** Input of the speech pass: the written lines, in reading order, already stripped of markup. */
+export const SpeechInputSchema = z.object({
+  items: z.array(z.object({ key, type: z.string(), src: z.string() })).min(1),
+});
+export type SpeechInput = z.infer<typeof SpeechInputSchema>;
 
 export const EditInputSchema = z.object({
   glossary: z.array(GlossaryEntrySchema),
@@ -105,6 +120,23 @@ export const TranslateResultSchema = z.object({
   ),
 });
 export type TranslateResult = z.infer<typeof TranslateResultSchema>;
+
+/**
+ * Reading aloud (ADR-042): written text in, spoken text out. A translation is written to be read — the same
+ * letters can be said in more than one way, and only meaning decides which. Everything a rule can settle is done
+ * before this (markup, numbers, units); this is for what it cannot.
+ */
+export const SpeechResultSchema = z.object({
+  items: z.array(
+    z.strictObject({
+      key,
+      /** The same sentence, written the way it should be said. */
+      tgt: z.string(),
+      note: z.string().optional(),
+    }),
+  ),
+});
+export type SpeechResult = z.infer<typeof SpeechResultSchema>;
 
 export const EditChangeSchema = z.object({
   type: z.string(),
@@ -207,6 +239,7 @@ export const TASK_INPUT_SCHEMAS = {
   glossary: GlossaryInputSchema,
   translate: TranslateInputSchema,
   edit: EditInputSchema,
+  speech: SpeechInputSchema,
   summary: SummaryInputSchema,
   quiz: QuizInputSchema,
   tutor_answer: TutorAnswerInputSchema,
@@ -217,6 +250,7 @@ export const TASK_RESULT_SCHEMAS = {
   glossary: GlossaryResultSchema,
   translate: TranslateResultSchema,
   edit: EditResultSchema,
+  speech: SpeechResultSchema,
   summary: SummaryResultSchema,
   quiz: QuizTaskResultSchema,
   tutor_answer: TutorAnswerResultSchema,

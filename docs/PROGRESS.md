@@ -237,6 +237,13 @@ the sandbox has no access to the real services, so the first real connection is 
   `apps/api/src/tts.test.ts` (15: splitting, joining, each service with an injected `fetch`, Piper with a
   stand-in, the whole route path from book to downloaded file, and that the key never appears in an answer).
 
+- [x] Recordings that sound said, not spelled (owner: «خیلی مصنوعی و کامپیوتری‌ست», 2026-10-29) — ADR-042: by
+  rule, markup and footnote markers go, a parenthesis in the other script is dropped, and numbers, ranges,
+  percentages and short units are written as words (language registry, `speech: 'fa' | 'en'`); by judgement, a
+  new `speech` task marks the vowels only where a written word is genuinely ambiguous and breaks long sentences
+  at punctuation they already have. Azure and Google additionally get SSML (pauses, `<lang>` for foreign runs).
+  Tests: `packages/text/src/speech.test.ts` (14), `apps/api/src/tts.test.ts` (17).
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

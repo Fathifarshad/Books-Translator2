@@ -466,3 +466,27 @@ flagged — about 35 minutes for the whole chapter at three jobs at a time.
   the pieces (MP3 end to end, WAV with one header over the sum). Nothing here was verified against a real Azure,
   Google or OpenAI account or a real Piper install — the services are tested with an injected `fetch` and Piper
   with a stand-in program, exactly as the translation providers are. The first real connection is the owner's.
+
+## ADR-042 — Text written to be read, said out loud (2026-10-29)
+- **Context:** the first recordings sounded mechanical and sometimes said the wrong word. That is not the voice's
+  fault: a translation is written to be *read*. A speech engine says «۲۰٪» as two digits and a symbol, shouts the
+  English term out of the middle of «بی‌هوشی (Anesthesia)», reads footnote markers aloud, and — because Persian is
+  written without short vowels — has to guess which of several words «مرد» or «کرم» is in that sentence.
+- **Decision:** two passes, split by whether a rule can settle the question.
+  1. **By rule** (`packages/text/src/speech.ts`, browser-safe, no model): markup and footnote markers removed; a
+     parenthesis whose content is in the other script dropped; numbers, decimals, ranges and percentages written
+     as words; short units said in full. The words come from the language registry (`speech: 'fa' | 'en'`), the
+     same way `normalizer` and `ocr` do — a language the registry has no spoken forms for keeps its digits rather
+     than borrowing another language's words.
+  2. **By judgement** (`prompts/speech.md`, a new `speech` task): the assistant engine marks the vowels **only**
+     on words whose reading is genuinely in doubt, expands what is still short, and breaks a very long sentence
+     at punctuation it already has. It is told not to change what is said — no shortening, no improving: the
+     listener must hear the same book the reader reads. A pass that fails leaves the prepared text as it is.
+- **The speech task's checks are deliberately not the translation's.** Digits become words and the bracketed term
+  disappears, so «same numbers», «same markup» and «same length» would all fire on a correct answer. What is
+  checked is that every line comes back, in the target language, and not empty.
+- **SSML where it is taken.** Azure and Google get a pause between lines and `<lang>` around a run still written
+  in the source language, so the voice switches instead of spelling it out; Piper and OpenAI get plain text.
+- **Consequences:** the polish pass costs a model call per 40 lines and is a switch in Settings («ویرایش متن برای
+  خوانش»), on by default and skipped when no assistant engine is connected. Full vowelling was deliberately not
+  asked for: a fully voweled text reads worse, not better.

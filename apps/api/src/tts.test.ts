@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { readConfig } from './config';
 import { bookDocument } from './export/document';
-import { audioSeconds, planFullAudio } from './tts/audio';
+import { audioSeconds, planFullAudio, scriptForSpeech } from './tts/audio';
 import { createSpeechEngine, joinWav, resolveProgram, SpeechError, splitForSpeech } from './tts/engines';
 
 /**
@@ -165,6 +165,32 @@ describe('what gets read', () => {
     expect(text).toMatch(/[آ-ی]/u);
     // Markup tokens are for the page, not for a voice.
     expect(text).not.toMatch(/\[\^|\[\[fig:|\*\*/u);
+  });
+});
+
+describe('the script a voice is given', () => {
+  const doc = bookDocument(sampleBook, 'fa');
+
+  it('prepares each line by rule when the model pass is off', async () => {
+    const tts = { polish: () => false } as unknown as Parameters<typeof scriptForSpeech>[0]['tts'];
+    const providers = { assistant: () => ({ engine: 'mock', ready: false }) } as unknown as Parameters<
+      typeof scriptForSpeech
+    >[0]['providers'];
+    const script = await scriptForSpeech({ tts, providers }, doc, 'بی‌هوشی (Anesthesia) تا ۲۰٪ *کم* می‌شود[^3].');
+    expect(script).not.toContain('Anesthesia');
+    expect(script).not.toContain('[^3]');
+    expect(script).not.toContain('*');
+    expect(script).toContain('بیست درصد');
+  });
+
+  it('keeps the prepared text when the model pass has no engine to run on', async () => {
+    const tts = { polish: () => true } as unknown as Parameters<typeof scriptForSpeech>[0]['tts'];
+    const providers = { assistant: () => ({ engine: 'mock', ready: true }) } as unknown as Parameters<
+      typeof scriptForSpeech
+    >[0]['providers'];
+    const script = await scriptForSpeech({ tts, providers }, doc, 'فشار ۱۲۰ mmHg بود.');
+    expect(script).toContain('میلی‌متر جیوه');
+    expect(script).toContain('صد و بیست');
   });
 });
 

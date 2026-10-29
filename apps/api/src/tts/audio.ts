@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AudioKind, AudioStatus, AudioTrack, TtsSource } from '@dozabaneh/shared';
-import { stripMarkup } from '@dozabaneh/text';
+import { getLanguage, speechText, stripMarkup } from '@dozabaneh/text';
 import { runAssistTask } from '../assist/task';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
@@ -37,6 +37,8 @@ interface Manifest {
 const MANIFEST = 'manifest.json';
 /** Rows of a chapter offered to the assistant engine when it writes the summary. */
 const SUMMARY_PASSAGES = 120;
+/** Lines sent to the speech pass at a time: enough context to judge a word, small enough to come back whole. */
+const SPEECH_BATCH_LINES = 40;
 
 export function audioDir(config: Config, bookId: string, lang: string, kind: AudioKind): string {
   return join(config.dataDir, 'audio', bookId, lang, kind);
@@ -107,6 +109,53 @@ export async function planSummaryAudio(
   return plan;
 }
 
+/**
+ * The script of one track, written the way it should be said (ADR-042). Everything a rule can settle is done
+ * first — markup, numbers, units, the bracketed original term — and what needs judgement (which reading a
+ * written-without-vowels word takes) goes to the model, line by line, in reading order. A pass that fails leaves
+ * the prepared text as it is: a recording that sounds mechanical is better than no recording.
+ */
+export async function scriptForSpeech(
+  deps: Pick<AudioDeps, 'providers' | 'tts'>,
+  doc: BookDocument,
+  text: string,
+): Promise<string> {
+  const lang = doc.lang.tgt;
+  const prepared = text
+    .split('\n')
+    .map((line) => speechText(line, lang))
+    .filter(Boolean);
+  if (prepared.length === 0) return '';
+  if (!deps.tts.polish()) return prepared.join('\n');
+
+  const assistant = deps.providers.assistant();
+  if (!assistant.ready || assistant.engine === 'mock') return prepared.join('\n');
+
+  const out = [...prepared];
+  for (let start = 0; start < prepared.length; start += SPEECH_BATCH_LINES) {
+    const slice = prepared.slice(start, start + SPEECH_BATCH_LINES);
+    const items = slice.map((src, i) => ({ key: String(start + i + 1).padStart(3, '0'), type: 'p', src }));
+    try {
+      const result = (await runAssistTask(
+        deps.providers,
+        assistant.engine as Parameters<typeof runAssistTask>[1],
+        'speech',
+        { sourceLang: doc.lang.src, targetLang: lang, book: { title: doc.title, authors: doc.authors } },
+        { items },
+        60_000,
+      )) as { items?: { key: string; tgt: string }[] };
+      const byKey = new Map((result.items ?? []).map((i) => [i.key, i.tgt]));
+      items.forEach((item, i) => {
+        const said = byKey.get(item.key)?.trim();
+        if (said) out[start + i] = said;
+      });
+    } catch {
+      // The prepared text is already much better than the written one; keep it and read on.
+    }
+  }
+  return out.join('\n');
+}
+
 /** Seconds of a WAV, read from its header; 0 for MP3, whose length a player reports better than a guess. */
 export function audioSeconds(audio: Buffer, format: string): number {
   if (format !== 'wav' || audio.length < 44) return 0;
@@ -139,7 +188,8 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   if (!bundle) throw new SpeechError('NOT_FOUND', `book ${opts.bookId} not found`, true);
   const doc = bookDocument(bundle, opts.lang);
   const source = tts.source();
-  const engine = tts.engine(opts.lang);
+  // The source language's locale, so a run still written in it is spoken in it rather than spelled out.
+  const engine = tts.engine(opts.lang, source, getLanguage(doc.lang.src).locale);
 
   let plan: AudioTrackPlan[];
   if (opts.kind === 'summary') {
@@ -160,7 +210,8 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   const tracks: AudioTrack[] = [];
   for (const [i, item] of plan.entries()) {
     opts.onProgress?.(i, plan.length);
-    const { audio, format } = await engine.speak(item.text, opts.signal);
+    const script = await scriptForSpeech({ providers, tts }, doc, item.text);
+    const { audio, format } = await engine.speak(script, opts.signal);
     const id = String(item.index).padStart(3, '0');
     writeFileSync(join(dir, `${id}.${format}`), audio);
     tracks.push({

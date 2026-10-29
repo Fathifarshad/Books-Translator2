@@ -28,6 +28,8 @@ interface StoredTts {
   voice?: Partial<Record<TtsSource, string>>;
   binPath?: string;
   voicePath?: string;
+  /** Prepare each line with the assistant engine before reading it (on unless turned off). */
+  polish?: boolean;
   problem?: TtsProblem;
 }
 
@@ -60,6 +62,11 @@ export class TtsService {
 
   source(): TtsSource {
     return this.stored().source ?? 'browser';
+  }
+
+  /** Whether the assistant engine prepares each line before it is read (ADR-042). */
+  polish(): boolean {
+    return this.stored().polish !== false;
   }
 
   /** The decrypted key of a source; null when none is stored, undefined when it cannot be read. */
@@ -110,6 +117,7 @@ export class TtsService {
       voicePath: s.voicePath ?? '',
       format: this.format(),
       canEncodeMp3: this.canEncodeMp3(),
+      polish: this.polish(),
       problem: s.problem ?? null,
       ready: configured && !s.problem?.blocking,
     };
@@ -136,13 +144,14 @@ export class TtsService {
     if (patch.voice !== undefined) next.voice = { ...(next.voice ?? {}), [source]: patch.voice };
     if (patch.binPath !== undefined) next.binPath = patch.binPath;
     if (patch.voicePath !== undefined) next.voicePath = patch.voicePath;
+    if (patch.polish !== undefined) next.polish = patch.polish;
     // New settings deserve a fresh try.
     delete next.problem;
     this.save(next);
   }
 
   /** The engine for the chosen source; throws for `browser`, which speaks in the page and writes nothing. */
-  engine(lang: string, source: TtsSource = this.source()): SpeechEngine {
+  engine(lang: string, source: TtsSource = this.source(), foreignLang?: string): SpeechEngine {
     if (!isFileTtsSource(source)) {
       throw new SpeechError('NOT_FOUND', 'The browser voice reads in the page; it cannot write a file.', true);
     }
@@ -156,6 +165,9 @@ export class TtsService {
       ...(s.binPath ? { binPath: s.binPath } : {}),
       ...(s.voicePath ? { voicePath: s.voicePath } : {}),
       lang,
+      // Azure and Google take SSML: a pause between lines, and a foreign run marked so the voice switches to it.
+      ssml: source === 'azure' || source === 'google',
+      ...(foreignLang ? { foreignLang } : {}),
       ...this.deps,
     });
   }

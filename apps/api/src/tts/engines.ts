@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import type { AudioFormat, FileTtsSource, TtsVoice } from '@dozabaneh/shared';
+import { toSsml } from '@dozabaneh/text';
 
 /**
  * Voices that write a file (SPEC §13.9). Claude has no voice, so every one of these is somewhere else: a small
@@ -43,6 +44,15 @@ export interface SpeechConfig {
   voicePath?: string;
   /** The language the book is being read in; sent to the services that want a tag. */
   lang: string;
+  /**
+   * Send SSML rather than plain text, where the service takes it: a pause between lines, and a run in the other
+   * script marked so the voice switches language instead of spelling it out (ADR-042).
+   */
+  ssml?: boolean;
+  /** Locale of the source language, for those marked runs (e.g. `en-US`). */
+  foreignLang?: string;
+  /** Silence between lines, in milliseconds. */
+  pauseMs?: number;
   fetch?: typeof fetch;
   spawn?: typeof spawn;
 }
@@ -130,9 +140,15 @@ function azureEngine(config: SpeechConfig): SpeechEngine {
     async speak(text, signal) {
       const parts: Buffer[] = [];
       for (const piece of splitForSpeech(text, CHUNK_CHARS.azure)) {
+        const body = config.ssml
+          ? toSsml(piece, config.lang, {
+              ...(config.foreignLang ? { foreignLang: config.foreignLang } : {}),
+              ...(config.pauseMs ? { pauseMs: config.pauseMs } : {}),
+            })
+          : forXml(piece);
         const ssml =
           `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${config.lang}">` +
-          `<voice name="${forXml(config.voice)}">${forXml(piece)}</voice></speak>`;
+          `<voice name="${forXml(config.voice)}">${body}</voice></speak>`;
         const res = await post(
           `${host()}/v1`,
           {
@@ -193,7 +209,14 @@ function googleEngine(config: SpeechConfig): SpeechEngine {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              input: { text: piece },
+              input: config.ssml
+                ? {
+                    ssml: `<speak>${toSsml(piece, config.lang, {
+                      ...(config.foreignLang ? { foreignLang: config.foreignLang } : {}),
+                      ...(config.pauseMs ? { pauseMs: config.pauseMs } : {}),
+                    })}</speak>`,
+                  }
+                : { text: piece },
               voice: { languageCode: config.lang, name: config.voice },
               audioConfig: { audioEncoding: 'MP3' },
             }),

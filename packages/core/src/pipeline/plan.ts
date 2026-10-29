@@ -76,6 +76,8 @@ export const TASK_PRIORITY: Record<AgentTask, number> = {
   glossary: 700,
   translate: 100,
   edit: 100,
+  /** Runs inside the recording job, not in the queue; the number is only here to complete the map. */
+  speech: 100,
 };
 export const PRIORITY_BOOST = 500;
 

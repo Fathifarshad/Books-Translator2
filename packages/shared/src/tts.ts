@@ -55,6 +55,11 @@ export interface TtsView {
   format: AudioFormat;
   /** MP3 needs ffmpeg for Piper's WAV; false means the files come out as WAV. */
   canEncodeMp3: boolean;
+  /**
+   * Let the assistant engine prepare each line for the voice before it is read: the vowel marks a written word
+   * needs to be said the right way, numbers and units in full, the bracketed original term left out (ADR-042).
+   */
+  polish: boolean;
   problem: TtsProblem | null;
   ready: boolean;
 }
@@ -67,6 +72,7 @@ export const TtsUpdateSchema = z.object({
   voice: z.string().trim().max(200).optional(),
   binPath: z.string().trim().max(500).optional(),
   voicePath: z.string().trim().max(500).optional(),
+  polish: z.boolean().optional(),
 });
 export type TtsUpdate = z.infer<typeof TtsUpdateSchema>;
 

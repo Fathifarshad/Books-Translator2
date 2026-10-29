@@ -7,7 +7,7 @@ import { newId } from '../db/repo';
 import type { ProviderService } from '../settings/providers';
 
 /**
- * One JSON task (summary, quiz) on the configured assistant engine: prompts from `prompts/`, the task's JSON
+ * One JSON task (summary, quiz, the speech pass) on the configured assistant engine: prompts from `prompts/`, the task's JSON
  * schema, the same validation as every other engine and one repair round. Shared by `/assist/*` and by the
  * recording of a book's summary, so both ask for a summary in exactly the same way.
  */
@@ -21,7 +21,7 @@ export interface AssistTaskBody {
   book: { title: string; authors: string[] };
 }
 
-export async function runAssistTask<T extends 'summary' | 'quiz'>(
+export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech'>(
   providers: ProviderService,
   engine: ProviderId,
   task: T,

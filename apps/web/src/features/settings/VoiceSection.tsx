@@ -200,6 +200,22 @@ export function VoiceSection({ lang = UI_LANG }: { lang?: string }) {
       ) : null}
 
       {source !== 'browser' ? (
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={data.polish}
+            onChange={(e) => save.mutate({ polish: e.target.checked })}
+            className="mt-1.5"
+            data-testid="voice-polish"
+          />
+          <span>
+            <span className="font-medium">{t('voice.polish')}</span>
+            <span className="block text-xs leading-6 text-muted">{t('voice.polishHint')}</span>
+          </span>
+        </label>
+      ) : null}
+
+      {source !== 'browser' ? (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button variant="primary" onClick={() => test.mutate()} disabled={test.isPending} data-testid="voice-test">
             {test.isPending ? t('voice.testing') : t('voice.test')}
