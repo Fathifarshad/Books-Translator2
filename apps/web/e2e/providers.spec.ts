@@ -80,6 +80,31 @@ test.describe
       );
     });
 
+    /** ADR-041: Claude has no voice, so the user picks where the sound comes from. */
+    test('offers four voice sources, and says the browser one writes no file', async ({ page }) => {
+      await page.goto('/settings');
+      const card = page.getByTestId('voice-section');
+      await expect(card).toBeVisible();
+      // The browser's own voice is the starting point: free, nothing to install, no file.
+      await expect(card.getByTestId('voice-source')).toHaveValue('browser');
+      await expect(card).toContainText('فایل صوتی نمی‌سازد');
+      await expect(card.getByTestId('voice-test')).toHaveCount(0);
+
+      await card.getByTestId('voice-source').selectOption('azure');
+      await expect(card.getByTestId('voice-key')).toBeVisible();
+      await expect(card.getByTestId('voice-region')).toBeVisible();
+      await expect(card.getByTestId('voice-test')).toBeVisible();
+      await expectNoSeriousA11yViolations(page);
+      await shoot(
+        page,
+        'settings-voice',
+        '/settings',
+        (pg) => expect(pg.getByTestId('voice-section')).toBeVisible(),
+        true,
+      );
+      await card.getByTestId('voice-source').selectOption('browser');
+    });
+
     test('connects Gemini by pasting a key, OpenRouter with one click, and finds Ollama', async ({ page }) => {
       await page.goto('/settings');
       const section = page.getByTestId('engines-section');
