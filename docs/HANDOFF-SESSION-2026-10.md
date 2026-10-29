@@ -5,7 +5,7 @@ Paste this whole file into a new agent session that has `C:\Users\user\Books-Tra
 
 ## 0. Read first
 
-`CLAUDE.md` (binding rules), `docs/SPEC.md` (source of truth), `docs/DECISIONS.md` (ADR-001 … ADR-042),
+`CLAUDE.md` (binding rules), `docs/SPEC.md` (source of truth), `docs/DECISIONS.md` (ADR-001 … ADR-043),
 `docs/PROGRESS.md`, `docs/HANDOFF.md`, `docs/GUIDE.fa.md` (the owner's Persian guide).
 
 **Working agreement:** talk to the owner in **Persian**; code, identifiers, commits and comments in **English**.
@@ -14,7 +14,7 @@ One thing at a time: plan → wait for approval → implement with tests → qua
 update `PROGRESS.md` / `DECISIONS.md` → Persian summary → stop.
 
 **Quality gate:** `pnpm lint && pnpm typecheck && pnpm test`, plus `PW_WEB_PORT=4273 pnpm e2e` for UI work.
-Current: lint ✓ · typecheck ✓ · **547 unit tests** ✓ · **41 e2e** ✓.
+Current: lint ✓ · typecheck ✓ · **562 unit tests** ✓ · **42 e2e** ✓.
 
 ## 1. What the app is
 
@@ -29,7 +29,7 @@ packages/core chunking/plan     packages/text language registry, QA, speech
 prompts/      shared by every engine          data/ (git-ignored) the owner's real books
 ```
 
-## 2. This session — eight commits
+## 2. This session — nine commits
 
 ### `83f10d7` — Claude Code as an automatic engine, and real parallelism (ADR-038)
 
@@ -130,6 +130,24 @@ disappears, so «same numbers», «same markup» and «same length» would fire 
 every line comes back, in the target language, not empty. Azure and Google additionally get SSML (pauses,
 `<lang>` around a run still in the source language); Piper and OpenAI get plain text.
 
+### `77c285a` — what a book will cost, and a ceiling (ADR-043)
+
+Two different counts, deliberately not mixed: **tokens**, which every engine spends, and **dollars**, which only
+a pay-as-you-go model spends. Claude Code (a subscription), Ollama (this computer) and a free tier cost no money
+and still have a limit, so the estimate always shows tokens and shows dollars only where they are charged —
+«هزینه‌ی دلاری ندارد» rather than a misleading «$0».
+
+- **Rates from the owner's own jobs** (`apps/api/src/pipeline/cost.ts`): a stage with ≥ 3 finished calls is
+  projected from its own tokens per segment (translate, edit) or per call (brief, glossary); until then from the
+  defaults in `packages/shared/src/cost.ts`, measured on one real 60-item chunk. The wizard says which basis it
+  used.
+- **Prices** are what the provider lists for the chosen model, kept in the provider settings when the model list
+  is fetched, so an estimate needs no network. Every finished call of a paid model adds its dollars to
+  `jobs.cost_usd` (the column existed and was never written).
+- **The ceiling**: Settings → «سقف هزینه», daily and/or monthly, empty = none. While it is reached, the paid
+  engines join the runner's blocked list — their jobs wait, nothing fails — and work resumes at midnight or on
+  the 1st. It never stops an engine that spends no money.
+
 ## 3. Measurements worth keeping
 
 | What | Value |
@@ -154,14 +172,12 @@ in one measured comparison made it worse. Profile «اقتصادی» skips the e
 
 ## 5. Open work, in the owner's priority order
 
-1. **Cost estimate and a spending cap before «شروع ترجمه»** — the owner chose this next. Tokens are already
-   recorded per job (`jobs.tokens_in/out`, `cost_usd` column exists and is unused).
-2. The speech pass has **never run against a real assistant engine or a real voice** on this machine — no TTS key,
+1. The speech pass has **never run against a real assistant engine or a real voice** on this machine — no TTS key,
    Piper not installed, the assistant engine not connected. Rules are tested; the ear is the owner's.
-3. 339 of 487 paragraphs still end without terminal punctuation — order is right, paragraph edges are not.
-4. `pnpm fixtures:pdf` produces **broken fixtures on Windows** (pdf.js draws pdfkit's standard-14 fonts as empty
+2. 339 of 487 paragraphs still end without terminal punctuation — order is right, paragraph edges are not.
+3. `pnpm fixtures:pdf` produces **broken fixtures on Windows** (pdf.js draws pdfkit's standard-14 fonts as empty
    boxes here). Do not regenerate; they are correct in git.
-5. One e2e test (`translate.spec.ts` agent-mode hint) flaked once under full parallelism and passed alone and on
+4. One e2e test (`translate.spec.ts` agent-mode hint) flaked once under full parallelism and passed alone and on
    the next full run. Watch it.
 
 ## 6. House rules that bite
