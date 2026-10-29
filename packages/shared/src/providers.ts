@@ -83,6 +83,8 @@ export interface ProviderView {
   defaultBaseUrl: string;
   limits: ProviderLimits;
   defaultLimits: ProviderLimits;
+  /** US dollars per million input / output tokens of the chosen model, when the provider lists a price. */
+  price?: { input: number; output: number };
   usage: ProviderUsage;
   problem: ProviderProblem | null;
   /** Key (when needed) and model are set and nothing blocking is reported: jobs can run. */

@@ -2,6 +2,7 @@ import { ProviderError, pickDefaultModel } from '@dozabaneh/ai';
 import {
   API_PREFIX,
   AssistantEngineSchema,
+  BudgetSchema,
   isProviderId,
   type ProviderId,
   type ProviderSettingsResponse,
@@ -11,6 +12,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../app';
+import { budgetState, setBudget } from '../pipeline/cost';
 import { authorizeUrl, exchangeCode, OAuthFlows } from '../settings/oauth';
 import { httpError } from './errors';
 
@@ -62,6 +64,14 @@ export async function settingsRoutes(app: FastifyInstance, { ctx }: { ctx: AppCo
     const { engine } = z.object({ engine: AssistantEngineSchema }).parse(req.body ?? {});
     providers.setAssistantEngine(engine);
     return providers.assistant();
+  });
+
+  /** Settings → «سقف هزینه»: the ceiling that stops engines charged per token (ADR-043). */
+  app.get(`${API_PREFIX}/settings/budget`, async () => budgetState(ctx.db));
+
+  app.put(`${API_PREFIX}/settings/budget`, async (req) => {
+    setBudget(ctx.db, BudgetSchema.parse(req.body ?? {}));
+    return budgetState(ctx.db);
   });
 
   /** Settings → «صدا»: which voice reads the book, and the key of the service that supplies it. */

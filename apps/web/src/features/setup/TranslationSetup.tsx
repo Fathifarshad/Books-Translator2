@@ -1,6 +1,7 @@
 import {
   type BookBundle,
   type BookRecord,
+  type CostEstimate,
   isProviderId,
   modelCost,
   PIPELINE_ENGINES,
@@ -327,6 +328,7 @@ function SettingsStep({
             })}
           </p>
         ) : null}
+        {e ? <CostLine cost={e.cost} /> : null}
         <Button
           variant="primary"
           icon="sparkle"
@@ -478,5 +480,36 @@ function GlossaryStep({ book, lang }: { book: BookRecord; lang: string }) {
         </Button>
       </div>
     </section>
+  );
+}
+
+/** What the book will spend before «شروع ترجمه» (ADR-043): tokens always, dollars only where they are charged. */
+function CostLine({ cost }: { cost: CostEstimate }) {
+  const { t } = useTranslation();
+  const k = (n: number) => fmtNum(Math.round(n / 1000) * 1000);
+  return (
+    <div className="basis-full text-sm text-muted" data-testid="cost-estimate">
+      <p>
+        {t('setup.costTokens', { input: k(cost.tokens.in), output: k(cost.tokens.out) })}
+        {' · '}
+        {cost.usd === null
+          ? t('setup.costNoMoney')
+          : t('setup.costUsd', { usd: fmtNum(Math.max(Math.round(cost.usd * 100) / 100, 0.01)) })}
+      </p>
+      {cost.perEngine.length > 1 ? (
+        <ul className="mt-1 flex flex-wrap gap-x-4">
+          {cost.perEngine.map((p) => (
+            <li key={p.engine}>
+              {t('setup.costEngine', {
+                engine: t(`setup.engines.${p.engine}`),
+                input: k(p.tokens.in),
+                output: k(p.tokens.out),
+              })}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-1 text-xs">{t(`setup.costBasis.${cost.basis}`, { samples: fmtNum(cost.samples) })}</p>
+    </div>
   );
 }

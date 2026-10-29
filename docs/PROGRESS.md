@@ -243,6 +243,11 @@ the sandbox has no access to the real services, so the first real connection is 
   new `speech` task marks the vowels only where a written word is genuinely ambiguous and breaks long sentences
   at punctuation they already have. Azure and Google additionally get SSML (pauses, `<lang>` for foreign runs).
   Tests: `packages/text/src/speech.test.ts` (14), `apps/api/src/tts.test.ts` (17).
+- [x] Cost estimate and a spending cap (owner's request, 2026-10-29) — ADR-043: before «شروع ترجمه» the setup
+  page shows the tokens the book will spend (from the library's own finished jobs once there are 3 per stage), and
+  dollars only for a pay-as-you-go model; each paid call records `jobs.cost_usd`; Settings → «سقف هزینه» holds a
+  daily/monthly ceiling that makes paid engines wait. Tests: `packages/shared/src/cost.test.ts` (7),
+  `apps/api/src/cost.test.ts` (9), e2e in `providers.spec.ts`.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

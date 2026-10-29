@@ -6,6 +6,8 @@ import {
   type AudioStatus,
   type BookBundle,
   type BookRecord,
+  type Budget,
+  type BudgetStatus,
   type ChatEvent,
   ChatEventSchema,
   type GlossaryKind,
@@ -274,6 +276,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ engine }),
     }),
+  // Spending cap (ADR-043): stops only the engines charged per token
+  budget: () => request<BudgetStatus>('/settings/budget'),
+  setBudget: (budget: Budget) =>
+    request<BudgetStatus>('/settings/budget', { method: 'PUT', body: JSON.stringify(budget) }),
   // Voice (SPEC §13.9): which source reads the book, and the recordings it produced
   tts: () => request<TtsView>('/settings/tts'),
   updateTts: (patch: TtsUpdate) => request<TtsView>('/settings/tts', { method: 'PUT', body: JSON.stringify(patch) }),

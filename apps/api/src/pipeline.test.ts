@@ -113,6 +113,9 @@ describe('pipeline with the mock engine', () => {
     ).json();
     expect(estimate.batches.brief).toBe(1);
     expect(estimate.batches.translate).toBeGreaterThan(0);
+    // ADR-043: tokens are always projected; the offline mock spends no money.
+    expect(estimate.cost.tokens.in).toBeGreaterThan(0);
+    expect(estimate.cost.usd).toBeNull();
 
     const start = await app.inject({
       method: 'POST',

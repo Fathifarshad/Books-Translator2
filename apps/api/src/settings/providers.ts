@@ -13,6 +13,7 @@ import { createClaudeCliClient } from '@dozabaneh/ai/claude-cli';
 import {
   type AssistantEngine,
   isProviderId,
+  modelCost,
   type PipelineProviderStatus,
   PROVIDER_IDS,
   type ProviderId,
@@ -25,6 +26,7 @@ import {
 } from '@dozabaneh/shared';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
+import { budgetState, jobCostUsd } from '../pipeline/cost';
 import { keyHint, type SecretBox } from './secrets';
 import { getSetting, setSetting } from './store';
 
@@ -36,6 +38,8 @@ interface StoredProvider {
   model?: string;
   baseUrl?: string;
   limits?: ProviderLimits;
+  /** The price the provider listed for the chosen model, kept so an estimate needs no network (ADR-043). */
+  price?: { input: number; output: number };
   problem?: ProviderProblem;
 }
 
@@ -130,6 +134,7 @@ export class ProviderService {
       defaultBaseUrl: this.defaultBaseUrl(id),
       limits: this.limits(id),
       defaultLimits: defaultLimitsFor(id, model),
+      ...(s.price ? { price: s.price } : {}),
       usage: {
         usedLastMinute: state.usedLastMinute,
         usedToday: state.usedToday,
@@ -231,7 +236,30 @@ export class ProviderService {
   }
 
   async models(id: ProviderId): Promise<ProviderModel[]> {
-    return this.client(id, '').listModels();
+    const list = await this.client(id, '').listModels();
+    this.rememberPrice(id, list);
+    return list;
+  }
+
+  /**
+   * Keeps the listed price of the chosen model, so an estimate can be made without asking the provider again —
+   * and so a book started offline still knows what it will cost.
+   */
+  private rememberPrice(id: ProviderId, models: ProviderModel[]): void {
+    const stored = this.stored(id);
+    const chosen = models.find((m) => m.id === stored.model);
+    const price = chosen?.price;
+    const same = stored.price?.input === price?.input && stored.price?.output === price?.output;
+    if (same) return;
+    const next = { ...stored };
+    if (price) next.price = price;
+    else delete next.price;
+    this.save(id, next);
+  }
+
+  /** The price of the chosen model, as the provider last listed it. */
+  price(id: ProviderId): { input: number; output: number } | undefined {
+    return this.stored(id).price;
   }
 
   /**
@@ -271,7 +299,22 @@ export class ProviderService {
 
   /** Providers whose jobs must not be claimed now (not ready, or waiting for their limits). */
   blockedEngines(): ProviderId[] {
-    return PROVIDER_IDS.filter((id) => !this.view(id).ready || this.limiter(id).waitMs() > 0);
+    // A reached spending cap stops only the engines that spend money (ADR-043).
+    const capped = budgetState(this.db).blocked;
+    return PROVIDER_IDS.filter(
+      (id) => !this.view(id).ready || this.limiter(id).waitMs() > 0 || (capped && this.isPaid(id)),
+    );
+  }
+
+  /** A pay-as-you-go model: the only kind a spending cap applies to. */
+  isPaid(id: ProviderId): boolean {
+    return modelCost(id, this.view(id).model) === 'paid';
+  }
+
+  /** Dollars a call cost on this engine, from the listed price of its chosen model; 0 when it is not charged. */
+  usdOf(engine: string, usage: { tokensIn: number; tokensOut: number }): number {
+    if (!isProviderId(engine) || !this.isPaid(engine)) return 0;
+    return jobCostUsd(this.price(engine), { in: usage.tokensIn, out: usage.tokensOut });
   }
 
   /** Milliseconds until the first blocked-but-ready provider may run again (for the runner's next poll). */

@@ -101,10 +101,13 @@ export function requeue(db: Db, jobId: string): void {
     .run(jobId);
 }
 
-export function addUsage(db: Db, jobId: string, usage: { tokensIn: number; tokensOut: number }): void {
+/** Records what a call spent; `usd` only for a model charged per token (ADR-043). */
+export function addUsage(db: Db, jobId: string, usage: { tokensIn: number; tokensOut: number }, usd = 0): void {
   db.$client
-    .prepare('UPDATE jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ? WHERE id = ?')
-    .run(usage.tokensIn, usage.tokensOut, jobId);
+    .prepare(
+      'UPDATE jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?, cost_usd = COALESCE(cost_usd, 0) + ? WHERE id = ?',
+    )
+    .run(usage.tokensIn, usage.tokensOut, usd, jobId);
 }
 
 export function latestJob(db: Db, bookId: string, stage: Stage): JobRow | undefined {

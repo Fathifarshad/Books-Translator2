@@ -490,3 +490,24 @@ flagged — about 35 minutes for the whole chapter at three jobs at a time.
 - **Consequences:** the polish pass costs a model call per 40 lines and is a switch in Settings («ویرایش متن برای
   خوانش»), on by default and skipped when no assistant engine is connected. Full vowelling was deliberately not
   asked for: a fully voweled text reads worse, not better.
+
+## ADR-043 — What a book will cost, before «شروع ترجمه», and a ceiling (2026-10-29)
+
+- **Context:** the owner asked to know what a translation costs before it starts, and to choose the source that pays
+  for it. Tokens were already recorded per job (`jobs.tokens_in/out`); `cost_usd` existed and was never written.
+- **Two different counts.** *Tokens*, which every engine spends, and *dollars*, which only a pay-as-you-go model
+  spends. Claude Code (a subscription), Ollama (this computer) and a free tier cost no money and still have a limit,
+  so the estimate always shows tokens and shows dollars only where they are charged — «هزینه‌ی دلاری ندارد»
+  instead of a misleading «$0».
+- **Rates from the owner's own jobs** (`apps/api/src/pipeline/cost.ts`): a stage with at least 3 finished calls is
+  projected from its own tokens per segment (translate, edit) or per call (brief, glossary); until then from
+  defaults measured on one real 60-item chunk (`packages/shared/src/cost.ts`). The page says which.
+- **Prices** are the ones the provider lists for the chosen model, kept in the provider settings when the model
+  list is fetched, so an estimate needs no network. Each finished call of a paid model adds its dollars to
+  `jobs.cost_usd`.
+- **The ceiling** (Settings → «سقف هزینه», daily and/or monthly, empty = none) adds the paid engines to the runner's
+  blocked list while it is reached; their jobs wait, nothing fails, and work resumes at midnight or on the 1st.
+  It never stops an engine that spends no money.
+- **Consequences:** the estimate is a projection, not a quote — the first chunks of a new book or a new model
+  correct it. Only OpenRouter's paid models are «paid» today (`modelCost`); a direct Anthropic API engine would add
+  itself there.

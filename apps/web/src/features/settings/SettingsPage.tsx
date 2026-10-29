@@ -7,6 +7,7 @@ import { languageName } from '../../lib/format';
 import { useSignOut } from '../auth/AccessGate';
 import { useIsOwner } from '../auth/access';
 import { AccessSection } from './AccessSection';
+import { BudgetSection } from './BudgetSection';
 import { DisplaySettingsForm } from './DisplaySettingsForm';
 import { EnginesSection } from './EnginesSection';
 import { VoiceSection } from './VoiceSection';
@@ -32,6 +33,7 @@ export function SettingsPage() {
       {owner ? (
         <>
           <EnginesSection />
+          <BudgetSection />
           <VoiceSection />
           <AccessSection />
         </>

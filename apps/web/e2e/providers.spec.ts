@@ -105,6 +105,27 @@ test.describe
       await card.getByTestId('voice-source').selectOption('browser');
     });
 
+    /** ADR-043: a ceiling for the engines charged per token. */
+    test('saves a spending cap and reports what was spent', async ({ page, request }) => {
+      await page.goto('/settings');
+      const card = page.getByTestId('budget-section');
+      await expect(card).toBeVisible();
+      await card.getByTestId('budget-daily').fill('2');
+      await card.getByRole('button').click();
+      await expect(card.getByRole('button')).toHaveText('ذخیره شد');
+      expect((await (await request.get('/api/v1/settings/budget')).json()).dailyUsd).toBe(2);
+      await expect(card.getByTestId('budget-spent')).toBeVisible();
+      await expectNoSeriousA11yViolations(page);
+      await shoot(
+        page,
+        'settings-budget',
+        '/settings',
+        (pg) => expect(pg.getByTestId('budget-section')).toBeVisible(),
+        true,
+      );
+      await request.put('/api/v1/settings/budget', { data: { dailyUsd: null, monthlyUsd: null } });
+    });
+
     test('connects Gemini by pasting a key, OpenRouter with one click, and finds Ollama', async ({ page }) => {
       await page.goto('/settings');
       const section = page.getByTestId('engines-section');
@@ -205,6 +226,9 @@ test.describe
       await page.reload();
       await page.getByTestId('engine-all').selectOption('gemini');
       await expect(page.getByTestId('estimate')).toBeVisible();
+      // ADR-043: tokens before «شروع ترجمه»; a free tier spends no dollars.
+      await expect(page.getByTestId('cost-estimate')).toContainText('توکن ورودی');
+      await expect(page.getByTestId('cost-estimate')).toContainText('هزینه‌ی دلاری ندارد');
       await shoot(
         page,
         'wizard-engines',

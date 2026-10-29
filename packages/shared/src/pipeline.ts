@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { EzafeSchema, ParentheticalSchema } from './agent';
+import type { CostEstimate } from './cost';
 import {
   PROVIDER_IDS,
   type ProviderId,
@@ -103,4 +104,6 @@ export interface PipelineEstimate {
   words: number;
   segments: number;
   batches: { brief: number; glossary: number; translate: number; edit: number };
+  /** What this will spend before anyone presses start (ADR-043): tokens always, dollars where they are charged. */
+  cost: CostEstimate;
 }

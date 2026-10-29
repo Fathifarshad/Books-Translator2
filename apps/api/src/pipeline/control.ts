@@ -19,6 +19,7 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getBookRow, getBundle, refreshCounters } from '../db/repo';
 import { agentBatches, books, bookTargets, glossaryTerms, jobs, translations } from '../db/schema';
 import { advancePipeline, agentCounts } from './advance';
+import { estimateCost } from './cost';
 import { effectiveSkip, type JobRow, pipelineJobs, planTranslation, scopeOf } from './jobs';
 import {
   logPipeline,
@@ -338,16 +339,21 @@ export function estimatePipeline(
         bundle.book.sourceLang,
         { max: 160 },
       ).length;
-  return {
-    words: plan.words,
-    segments: plan.segments,
-    batches: {
-      brief: row.brief?.[lang] ? 0 : 1,
-      glossary: Math.ceil(candidates / 40),
-      translate: plan.units.reduce((n, u) => n + u.chunks.length, 0),
-      edit: plan.units.reduce((n, u) => n + u.edits.length, 0),
-    },
+  const batches = {
+    brief: row.brief?.[lang] ? 0 : 1,
+    glossary: Math.ceil(candidates / 40),
+    translate: plan.units.reduce((n, u) => n + u.chunks.length, 0),
+    edit: plan.units.reduce((n, u) => n + u.edits.length, 0),
   };
+  const segmentsIn = (pick: (u: (typeof plan.units)[number]) => string[][]) =>
+    plan.units.reduce((n, u) => n + pick(u).reduce((m, c) => m + c.length, 0), 0);
+  const cost = estimateCost(ctx.db, ctx.providers, settings, {
+    brief: { calls: batches.brief, segments: 0 },
+    glossary: { calls: batches.glossary, segments: 0 },
+    translate: { calls: batches.translate, segments: segmentsIn((u) => u.chunks) },
+    edit: { calls: batches.edit, segments: segmentsIn((u) => u.edits) },
+  });
+  return { words: plan.words, segments: plan.segments, batches, cost };
 }
 
 /** Snapshot for the pipeline dashboard. */

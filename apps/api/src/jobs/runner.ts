@@ -102,7 +102,7 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
   const res = await engineFor(job, deps, validate).run(batch, {});
   if (res.kind !== 'done') throw new Error('in-process engines must return a result');
   if (isProviderId(job.engine)) deps.providers.reportSuccess(job.engine);
-  if (res.usage) addUsage(deps.db, job.id, res.usage);
+  if (res.usage) addUsage(deps.db, job.id, res.usage, deps.providers.usdOf(job.engine, res.usage));
   // Provider answers were validated inside the engine (with a repair round); validate every engine's output here.
   const report = validate(batch, { schemaVersion: 1, batchId: batch.batchId, ...res.output });
   // Item-level QA issues that survived a provider's repair round are kept; post-processing QA flags them for review.
