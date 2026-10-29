@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { AudioFormat, FileTtsSource, TtsVoice } from '@dozabaneh/shared';
 import { toSsml } from '@dozabaneh/text';
@@ -304,13 +306,17 @@ export function onPath(name: string): string | null {
   return null;
 }
 
-/** Runs a program with text on stdin and collects what it writes to stdout. */
+/**
+ * Runs a program with text on stdin and collects what it writes — to stdout, or to `outFile` when the program is
+ * told to write a file.
+ */
 function run(
   file: string,
   args: string[],
   input: string,
   spawnFn: typeof spawn,
   signal?: AbortSignal,
+  outFile?: string,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawnFn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -332,8 +338,8 @@ function run(
       // The program may exit before the text is fully written; the exit code tells the real story.
     });
     child.stdin?.end(input, 'utf8');
-    child.on('close', (code) => {
-      const audio = Buffer.concat(out);
+    child.on('close', async (code) => {
+      const audio = outFile && code === 0 ? await readFile(outFile).catch(() => Buffer.alloc(0)) : Buffer.concat(out);
       if (code === 0 && audio.length > 0) resolve(audio);
       else reject(new SpeechError('OTHER', `${file} wrote no audio${err ? `: ${err.slice(0, 200)}` : ''}.`));
     });
@@ -361,8 +367,18 @@ function piperEngine(config: SpeechConfig): SpeechEngine {
     async speak(text, signal) {
       const parts: Buffer[] = [];
       const { file, prefix } = resolveProgram(program());
-      for (const piece of splitForSpeech(text, CHUNK_CHARS.piper)) {
-        parts.push(await run(file, [...prefix, '--model', model(), '--output_file', '-'], piece, spawnFn, signal));
+      // A real file, not stdout: Piper 1.x on Windows cannot write a WAV to stdout (it reopens a temp file that
+      // Windows keeps locked), and without an output file it plays the sound instead.
+      const dir = await mkdtemp(join(tmpdir(), 'dozabaneh-piper-'));
+      try {
+        for (const [i, piece] of splitForSpeech(text, CHUNK_CHARS.piper).entries()) {
+          const out = join(dir, `${i}.wav`);
+          parts.push(
+            await run(file, [...prefix, '--model', model(), '--output_file', out], piece, spawnFn, signal, out),
+          );
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
       }
       return { audio: joinWav(parts), format: 'wav' };
     },

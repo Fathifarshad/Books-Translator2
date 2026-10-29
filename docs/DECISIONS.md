@@ -511,3 +511,10 @@ flagged — about 35 minutes for the whole chapter at three jobs at a time.
 - **Consequences:** the estimate is a projection, not a quote — the first chunks of a new book or a new model
   correct it. Only OpenRouter's paid models are «paid» today (`modelCost`); a direct Anthropic API engine would add
   itself there.
+
+### ADR-041 addendum — Piper writes a file, not stdout (2026-10-29)
+
+Piper 1.x (`pip install piper-tts`, OHF-Voice/piper1-gpl) cannot write a WAV to stdout on Windows: it reopens a
+temporary file Windows keeps locked (`PermissionError`), and with no output file it plays the sound instead. Each
+piece is now written to a file in a fresh temp folder and read back; the stand-in refuses `-` like the real program.
+Verified against piper-tts 1.8.0 with `fa_IR-gyro-medium`.

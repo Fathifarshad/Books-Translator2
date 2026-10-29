@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 /**
- * A stand-in for the `piper` program in tests: reads text on stdin and writes a tiny but valid WAV to stdout,
- * one sample per character, so the length of the recording follows the length of the text.
+ * A stand-in for the `piper` program in tests: reads text on stdin and writes a tiny but valid WAV to the file
+ * named by `--output_file`, one sample per character, so the length of the recording follows the length of the
+ * text. Like Piper 1.x on Windows, it cannot write to stdout (`-`).
  */
+import { writeFileSync } from 'node:fs';
+
+const at = process.argv.indexOf('--output_file');
+const target = at > 0 ? process.argv[at + 1] : undefined;
 let text = '';
 process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) text += chunk;
+
+if (!target || target === '-') {
+  process.stderr.write('PermissionError: cannot write a WAV to stdout');
+  process.exit(1);
+}
 
 if (process.env.FAKE_PIPER_FAIL) {
   process.stderr.write('fake piper was told to fail');
@@ -28,4 +38,4 @@ header.writeUInt16LE(2, 32); // block align
 header.writeUInt16LE(16, 34); // bits per sample
 header.write('data', 36, 'latin1');
 header.writeUInt32LE(data.length, 40);
-process.stdout.write(Buffer.concat([header, data]));
+writeFileSync(target, Buffer.concat([header, data]));
