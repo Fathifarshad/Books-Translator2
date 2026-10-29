@@ -1,11 +1,13 @@
 import { createReadStream } from 'node:fs';
 import { API_PREFIX, AudioKindSchema, AudioRequestSchema, type AudioStatus } from '@dozabaneh/shared';
+import { speechText } from '@dozabaneh/text';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
 import { enqueue } from '../jobs/queue';
 import { audioStatus, bookTitleFor, trackFile } from '../tts/audio';
+import { SpeechError } from '../tts/engines';
 import { httpError } from './errors';
 import { exportFileName } from './export';
 
@@ -15,6 +17,12 @@ const Query = z.object({
 });
 
 const MIME = { mp3: 'audio/mpeg', wav: 'audio/wav' } as const;
+
+/** «بخوان» in the reader: a piece of the section on screen, read by the voice chosen in Settings. */
+const SpeakBody = z.object({
+  text: z.string().trim().min(1).max(4_000),
+  lang: z.string().min(2).max(12),
+});
 
 /**
  * «فایل صوتی»: the book read aloud, one file per chapter (SPEC §13.9). Recording takes minutes, so it runs as a
@@ -51,6 +59,28 @@ export async function audioRoutes(app: FastifyInstance, { ctx }: { ctx: AppConte
     enqueue(ctx.db, { bookId: req.params.id, stage: 'audio', targetLang: lang, scope: { kind: body.kind } });
     ctx.runner.kick();
     return audioStatus(deps(), req.params.id, lang, body.kind);
+  });
+
+  /**
+   * Reads a short piece aloud with the chosen file source (Piper, Azure, …) and hands the sound back to play in the
+   * page — for a computer whose browser has no voice for the language. Only the rules prepare the text here; the
+   * model pass would make the reader wait.
+   */
+  app.post(`${API_PREFIX}/tts/speak`, async (req, reply) => {
+    const { text, lang } = SpeakBody.parse(req.body ?? {});
+    const said = text
+      .split('\n')
+      .map((line) => speechText(line, lang))
+      .filter(Boolean)
+      .join('\n');
+    if (!said) throw httpError(400, 'NOTHING_TO_SAY');
+    try {
+      const { audio, format } = await ctx.tts.engine(lang).speak(said);
+      return reply.header('Content-Type', MIME[format]).header('Cache-Control', 'no-store').send(audio);
+    } catch (err) {
+      const e = err instanceof SpeechError ? err : new SpeechError('OTHER', (err as Error).message);
+      throw httpError(503, 'TTS_FAILED', { reason: e.code, message: e.message.slice(0, 300) });
+    }
   });
 
   app.get<{ Params: { id: string; trackId: string } }>(`${API_PREFIX}/books/:id/audio/:trackId`, async (req, reply) => {

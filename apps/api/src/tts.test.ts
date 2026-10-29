@@ -248,6 +248,43 @@ describe('the audio routes', () => {
     expect((await app.inject({ url: '/api/v1/books/bk_sample/audio/999?kind=full&lang=fa' })).statusCode).toBe(404);
   });
 
+  it('reads a piece of the section aloud for «بخوان» in the reader', async () => {
+    const app = await appPromise;
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/tts',
+      payload: { source: 'piper', binPath: FAKE_PIPER, voicePath: 'fa.onnx' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tts/speak',
+      payload: { text: 'فشار خون ۳۵٪ کاهش یافت.\nپاراگراف دوم.', lang: 'fa' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('audio/wav');
+    expect(res.rawPayload.subarray(0, 4).toString('latin1')).toBe('RIFF');
+
+    const empty = await app.inject({ method: 'POST', url: '/api/v1/tts/speak', payload: { text: '', lang: 'fa' } });
+    expect(empty.statusCode).toBe(400);
+  });
+
+  it('says why when the voice cannot read', async () => {
+    const app = await appPromise;
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/tts',
+      payload: { source: 'piper', binPath: 'C:/nowhere/piper.exe' },
+    });
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tts/speak', payload: { text: 'سلام.', lang: 'fa' } });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('TTS_FAILED');
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/tts',
+      payload: { binPath: FAKE_PIPER, voicePath: 'fa.onnx' },
+    });
+  });
+
   it('keeps the key out of every answer', async () => {
     const app = await appPromise;
     const secret = 'super-secret-tts-key-123456';

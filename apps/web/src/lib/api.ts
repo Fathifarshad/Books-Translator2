@@ -280,6 +280,22 @@ export const api = {
   budget: () => request<BudgetStatus>('/settings/budget'),
   setBudget: (budget: Budget) =>
     request<BudgetStatus>('/settings/budget', { method: 'PUT', body: JSON.stringify(budget) }),
+  /** A piece of the section on screen, read by the voice source chosen in Settings; the sound comes back. */
+  speak: async (text: string, lang: string, signal?: AbortSignal): Promise<Blob> => {
+    const res = await fetch(apiUrl('/tts/speak'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, lang }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { code: string; details?: Record<string, unknown> };
+      };
+      throw new ApiError(res.status, body.error?.code ?? 'UNKNOWN', body.error?.details ?? {});
+    }
+    return res.blob();
+  },
   // Voice (SPEC §13.9): which source reads the book, and the recordings it produced
   tts: () => request<TtsView>('/settings/tts'),
   updateTts: (patch: TtsUpdate) => request<TtsView>('/settings/tts', { method: 'PUT', body: JSON.stringify(patch) }),

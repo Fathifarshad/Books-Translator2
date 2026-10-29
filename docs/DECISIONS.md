@@ -518,3 +518,11 @@ Piper 1.x (`pip install piper-tts`, OHF-Voice/piper1-gpl) cannot write a WAV to 
 temporary file Windows keeps locked (`PermissionError`), and with no output file it plays the sound instead. Each
 piece is now written to a file in a fresh temp folder and read back; the stand-in refuses `-` like the real program.
 Verified against piper-tts 1.8.0 with `fa_IR-gyro-medium`.
+
+### ADR-041 addendum — «بخوان» uses the chosen voice, not only the browser's (2026-10-29)
+
+Windows often has no Persian voice, so «بخوان» in the reader said «مرورگر شما صدای فارسی ندارد» even with Piper
+working in Settings. When a source that writes sound is chosen and ready, the reader now sends the section to
+`POST /tts/speak` in pieces of ~700 characters (whole paragraphs), plays them in turn and fetches the next piece
+while one plays; the browser voice is the fallback. Only the rules prepare this text — the model pass would make the
+reader wait. Measured with Piper `fa_IR-gyro-medium`: ~3 s per piece.
