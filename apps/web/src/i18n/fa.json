@@ -52,7 +52,15 @@
     "review": "بازبینی ساختار",
     "deleted": "کتاب حذف شد.",
     "pipeline": "پردازش",
-    "exportOffline": "نسخه‌ی آفلاین برای موبایل"
+    "exportOffline": "نسخه‌ی آفلاین برای موبایل",
+    "exportGroup": "گرفتن خروجی",
+    "exportBilingual": "دوزبانه (با متن انگلیسی)",
+    "exportMarkdown": "متن مارک‌داون (md.)",
+    "exportWord": "فایل ورد (docx.)",
+    "exportPrint": "PDF (از پنجره‌ی چاپ)",
+    "exportCopy": "رونوشت کل متن",
+    "exportCopied": "متن کتاب در کلیپ‌بورد کپی شد.",
+    "exportCopyFailed": "رونوشت ناموفق بود؛ از «متن مارک‌داون» استفاده کنید."
   },
   "upload": {
     "drop": "فایل PDF کتاب را اینجا رها کنید یا انتخاب کنید",

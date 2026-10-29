@@ -195,6 +195,25 @@ describe('claude code cli client', () => {
     expect(err.retryAfterMs).toBeGreaterThan(10 * 60_000);
   });
 
+  it('waits out a full Claude plan instead of failing the job', async () => {
+    // The exact sentence that stopped a 991-page book: it matched none of the limit patterns, so the job spent
+    // its three attempts in six seconds and failed for good.
+    const { client: c } = client({
+      stdout: JSON.stringify({
+        type: 'result',
+        is_error: true,
+        result: "You've hit your weekly limit · resets 8am (America/Santiago)",
+      }),
+      code: 1,
+    });
+    const err = (await c.chat([{ role: 'user', content: 'hi' }]).catch((e: unknown) => e)) as ProviderError;
+    expect(err.code).toBe('QUOTA');
+    expect(err.retryable).toBe(true);
+    // A weekly reset can be days away; the queue looks again within the hour rather than sleeping on it.
+    expect(err.retryAfterMs).toBeGreaterThan(0);
+    expect(err.retryAfterMs).toBeLessThanOrEqual(60 * 60_000);
+  });
+
   it('reports a rate limit as RATE_LIMIT and a missing login as AUTH', async () => {
     const limited = client({
       stdout: JSON.stringify({ type: 'result', is_error: true, result: 'rate limit exceeded' }),

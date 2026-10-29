@@ -81,4 +81,57 @@ describe('export route', () => {
     expect(res.body).toContain('id="book"');
     expect((await app.inject({ url: '/api/v1/books/nope/export/offline' })).statusCode).toBe(404);
   });
+
+  it('downloads the translation as Markdown, with both languages on request', async () => {
+    const app = await appPromise;
+    const res = await app.inject({ url: '/api/v1/books/bk_sample/export/markdown?lang=fa' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/markdown');
+    expect(res.headers['content-disposition']).toBe('attachment; filename="Thinking in Steps.md"');
+    expect(res.body.startsWith('# ')).toBe(true);
+    expect(res.body).toMatch(/[آ-ی]/u);
+    // Markdown carries no HTML and no direction attributes: a reader takes those from the text.
+    expect(res.body).not.toMatch(/<(?:p|div|span|h[1-6])[ >]/u);
+
+    const both = await app.inject({ url: '/api/v1/books/bk_sample/export/markdown?lang=fa&mode=bilingual' });
+    expect(both.body.length).toBeGreaterThan(res.body.length);
+    expect(both.body).toMatch(/^> .*[A-Za-z]/mu);
+    expect((await app.inject({ url: '/api/v1/books/nope/export/markdown' })).statusCode).toBe(404);
+  });
+
+  it('shows the same Markdown for «رونوشت» without downloading it', async () => {
+    const app = await appPromise;
+    const res = await app.inject({ url: '/api/v1/books/bk_sample/export/markdown.txt?lang=fa' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/plain');
+    expect(res.headers['content-disposition']).toBeUndefined();
+  });
+
+  it('downloads a Word file that Word can open', async () => {
+    const app = await appPromise;
+    const res = await app.inject({ url: '/api/v1/books/bk_sample/export/word?lang=fa' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-disposition']).toBe('attachment; filename="Thinking in Steps.docx"');
+    const body = res.rawPayload;
+    // A .docx is a zip that holds the Word parts.
+    expect(body.subarray(0, 2).toString('latin1')).toBe('PK');
+    const inside = body.toString('latin1');
+    expect(inside).toContain('[Content_Types].xml');
+    expect(inside).toContain('word/document.xml');
+    expect(body.length).toBeGreaterThan(4_000);
+  });
+
+  it('opens a printable page that asks the browser to print (right to left)', async () => {
+    const app = await appPromise;
+    const res = await app.inject({ url: '/api/v1/books/bk_sample/export/print?lang=fa' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    // Shown in a tab, not saved: the print dialog is where the PDF is made.
+    expect(res.headers['content-disposition']).toBeUndefined();
+    expect(res.body.startsWith('<!doctype html>')).toBe(true);
+    expect(res.body).toContain('<html lang="fa" dir="rtl">');
+    expect(res.body).toContain('window.print()');
+    expect(res.body).toContain('data:font/woff2;base64,');
+    expect(res.body).toContain('@page');
+  });
 });

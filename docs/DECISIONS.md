@@ -426,3 +426,19 @@ flagged — about 35 minutes for the whole chapter at three jobs at a time.
   ingested with — the fix applies when a book is uploaded again. The synthetic fixtures could not be regenerated
   on Windows (pdf.js draws pdfkit's standard-14 fonts as empty boxes here, so a re-rendered "scan" would be
   unreadable), so the new tests pin the geometry directly instead of through a new fixture.
+
+## ADR-040 — «گرفتن خروجی»: Markdown, Word, and a PDF the browser writes (2026-10-29)
+- **Context:** a finished translation could only leave the app as the offline HTML reader, which is made for
+  reading on a phone, not for sending to someone, editing, printing or quoting.
+- **Decision:** one model (`apps/api/src/export/document.ts`) renders every format, so they cannot drift apart:
+  `markdown.ts` (the book's inline markup already *is* Markdown), `word.ts` (`docx`, MIT; direction is a property
+  of each paragraph and run, taken from the language registry, so an English quotation inside a Persian book
+  keeps its own direction) and `print.ts` (a printable page that opens the browser's print dialog). Each takes
+  `mode=target|bilingual|source`. «رونوشت» fetches the same Markdown as `text/plain` and puts it on the clipboard.
+- **Why the browser writes the PDF:** no PDF writer in Node shapes Arabic script — pdfkit would hand back
+  disconnected letters — and a headless browser would add a 150 MB dependency to an app friends install
+  themselves. The browser on this computer already shapes Persian correctly, embeds the fonts we send it, and its
+  «Save as PDF» is one dialog away. Word can do the same from the .docx.
+- **Consequences:** exports need no new service and no key. The printable page carries Vazirmatn as data URLs
+  (≈110 KB) like the offline reader. A book that is only half translated exports what it has: in `target` mode an
+  untranslated row falls back to its source text, which is visible rather than silently missing.

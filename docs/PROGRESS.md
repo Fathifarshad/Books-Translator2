@@ -221,6 +221,15 @@ the sandbox has no access to the real services, so the first real connection is 
   2,231 → 1,384 segments, 1,234 → 487 paragraphs, 24 → 55 words per paragraph. Tests:
   `packages/pdf/src/rules.test.ts` (gutter, reading order with nonsense-wide lines, `plausibleWidth`).
 
+- [x] «گرفتن خروجی» after a translation (owner's request, 2026-10-29) — ADR-040: Markdown, Word (.docx), a
+  printable page the browser saves as a PDF, the clipboard, and the existing offline reader — each with
+  «دوزبانه» on or off. All rendered from one model so the formats cannot drift. Tests:
+  `apps/api/src/export.test.ts` (9).
+- [x] A full Claude plan no longer fails the book (2026-10-29): «You've hit your weekly limit · resets 8am»
+  matched none of the limit patterns, so the job spent its three attempts in six seconds and failed for good —
+  which is where a 991-page book stopped. It is now QUOTA (the queue waits and looks again within the hour), and
+  «resets 8am» is read as a clock time. Test: `packages/ai/src/engine/claude-cli.test.ts`.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

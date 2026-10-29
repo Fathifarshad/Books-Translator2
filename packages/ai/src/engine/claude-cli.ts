@@ -126,18 +126,42 @@ interface CliResult {
 }
 
 const AUTH_HINT = /not logged in|\/login|authenticatio|invalid api key|unauthorized|oauth|credentials/iu;
-const LIMIT_HINT = /usage limit|rate limit|limit reached|too many requests|429/iu;
-const DAILY_HINT = /usage limit reached|resets? at|weekly|daily/iu;
+/**
+ * Everything the CLI says when there is nothing left to spend. «You've hit your weekly limit · resets 8am
+ * (America/Santiago)» used to match none of these, so a plan that was simply full looked like an unknown failure:
+ * the job spent its three attempts in six seconds and failed for good, and a 991-page book stopped there
+ * (ADR-038 addendum 2).
+ */
+const LIMIT_HINT =
+  /usage limit|rate limit|limit reached|hit your [\w\s]*limit|weekly limit|daily limit|out of (?:credit|usage)|too many requests|429/iu;
+const DAILY_HINT = /usage limit reached|hit your [\w\s]*limit|resets?|weekly|daily/iu;
 const BUSY_HINT = /overloaded|server error|503|502|500|temporar/iu;
 
-/** «…resets at 3pm» / «…resets 2026-10-04T18:00:00Z»: how long to wait, capped at two hours. */
+/**
+ * How long to wait after «…resets 8am (America/Santiago)» or «…resets 2026-10-04T18:00:00Z». A weekly limit can
+ * be days away, which no queue should sleep on in one piece, so the wait is capped: the engine wakes up, finds
+ * the plan still full, and waits again. The point of reading the time at all is to not retry a minute later.
+ */
+const MAX_RESET_WAIT_MS = 60 * 60_000;
+
 function resetDelayMs(text: string): number | undefined {
   const iso = /resets? (?:at )?(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)/iu.exec(text)?.[1];
   if (iso) {
     const at = Date.parse(iso);
-    if (Number.isFinite(at)) return Math.min(Math.max(at - Date.now(), 0), 2 * 60 * 60_000);
+    if (Number.isFinite(at)) return Math.min(Math.max(at - Date.now(), 0), MAX_RESET_WAIT_MS);
   }
-  return undefined;
+  // «resets 8am», «resets at 8:30 pm»: the next time that clock reads so, here (the zone the CLI names is its
+  // own; being an hour out only means one more look).
+  const clock = /resets? (?:at )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu.exec(text);
+  if (!clock) return undefined;
+  const hour12 = Number(clock[1]);
+  if (!Number.isFinite(hour12) || hour12 > 24) return undefined;
+  const suffix = clock[3]?.toLowerCase();
+  const hour = suffix === 'pm' && hour12 < 12 ? hour12 + 12 : suffix === 'am' && hour12 === 12 ? 0 : hour12;
+  const at = new Date();
+  at.setHours(hour, Number(clock[2] ?? 0), 0, 0);
+  if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1);
+  return Math.min(at.getTime() - Date.now(), MAX_RESET_WAIT_MS);
 }
 
 /** Maps what the CLI printed to a typed provider error, so the queue knows whether to wait or to give up. */

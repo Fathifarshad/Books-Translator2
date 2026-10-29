@@ -285,6 +285,18 @@ export function offlineExportUrl(bookId: string, lang?: string): string {
   return apiUrl(`/books/${bookId}/export/offline${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
 }
 
+/** «گرفتن خروجی» (SPEC §13.8): Markdown, Word, or the printable page the browser saves as a PDF. */
+export type ExportFormat = 'markdown' | 'markdown.txt' | 'word' | 'print' | 'offline';
+export type ExportMode = 'target' | 'bilingual';
+
+export function exportUrl(bookId: string, format: ExportFormat, mode: ExportMode = 'target', lang?: string): string {
+  const params = new URLSearchParams();
+  if (lang) params.set('lang', lang);
+  if (mode !== 'target') params.set('mode', mode);
+  const query = params.toString();
+  return apiUrl(`/books/${bookId}/export/${format}${query ? `?${query}` : ''}`);
+}
+
 /** Full-page navigation target of «اتصال با یک کلیک» (OpenRouter's authorization page, then back here). */
 export function openRouterConnectUrl(returnTo: string): string {
   return apiUrl(`/settings/providers/openrouter/connect?return=${encodeURIComponent(returnTo)}`);
