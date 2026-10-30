@@ -526,3 +526,10 @@ working in Settings. When a source that writes sound is chosen and ready, the re
 `POST /tts/speak` in pieces of ~700 characters (whole paragraphs), plays them in turn and fetches the next piece
 while one plays; the browser voice is the fallback. Only the rules prepare this text — the model pass would make the
 reader wait. Measured with Piper `fa_IR-gyro-medium`: ~3 s per piece.
+
+### ADR-041 addendum — Piper reads UTF-8 (2026-10-30)
+
+Python on Windows decodes stdin in the ANSI code page, so the Persian text reached Piper garbled: a sentence with
+«ژ» crashed it (`UnicodeEncodeError … surrogates not allowed`), and the rest was read as noise — a four-word test
+sentence came back as 10 s of sound instead of 2 s. Every program the speech code starts now runs with
+`PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`; the stand-in refuses to run without them, as the real one fails.

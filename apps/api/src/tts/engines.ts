@@ -319,7 +319,10 @@ function run(
   outFile?: string,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const child = spawnFn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // Piper is a Python program: on Windows, Python reads stdin in the ANSI code page unless told otherwise, so
+    // Persian arrived garbled — read as noise, or a crash on letters like «ژ». UTF-8 mode fixes both.
+    const env = { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
+    const child = spawnFn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
     const out: Buffer[] = [];
     let err = '';
     child.on('error', (e: NodeJS.ErrnoException) =>

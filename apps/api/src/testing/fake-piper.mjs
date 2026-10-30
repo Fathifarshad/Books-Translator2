@@ -2,7 +2,8 @@
 /**
  * A stand-in for the `piper` program in tests: reads text on stdin and writes a tiny but valid WAV to the file
  * named by `--output_file`, one sample per character, so the length of the recording follows the length of the
- * text. Like Piper 1.x on Windows, it cannot write to stdout (`-`).
+ * text. Like Piper 1.x on Windows, it cannot write to stdout (`-`), and it reads stdin as UTF-8 only in Python's
+ * UTF-8 mode.
  */
 import { writeFileSync } from 'node:fs';
 
@@ -14,6 +15,11 @@ for await (const chunk of process.stdin) text += chunk;
 
 if (!target || target === '-') {
   process.stderr.write('PermissionError: cannot write a WAV to stdout');
+  process.exit(1);
+}
+
+if (process.env.PYTHONUTF8 !== '1') {
+  process.stderr.write("UnicodeEncodeError: 'utf-8' codec can't encode character '\\udc81': surrogates not allowed");
   process.exit(1);
 }
 
