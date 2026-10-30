@@ -20,7 +20,10 @@ export type FileTtsSource = (typeof FILE_TTS_SOURCES)[number];
 export const isFileTtsSource = (id: string): id is FileTtsSource =>
   (FILE_TTS_SOURCES as readonly string[]).includes(id);
 
-export type AudioFormat = 'mp3' | 'wav';
+/** What a recording can be saved as. A format other than the source's own needs ffmpeg to convert it. */
+export const AUDIO_FORMATS = ['mp3', 'wav', 'ogg', 'm4a'] as const;
+export type AudioFormat = (typeof AUDIO_FORMATS)[number];
+export const AudioFormatSchema = z.enum(AUDIO_FORMATS);
 
 export interface TtsVoice {
   id: string;
@@ -52,7 +55,13 @@ export interface TtsView {
   /** Piper: where the program and the voice file are. */
   binPath: string;
   voicePath: string;
+  /** What the chosen source writes by itself (Piper: WAV; the services: MP3). */
   format: AudioFormat;
+  /** Every format a recording can be saved as right now: the source's own, plus the rest when ffmpeg is there. */
+  formats: AudioFormat[];
+  /** Piper: how slowly it speaks (1 = the voice's own pace) and the silence after each sentence, in seconds. */
+  lengthScale: number;
+  sentencePause: number;
   /** MP3 needs ffmpeg for Piper's WAV; false means the files come out as WAV. */
   canEncodeMp3: boolean;
   /**
@@ -73,6 +82,8 @@ export const TtsUpdateSchema = z.object({
   binPath: z.string().trim().max(500).optional(),
   voicePath: z.string().trim().max(500).optional(),
   polish: z.boolean().optional(),
+  lengthScale: z.number().min(0.7).max(1.6).optional(),
+  sentencePause: z.number().min(0).max(2).optional(),
 });
 export type TtsUpdate = z.infer<typeof TtsUpdateSchema>;
 
@@ -94,8 +105,18 @@ export const AudioKindSchema = z.enum(AUDIO_KINDS);
 export const AudioRequestSchema = z.object({
   lang: z.string().min(2).max(12).optional(),
   kind: AudioKindSchema.default('full'),
+  /** Omitted: the source's own format, with no conversion. */
+  format: AudioFormatSchema.optional(),
 });
 export type AudioRequest = z.infer<typeof AudioRequestSchema>;
+
+/** Pauses a recording that is being made, or lets it go on. */
+export const AudioControlSchema = z.object({
+  action: z.enum(['pause', 'resume']),
+  lang: z.string().min(2).max(12).optional(),
+  kind: AudioKindSchema.default('full'),
+});
+export type AudioControl = z.infer<typeof AudioControlSchema>;
 
 /** One finished recording: a chapter of the book, or the whole summary. */
 export interface AudioTrack {
@@ -114,9 +135,11 @@ export interface AudioStatus {
   lang: string;
   source: TtsSource;
   voice: string;
-  state: 'idle' | 'running' | 'done' | 'failed';
+  state: 'idle' | 'running' | 'paused' | 'done' | 'failed';
   done: number;
   total: number;
+  /** 0–1 over the whole recording, finer than chapters: a long chapter takes minutes. */
+  fraction: number;
   error: string | null;
   tracks: AudioTrack[];
 }

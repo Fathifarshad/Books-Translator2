@@ -1,4 +1,4 @@
-import { AUDIO_KINDS, type AudioKind } from '@dozabaneh/shared';
+import { AUDIO_KINDS, type AudioFormat, type AudioKind } from '@dozabaneh/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +29,7 @@ export function AudioPage() {
   const { bookId = '' } = useParams();
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<AudioKind>('full');
+  const [chosenFormat, setChosenFormat] = useState<AudioFormat | ''>('');
   const detail = useQuery({ queryKey: ['book', bookId], queryFn: () => api.book(bookId), enabled: Boolean(bookId) });
   const book = detail.data?.book;
   const lang = book ? targetOf(book) : '';
@@ -40,14 +41,23 @@ export function AudioPage() {
     queryFn: () => api.audio(bookId, kind, lang || undefined),
     enabled: Boolean(bookId && lang),
     // While a recording runs the page follows it; otherwise it sits still.
-    refetchInterval: (query) => (query.state.data?.state === 'running' ? 3000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.state === 'running' ? 1500 : query.state.data?.state === 'paused' ? 5000 : false,
   });
   const start = useMutation({
-    mutationFn: () => api.startAudio(bookId, kind, lang || undefined),
+    mutationFn: () => api.startAudio(bookId, kind, lang || undefined, format),
+    onSuccess: (data) => queryClient.setQueryData(audioKey(bookId, kind), data),
+  });
+  const control = useMutation({
+    mutationFn: (action: 'pause' | 'resume') => api.controlAudio(bookId, action, kind, lang || undefined),
     onSuccess: (data) => queryClient.setQueryData(audioKey(bookId, kind), data),
   });
 
   const data = status.data;
+  const formats = voice.data?.formats ?? [];
+  const format = chosenFormat && formats.includes(chosenFormat) ? chosenFormat : (formats[0] ?? undefined);
+  const active = data?.state === 'running' || data?.state === 'paused';
+  const percent = Math.round((data?.fraction ?? 0) * 100);
   const browserOnly = voice.data?.source === 'browser';
   const blocked = browserOnly || voice.data?.ready === false;
 
@@ -92,18 +102,60 @@ export function AudioPage() {
             variant="primary"
             icon="sparkle"
             onClick={() => start.mutate()}
-            disabled={start.isPending || data?.state === 'running'}
+            disabled={start.isPending || active}
             data-testid="audio-build"
           >
             {data?.tracks.length ? t('audio.rebuild') : t('audio.build')}
           </Button>
-          {data?.state === 'running' ? (
-            <span role="status" className="text-sm text-muted">
-              {t('audio.building', { done: fmtNum(data.done), total: fmtNum(data.total) })}
-            </span>
-          ) : null}
         </div>
       )}
+
+      {!blocked && formats.length > 1 ? (
+        <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium">{t('audio.format')}</span>
+          <select
+            value={format}
+            onChange={(e) => setChosenFormat(e.target.value as AudioFormat)}
+            disabled={active}
+            className="rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm"
+            data-testid="audio-format"
+          >
+            {formats.map((id) => (
+              <option key={id} value={id}>
+                {t(`audio.formats.${id}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {active && data ? (
+        <div className="mt-4 rounded-xl border border-border bg-surface p-4" data-testid="audio-progress">
+          <div className="flex flex-wrap items-center gap-3">
+            <span role="status" className="text-sm">
+              {data.state === 'paused'
+                ? t('audio.paused', { percent: fmtNum(percent) })
+                : t('audio.building', { done: fmtNum(Math.min(data.done + 1, data.total)), total: fmtNum(data.total) })}
+            </span>
+            <span className="text-sm text-muted">{t('audio.percent', { percent: fmtNum(percent) })}</span>
+            <Button
+              className="ms-auto"
+              icon={data.state === 'paused' ? 'play' : 'pause'}
+              onClick={() => control.mutate(data.state === 'paused' ? 'resume' : 'pause')}
+              disabled={control.isPending}
+              data-testid="audio-pause"
+            >
+              {data.state === 'paused' ? t('audio.resume') : t('audio.pause')}
+            </Button>
+          </div>
+          <progress
+            max={100}
+            value={percent}
+            className="mt-3 h-2 w-full overflow-hidden rounded-full accent-[var(--color-accent)]"
+            aria-label={t('audio.progress')}
+          />
+        </div>
+      ) : null}
 
       {data?.state === 'failed' && data.error ? (
         <p role="alert" className="mt-4 text-sm text-danger" data-testid="audio-error">

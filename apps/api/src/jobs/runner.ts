@@ -10,7 +10,7 @@ import {
   validateResult,
 } from '@dozabaneh/ai';
 import { ingestInWorker } from '@dozabaneh/pdf';
-import { type AgentBatch, type AudioKind, isProviderId } from '@dozabaneh/shared';
+import { type AgentBatch, type AudioFormat, type AudioKind, isProviderId } from '@dozabaneh/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { type Config, repoRoot } from '../config';
@@ -121,15 +121,17 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
 async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
   const { db, bus, config, tts, providers } = deps;
   const lang = job.targetLang as string;
-  const kind = ((job.scope as { kind?: AudioKind } | null)?.kind ?? 'full') as AudioKind;
+  const scope = job.scope as { kind?: AudioKind; format?: AudioFormat } | null;
+  const kind = (scope?.kind ?? 'full') as AudioKind;
   await buildAudio(
     { db, config, tts, providers },
     {
       bookId: job.bookId,
       lang,
       kind,
-      onProgress: (done, total) => {
-        heartbeat(db, job.id, { done, total });
+      ...(scope?.format ? { format: scope.format } : {}),
+      onProgress: (done, total, fraction) => {
+        heartbeat(db, job.id, { done, total, fraction });
         bus.publish(job.bookId, { type: 'progress', stage: 'audio', done, total });
       },
     },

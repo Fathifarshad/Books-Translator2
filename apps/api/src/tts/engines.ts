@@ -53,6 +53,9 @@ export interface SpeechConfig {
   ssml?: boolean;
   /** Locale of the source language, for those marked runs (e.g. `en-US`). */
   foreignLang?: string;
+  /** Piper: phoneme length (above 1 is slower) and the silence after each sentence, in seconds. */
+  lengthScale?: number;
+  sentencePause?: number;
   /** Silence between lines, in milliseconds. */
   pauseMs?: number;
   fetch?: typeof fetch;
@@ -96,7 +99,8 @@ export function joinWav(parts: Buffer[]): Buffer {
   return out;
 }
 
-const join_ = (parts: Buffer[], format: AudioFormat) => (format === 'wav' ? joinWav(parts) : Buffer.concat(parts));
+export const join_ = (parts: Buffer[], format: AudioFormat) =>
+  format === 'wav' ? joinWav(parts) : Buffer.concat(parts);
 
 /** `fetch` with a timeout, and the service's own error turned into a typed one. */
 async function post(
@@ -376,8 +380,21 @@ function piperEngine(config: SpeechConfig): SpeechEngine {
       try {
         for (const [i, piece] of splitForSpeech(text, CHUNK_CHARS.piper).entries()) {
           const out = join(dir, `${i}.wav`);
+          const style = [
+            ...(config.lengthScale ? ['--length_scale', String(config.lengthScale)] : []),
+            ...(config.sentencePause !== undefined ? ['--sentence_silence', String(config.sentencePause)] : []),
+          ];
           parts.push(
-            await run(file, [...prefix, '--model', model(), '--output_file', out], piece, spawnFn, signal, out),
+            await run(
+              file,
+              [...prefix, '--model', model(), '--output_file', out, ...style],
+              // A zero-width joiner makes Piper's phonemizer read a plural like «kitab-ha» as two words and stress the
+              // first syllable; written joined, the word keeps its natural stress.
+              piece.replace(/\u200c/gu, ''),
+              spawnFn,
+              signal,
+              out,
+            ),
           );
         }
       } finally {

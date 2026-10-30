@@ -2,6 +2,7 @@ import type { SearchResults, SearchSide, StructureOp } from '@dozabaneh/core';
 import {
   API_PREFIX,
   type AssistantEngine,
+  type AudioFormat,
   type AudioKind,
   type AudioStatus,
   type BookBundle,
@@ -308,10 +309,15 @@ export const api = {
     if (lang) params.set('lang', lang);
     return request<AudioStatus>(`/books/${bookId}/audio?${params.toString()}`);
   },
-  startAudio: (bookId: string, kind: AudioKind, lang?: string) =>
+  startAudio: (bookId: string, kind: AudioKind, lang?: string, format?: AudioFormat) =>
     request<AudioStatus>(`/books/${bookId}/audio`, {
       method: 'POST',
-      body: JSON.stringify({ kind, ...(lang ? { lang } : {}) }),
+      body: JSON.stringify({ kind, ...(lang ? { lang } : {}), ...(format ? { format } : {}) }),
+    }),
+  controlAudio: (bookId: string, action: 'pause' | 'resume', kind: AudioKind, lang?: string) =>
+    request<AudioStatus>(`/books/${bookId}/audio/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action, kind, ...(lang ? { lang } : {}) }),
     }),
   summary: (body: SummaryRequest) =>
     request<{ markdown: string; engine: ProviderId; model: string }>('/assist/summary', {
@@ -370,8 +376,17 @@ export async function* streamTutor(input: TutorEngineInput, signal: AbortSignal)
     return;
   }
   if (!res.ok || !res.body) {
-    const code = res.status === 400 ? 'CONTEXT_TOO_LONG' : 'UNKNOWN';
-    yield { type: 'error', code, message: String(res.status), retryable: code === 'UNKNOWN' };
+    const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
+    const code =
+      res.status === 400
+        ? 'CONTEXT_TOO_LONG'
+        : res.status === 409
+          ? 'NO_ENGINE'
+          : res.status === 429
+            ? 'RATE_LIMIT'
+            : 'UNKNOWN';
+    const detail = [res.status, body.error?.code, body.error?.message].filter(Boolean).join(' ');
+    yield { type: 'error', code, message: detail, retryable: code === 'UNKNOWN' };
     return;
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

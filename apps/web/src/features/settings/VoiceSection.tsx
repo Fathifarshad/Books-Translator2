@@ -166,6 +166,43 @@ export function VoiceSection({ lang = UI_LANG }: { lang?: string }) {
               data-testid="voice-piper-bin"
             />
           </label>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span>{t('voice.pace')}</span>
+              <select
+                value={data.lengthScale}
+                onChange={(e) => save.mutate({ lengthScale: Number(e.target.value) })}
+                className={`${field} w-44`}
+                data-testid="voice-pace"
+              >
+                {[...new Set([0.9, 1, 1.08, 1.2, 1.35, data.lengthScale])]
+                  .sort((a, b) => a - b)
+                  .map((v) => (
+                    <option key={v} value={v}>
+                      {fmtNum(v)}×
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span>{t('voice.pause')}</span>
+              <select
+                value={data.sentencePause}
+                onChange={(e) => save.mutate({ sentencePause: Number(e.target.value) })}
+                className={`${field} w-44`}
+                data-testid="voice-pause"
+              >
+                {[...new Set([0, 0.2, 0.4, 0.6, 0.9, data.sentencePause])]
+                  .sort((a, b) => a - b)
+                  .map((v) => (
+                    <option key={v} value={v}>
+                      {t('voice.seconds', { n: fmtNum(v) })}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-xs leading-6 text-muted">{t('voice.paceHint')}</p>
           {!data.canEncodeMp3 ? <p className="text-xs text-muted">{t('voice.mp3Hint')}</p> : null}
         </div>
       ) : null}

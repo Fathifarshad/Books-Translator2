@@ -5,7 +5,7 @@
  * text. Like Piper 1.x on Windows, it cannot write to stdout (`-`), and it reads stdin as UTF-8 only in Python's
  * UTF-8 mode.
  */
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 
 const at = process.argv.indexOf('--output_file');
 const target = at > 0 ? process.argv[at + 1] : undefined;
@@ -21,6 +21,10 @@ if (!target || target === '-') {
 if (process.env.PYTHONUTF8 !== '1') {
   process.stderr.write("UnicodeEncodeError: 'utf-8' codec can't encode character '\\udc81': surrogates not allowed");
   process.exit(1);
+}
+
+if (process.env.FAKE_PIPER_LOG) {
+  appendFileSync(process.env.FAKE_PIPER_LOG, `${JSON.stringify({ args: process.argv.slice(2), text })}\n`);
 }
 
 if (process.env.FAKE_PIPER_FAIL) {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AudioKind, AudioStatus, AudioTrack, TtsSource } from '@dozabaneh/shared';
+import type { AudioFormat, AudioKind, AudioStatus, AudioTrack, TtsSource } from '@dozabaneh/shared';
 import { getLanguage, speechText, stripMarkup } from '@dozabaneh/text';
 import { runAssistTask } from '../assist/task';
 import type { Config } from '../config';
@@ -8,7 +8,9 @@ import type { Db } from '../db/client';
 import { getBookRow, getBundle } from '../db/repo';
 import { type BookDocument, bookDocument } from '../export/document';
 import type { ProviderService } from '../settings/providers';
-import { SpeechError } from './engines';
+import { audioControl, audioKey } from './control';
+import { convertAudio } from './convert';
+import { join_, SpeechError, splitForSpeech } from './engines';
 import type { TtsService } from './service';
 
 /**
@@ -37,6 +39,8 @@ interface Manifest {
 const MANIFEST = 'manifest.json';
 /** Rows of a chapter offered to the assistant engine when it writes the summary. */
 const SUMMARY_PASSAGES = 120;
+/** Characters spoken per request while recording, so progress moves and a pause takes effect within seconds. */
+const SEGMENT_CHARS = 2_500;
 /** Lines sent to the speech pass at a time: enough context to judge a word, small enough to come back whole. */
 const SPEECH_BATCH_LINES = 40;
 
@@ -177,7 +181,10 @@ export interface BuildAudioOptions {
   bookId: string;
   lang: string;
   kind: AudioKind;
-  onProgress?: (done: number, total: number) => void;
+  /** Chapters done of all, and how far through the whole recording (0–1). */
+  onProgress?: (done: number, total: number, fraction: number) => void;
+  /** Saved as this; omitted, the source's own format with no conversion. */
+  format?: AudioFormat;
   signal?: AbortSignal;
 }
 
@@ -207,24 +214,54 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
 
+  const key = audioKey(opts.bookId, opts.lang, opts.kind);
+  const weights = plan.map((p) => Math.max(1, p.text.length));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let doneWeight = 0;
+  const report = (i: number, within: number) =>
+    opts.onProgress?.(i, plan.length, Math.min(1, (doneWeight + (weights[i] ?? 0) * within) / totalWeight));
+  const beat = () => report(Math.min(tracks.length, plan.length - 1), 0);
+
   const tracks: AudioTrack[] = [];
-  for (const [i, item] of plan.entries()) {
-    opts.onProgress?.(i, plan.length);
-    const script = await scriptForSpeech({ providers, tts }, doc, item.text);
-    const { audio, format } = await engine.speak(script, opts.signal);
-    const id = String(item.index).padStart(3, '0');
-    writeFileSync(join(dir, `${id}.${format}`), audio);
-    tracks.push({
-      id,
-      index: item.index,
-      title: item.title,
-      format,
-      bytes: audio.length,
-      seconds: audioSeconds(audio, format),
-      createdAt: new Date().toISOString(),
-    });
+  try {
+    for (const [i, item] of plan.entries()) {
+      report(i, 0);
+      await audioControl.whilePaused(key, beat, opts.signal);
+      const script = await scriptForSpeech({ providers, tts }, doc, item.text);
+      const segments = splitForSpeech(script, SEGMENT_CHARS);
+      const parts: Buffer[] = [];
+      let native: AudioFormat = engine.format;
+      for (const [n, segment] of segments.entries()) {
+        await audioControl.whilePaused(key, beat, opts.signal);
+        const spoken = await engine.speak(segment, opts.signal);
+        parts.push(spoken.audio);
+        native = spoken.format;
+        report(i, (n + 1) / segments.length);
+      }
+      if (parts.length === 0) throw new SpeechError('OTHER', 'Nothing was spoken for this chapter.');
+      let audio = join_(parts, native);
+      let format: AudioFormat = native;
+      if (opts.format && opts.format !== native) {
+        audio = await convertAudio(audio, native, opts.format, opts.signal ? { signal: opts.signal } : {});
+        format = opts.format;
+      }
+      doneWeight += weights[i] ?? 0;
+      const id = String(item.index).padStart(3, '0');
+      writeFileSync(join(dir, `${id}.${format}`), audio);
+      tracks.push({
+        id,
+        index: item.index,
+        title: item.title,
+        format,
+        bytes: audio.length,
+        seconds: audioSeconds(audio, format),
+        createdAt: new Date().toISOString(),
+      });
+    }
+  } finally {
+    audioControl.resume(key);
   }
-  opts.onProgress?.(plan.length, plan.length);
+  opts.onProgress?.(plan.length, plan.length, 1);
 
   const manifest: Manifest = {
     kind: opts.kind,
@@ -259,16 +296,27 @@ export function audioStatus(deps: AudioDeps, bookId: string, lang: string, kind:
         ORDER BY created_at DESC LIMIT 1`,
     )
     .get(bookId, lang, kind) as { status?: string; error?: string; progress?: string } | undefined;
-  const progress = row?.progress ? (JSON.parse(row.progress) as { done: number; total: number }) : undefined;
+  const progress = row?.progress
+    ? (JSON.parse(row.progress) as { done: number; total: number; fraction?: number })
+    : undefined;
   const running = row?.status === 'queued' || row?.status === 'running';
   return {
     kind,
     lang,
     source: manifest?.source ?? tts.source(),
     voice: manifest?.voice ?? tts.view().voice,
-    state: running ? 'running' : row?.status === 'failed' ? 'failed' : manifest ? 'done' : 'idle',
+    state: running
+      ? audioControl.isPaused(audioKey(bookId, lang, kind))
+        ? 'paused'
+        : 'running'
+      : row?.status === 'failed'
+        ? 'failed'
+        : manifest
+          ? 'done'
+          : 'idle',
     done: progress?.done ?? manifest?.tracks.length ?? 0,
     total: progress?.total ?? manifest?.tracks.length ?? 0,
+    fraction: running ? (progress?.fraction ?? 0) : manifest ? 1 : 0,
     error: row?.status === 'failed' ? (row.error ?? null) : null,
     tracks: manifest?.tracks ?? [],
   };

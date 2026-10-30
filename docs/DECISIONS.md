@@ -533,3 +533,31 @@ Python on Windows decodes stdin in the ANSI code page, so the Persian text reach
 «ژ» crashed it (`UnicodeEncodeError … surrogates not allowed`), and the rest was read as noise — a four-word test
 sentence came back as 10 s of sound instead of 2 s. Every program the speech code starts now runs with
 `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`; the stand-in refuses to run without them, as the real one fails.
+
+### ADR-044 — Recording formats, progress and pause; «بخوان» that continues (2026-10-30)
+
+- **Formats.** A recording can be saved as MP3, WAV, OGG (Opus) or M4A (AAC). The source's own format needs no
+  conversion (Piper: WAV; services: MP3); the others go through ffmpeg (temp files, since M4A cannot be piped), and
+  `TtsView.formats` lists only what works now. Omitting `format` keeps the old behaviour — no conversion — so
+  nothing changes for callers that do not choose. (Before this, the settings page promised MP3 with ffmpeg but
+  nothing converted.)
+- **Progress.** A chapter's script is spoken in ~2,500-character segments, so progress moves inside a long chapter:
+  `AudioStatus.fraction` (0–1, weighted by chapter length) next to `done/total` chapters.
+- **Pause.** `POST /books/:id/audio/control` `{action: pause|resume}`; an in-process set (`tts/control.ts`) checked
+  between segments, the job keeps its lease with heartbeats while paused. Lost on a server restart, like the job.
+- **«بخوان».** Pause keeps the piece; «ادامه» goes on from it, «از اول» starts over, speed 0.75–2× (audio
+  `playbackRate`; the browser voice restarts the current ~300-character piece). The browser voice is paused by
+  cancelling, because `speechSynthesis.pause` is unreliable.
+- **Tutor.** Errors keep the engine's own message (`errorDetail`) and map HTTP 409/429, so «خطای ناشناخته» can be
+  diagnosed from the panel.
+- **Shortcut.** `create-shortcut.cmd` / `pnpm shortcut` writes «دوزبانه.lnk» to the desktop (start.cmd, app icon).
+  WScript.Shell cannot save a Persian file name, so it saves under a plain name and moves it.
+
+### ADR-044 addendum — a less mechanical Piper (2026-10-30)
+
+Owner's verdict on `fa_IR-gyro-medium`: about 60% natural, words sometimes badly joined. Measured with `piper --debug`:
+a zero-width joiner makes the phonemizer see «کتاب‌ها» as two words and stress the first syllable (`kˈetɑbhɑ`);
+written joined it keeps the natural stress (`ketˈɑbhɑ`). So the joiner is removed for Piper only. Piper also runs a
+little slower (`--length_scale 1.08`) with 0.4 s after each sentence (`--sentence_silence`), both adjustable in
+Settings. The voice test now reads a realistic textbook paragraph (plurals, a number with a unit, a foreign term, a
+question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/Farid) is the step up.

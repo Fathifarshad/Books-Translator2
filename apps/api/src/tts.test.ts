@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { buildApp } from './app';
 import { readConfig } from './config';
 import { bookDocument } from './export/document';
 import { audioSeconds, planFullAudio, scriptForSpeech } from './tts/audio';
+import { audioControl, audioKey } from './tts/control';
 import { createSpeechEngine, joinWav, resolveProgram, SpeechError, splitForSpeech } from './tts/engines';
 
 /**
@@ -248,6 +249,79 @@ describe('the audio routes', () => {
     expect((await app.inject({ url: '/api/v1/books/bk_sample/audio/999?kind=full&lang=fa' })).statusCode).toBe(404);
   });
 
+  it('lists the formats a recording can be saved as, its own format first', async () => {
+    const app = await appPromise;
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/tts',
+      payload: { source: 'piper', binPath: FAKE_PIPER, voicePath: 'fa.onnx' },
+    });
+    const view = await settings();
+    expect(view.format).toBe('wav');
+    expect(view.formats[0]).toBe('wav');
+    expect(view.formats.length).toBe(view.canEncodeMp3 ? 4 : 1);
+  });
+
+  it('pauses a recording, reports it, and goes on when told to', async () => {
+    const app = await appPromise;
+    const url = '/api/v1/books/bk_sample/audio';
+    const idle = await app.inject({
+      method: 'POST',
+      url: `${url}/control`,
+      payload: { action: 'pause', kind: 'summary', lang: 'fa' },
+    });
+    expect(idle.statusCode).toBe(409);
+    expect(idle.json().error.code).toBe('AUDIO_NOT_RUNNING');
+
+    await app.inject({ method: 'POST', url, payload: { kind: 'full', lang: 'fa' } });
+    const paused = await app.inject({
+      method: 'POST',
+      url: `${url}/control`,
+      payload: { action: 'pause', kind: 'full', lang: 'fa' },
+    });
+    expect(paused.json()).toMatchObject({ state: 'paused' });
+
+    const draining = app.ctx.runner.drain();
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const still = (await app.inject({ url: `${url}?kind=full&lang=fa` })).json() as AudioStatus;
+    expect(still.state).toBe('paused');
+    expect(still.fraction).toBeLessThan(1);
+
+    const resumed = await app.inject({
+      method: 'POST',
+      url: `${url}/control`,
+      payload: { action: 'resume', kind: 'full', lang: 'fa' },
+    });
+    expect(resumed.json().state).toBe('running');
+    await draining;
+    const done = (await app.inject({ url: `${url}?kind=full&lang=fa` })).json() as AudioStatus;
+    expect(done).toMatchObject({ state: 'done', fraction: 1 });
+  });
+
+  it('asks Piper for an unhurried pace and a pause per sentence, and writes joined words without the joiner', async () => {
+    const log = join(dataDir, 'piper.log');
+    process.env.FAKE_PIPER_LOG = log;
+    try {
+      const engine = createSpeechEngine('piper', {
+        binPath: FAKE_PIPER,
+        voicePath: 'fa.onnx',
+        voice: '',
+        lang: 'fa',
+        lengthScale: 1.08,
+        sentencePause: 0.4,
+      });
+      await engine.speak('کتاب‌ها را می‌خواند.');
+    } finally {
+      delete process.env.FAKE_PIPER_LOG;
+    }
+    const call = JSON.parse(readFileSync(log, 'utf8').trim().split('\n')[0] as string) as {
+      args: string[];
+      text: string;
+    };
+    expect(call.args).toEqual(expect.arrayContaining(['--length_scale', '1.08', '--sentence_silence', '0.4']));
+    expect(call.text).toBe('کتابها را میخواند.');
+  });
+
   it('reads a piece of the section aloud for «بخوان» in the reader', async () => {
     const app = await appPromise;
     await app.inject({
@@ -297,5 +371,33 @@ describe('the audio routes', () => {
       value: string;
     };
     expect(JSON.stringify(raw.value)).not.toContain(secret);
+  });
+});
+
+describe('pausing a recording', () => {
+  it('waits while paused and returns as soon as it is resumed', async () => {
+    const key = audioKey('bk', 'fa', 'full');
+    audioControl.pause(key);
+    let released = false;
+    const waiting = audioControl
+      .whilePaused(key, () => undefined, undefined, 10)
+      .then(() => {
+        released = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(released).toBe(false);
+    audioControl.resume(key);
+    await waiting;
+    expect(released).toBe(true);
+  });
+
+  it('gives up waiting when the recording is aborted', async () => {
+    const key = audioKey('bk2', 'fa', 'full');
+    audioControl.pause(key);
+    const abort = new AbortController();
+    const waiting = audioControl.whilePaused(key, () => undefined, abort.signal, 10);
+    abort.abort();
+    await waiting;
+    audioControl.resume(key);
   });
 });

@@ -122,7 +122,11 @@ async function run(conversationId: string, assistant: ChatMessage, userMessage: 
         case 'error':
           flush();
           // Keep the partial answer; «تلاش دوباره» regenerates this same message.
-          useTutor.getState().patchMessage(conversationId, assistant.id, { status: 'error', errorCode: event.code });
+          useTutor.getState().patchMessage(conversationId, assistant.id, {
+            status: 'error',
+            errorCode: event.code,
+            errorDetail: event.message,
+          });
           break;
         case 'usage':
           break;
@@ -203,7 +207,8 @@ export function retryAnswer(conversationId: string, assistantId: string): Promis
     engine: engine.id,
   };
   delete next.errorCode;
-  store.patchMessage(conversationId, assistantId, { ...next, errorCode: undefined });
+  delete next.errorDetail;
+  store.patchMessage(conversationId, assistantId, { ...next, errorCode: undefined, errorDetail: undefined });
   const userIdx = conv.messages.indexOf(user);
   return run(conversationId, next, user, historyBefore(conv.messages, userIdx));
 }

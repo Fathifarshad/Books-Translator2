@@ -1,5 +1,11 @@
 import { createReadStream } from 'node:fs';
-import { API_PREFIX, AudioKindSchema, AudioRequestSchema, type AudioStatus } from '@dozabaneh/shared';
+import {
+  API_PREFIX,
+  AudioControlSchema,
+  AudioKindSchema,
+  AudioRequestSchema,
+  type AudioStatus,
+} from '@dozabaneh/shared';
 import { speechText } from '@dozabaneh/text';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -7,6 +13,7 @@ import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
 import { enqueue } from '../jobs/queue';
 import { audioStatus, bookTitleFor, trackFile } from '../tts/audio';
+import { audioControl, audioKey } from '../tts/control';
 import { SpeechError } from '../tts/engines';
 import { httpError } from './errors';
 import { exportFileName } from './export';
@@ -16,7 +23,7 @@ const Query = z.object({
   kind: AudioKindSchema.default('full'),
 });
 
-const MIME = { mp3: 'audio/mpeg', wav: 'audio/wav' } as const;
+const MIME = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4' } as const;
 
 /** «بخوان» in the reader: a piece of the section on screen, read by the voice chosen in Settings. */
 const SpeakBody = z.object({
@@ -54,10 +61,31 @@ export async function audioRoutes(app: FastifyInstance, { ctx }: { ctx: AppConte
     // The browser's own voice reads in the page; there is nothing for the server to record.
     if (view.source === 'browser') throw httpError(409, 'TTS_BROWSER_ONLY');
     if (!view.ready) throw httpError(409, 'TTS_NOT_READY', { problem: view.problem });
+    if (body.format && !view.formats.includes(body.format)) {
+      throw httpError(409, 'FORMAT_UNAVAILABLE', { format: body.format, available: view.formats });
+    }
     const running = audioStatus(deps(), req.params.id, lang, body.kind);
-    if (running.state === 'running') return running;
-    enqueue(ctx.db, { bookId: req.params.id, stage: 'audio', targetLang: lang, scope: { kind: body.kind } });
+    if (running.state === 'running' || running.state === 'paused') return running;
+    enqueue(ctx.db, {
+      bookId: req.params.id,
+      stage: 'audio',
+      targetLang: lang,
+      scope: { kind: body.kind, ...(body.format ? { format: body.format } : {}) },
+    });
     ctx.runner.kick();
+    return audioStatus(deps(), req.params.id, lang, body.kind);
+  });
+
+  /** «توقف» / «ادامه» for a recording that is being made. */
+  app.post<{ Params: { id: string } }>(`${API_PREFIX}/books/:id/audio/control`, async (req): Promise<AudioStatus> => {
+    const { bundle } = read(req.params.id, {});
+    const body = AudioControlSchema.parse(req.body ?? {});
+    const lang = body.lang ?? bundle.book.targetLangs[0] ?? (bundle.book.sourceLang === 'fa' ? 'en' : 'fa');
+    const current = audioStatus(deps(), req.params.id, lang, body.kind);
+    if (current.state !== 'running' && current.state !== 'paused') throw httpError(409, 'AUDIO_NOT_RUNNING');
+    const key = audioKey(req.params.id, lang, body.kind);
+    if (body.action === 'pause') audioControl.pause(key);
+    else audioControl.resume(key);
     return audioStatus(deps(), req.params.id, lang, body.kind);
   });
 

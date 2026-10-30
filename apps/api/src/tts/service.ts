@@ -7,7 +7,8 @@ import type {
   TtsView,
   TtsVoice,
 } from '@dozabaneh/shared';
-import { isFileTtsSource } from '@dozabaneh/shared';
+import { AUDIO_FORMATS, isFileTtsSource } from '@dozabaneh/shared';
+import { speechText } from '@dozabaneh/text';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { keyHint, type SecretBox } from '../settings/secrets';
@@ -30,11 +31,20 @@ interface StoredTts {
   voicePath?: string;
   /** Prepare each line with the assistant engine before reading it (on unless turned off). */
   polish?: boolean;
+  lengthScale?: number;
+  sentencePause?: number;
   problem?: TtsProblem;
 }
 
 const KEY = 'tts';
 const SAMPLE_TEXT_KEY = 'ttsSample';
+/** A sample that shows what matters in a book: plural suffixes, a number with a unit, a foreign term, questions. */
+const SAMPLE_TEXT =
+  'بیهوشی عمومی چگونه کار می‌کند؟ داروهای بیهوشی، فعالیت مغز را کاهش می‌دهند و بیمار هیچ دردی احساس نمی‌کند.\n' +
+  'در این روش، فشار خون ممکن است تا ۳۰٪ افت کند؛ بنابراین پزشک، علائم حیاتی را هر ۵ دقیقه بررسی می‌کند (hypotension).';
+/** Piper's own pace sounds hurried for a textbook; a little slower, with a breath between sentences, reads better. */
+export const DEFAULT_LENGTH_SCALE = 1.08;
+export const DEFAULT_SENTENCE_PAUSE = 0.4;
 
 /** Where each service's key is made. */
 const KEY_URLS: Partial<Record<TtsSource, string>> = {
@@ -85,10 +95,15 @@ export class TtsService {
     return onPath('ffmpeg') !== null;
   }
 
+  /** What the chosen source writes by itself, with no conversion. */
   format(): AudioFormat {
-    const source = this.source();
-    if (source === 'piper') return this.canEncodeMp3() ? 'mp3' : 'wav';
-    return 'mp3';
+    return this.source() === 'piper' ? 'wav' : 'mp3';
+  }
+
+  /** Every format a recording can be saved as: the source's own, and the rest once ffmpeg can convert. */
+  formats(): AudioFormat[] {
+    const own = this.format();
+    return this.canEncodeMp3() ? [own, ...AUDIO_FORMATS.filter((f) => f !== own)] : [own];
   }
 
   view(voices: TtsVoice[] = []): TtsView {
@@ -116,8 +131,11 @@ export class TtsService {
       binPath: s.binPath ?? '',
       voicePath: s.voicePath ?? '',
       format: this.format(),
+      formats: this.formats(),
       canEncodeMp3: this.canEncodeMp3(),
       polish: this.polish(),
+      lengthScale: s.lengthScale ?? DEFAULT_LENGTH_SCALE,
+      sentencePause: s.sentencePause ?? DEFAULT_SENTENCE_PAUSE,
       problem: s.problem ?? null,
       ready: configured && !s.problem?.blocking,
     };
@@ -145,6 +163,8 @@ export class TtsService {
     if (patch.binPath !== undefined) next.binPath = patch.binPath;
     if (patch.voicePath !== undefined) next.voicePath = patch.voicePath;
     if (patch.polish !== undefined) next.polish = patch.polish;
+    if (patch.lengthScale !== undefined) next.lengthScale = patch.lengthScale;
+    if (patch.sentencePause !== undefined) next.sentencePause = patch.sentencePause;
     // New settings deserve a fresh try.
     delete next.problem;
     this.save(next);
@@ -165,6 +185,8 @@ export class TtsService {
       ...(s.binPath ? { binPath: s.binPath } : {}),
       ...(s.voicePath ? { voicePath: s.voicePath } : {}),
       lang,
+      lengthScale: s.lengthScale ?? DEFAULT_LENGTH_SCALE,
+      sentencePause: s.sentencePause ?? DEFAULT_SENTENCE_PAUSE,
       // Azure and Google take SSML: a pause between lines, and a foreign run marked so the voice switches to it.
       ssml: source === 'azure' || source === 'google',
       ...(foreignLang ? { foreignLang } : {}),
@@ -193,7 +215,7 @@ export class TtsService {
         if (preferred) this.update({ voice: preferred.id });
       }
       const started = Date.now();
-      const sample = getSetting<string>(this.db, SAMPLE_TEXT_KEY) ?? 'سلام. این صدای آزمایشی است.';
+      const sample = speechText(getSetting<string>(this.db, SAMPLE_TEXT_KEY) ?? SAMPLE_TEXT, lang);
       const { audio, format } = await this.engine(lang, source).speak(sample);
       this.clearProblem();
       return {
