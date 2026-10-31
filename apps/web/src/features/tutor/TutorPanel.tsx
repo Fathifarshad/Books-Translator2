@@ -328,6 +328,11 @@ function AssistantMessage({
           <p className="text-danger">
             {t('tutor.incomplete', { reason: t(`tutor.errors.${message.errorCode ?? 'UNKNOWN'}`) })}
           </p>
+          {message.errorDetail ? (
+            <p className="mt-1 break-words text-[11px] text-muted" dir="ltr" data-testid="tutor-error-detail">
+              {message.errorDetail.slice(0, 300)}
+            </p>
+          ) : null}
           <Button className="mt-2" icon="history" onClick={() => void retryAnswer(conversationId, message.id)}>
             {t('app.retry')}
           </Button>

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import PDFDocument from 'pdfkit';
 import { describe, expect, it, vi } from 'vitest';
 import { extractPdf } from './extract';
 import { hasOcrData, type OcrEngine, type OcrWord, ocrItems } from './ocr';
@@ -49,7 +50,28 @@ describe('OCR words → text items', () => {
     const items = ocrItems([word('~', 0, { confidence: 5 }), word('water', 50, { confidence: 8 }), word(' ', 90)]);
     expect(items.map((i) => i.text)).toEqual(['water ']);
   });
+
+  it('drops text-like noise from figures on a clean page', () => {
+    const body = ['The', 'airway', 'is', 'secured', 'first.'].map((t, i) => word(t, i * 120, { confidence: 94 }));
+    const items = ocrItems([word('wall', 900, { confidence: 30 }), word('dl', 1000, { confidence: 12 }), ...body]);
+    expect(items.map((i) => i.text.trim())).toEqual(['The', 'airway', 'is', 'secured', 'first.']);
+  });
 });
+
+/** A PDF without text or images: page i holds `shapes[i]` small filled paths, like glyph outlines. */
+function drawnPdf(shapes: number[]): Promise<Uint8Array> {
+  return new Promise((resolve) => {
+    const doc = new PDFDocument({ autoFirstPage: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(new Uint8Array(Buffer.concat(chunks))));
+    for (const count of shapes) {
+      doc.addPage();
+      for (let i = 0; i < count; i++) doc.rect(50 + (i % 60) * 8, 60 + Math.floor(i / 60) * 14, 5, 9).fill('#000');
+    }
+    doc.end();
+  });
+}
 
 describe('OCR during extraction', () => {
   it('never starts the engine for a PDF with a text layer', async () => {
@@ -72,6 +94,14 @@ describe('OCR during extraction', () => {
     expect(progress).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(ex.pages.every((p) => p.ocr)).toBe(true);
     expect(ex.pages[0]?.lines.map((l) => l.text)).toEqual(['Scanned heading', 'Body text.']);
+  });
+
+  it('reads pages whose text was converted to vector outlines, but not text-less pages with a small drawing', async () => {
+    const { factory, engine } = fakeEngine();
+    const ex = await extractPdf(await drawnPdf([600, 20]), { ocr: { lang: 'eng', engine: factory } });
+    expect(ex.pages.map((p) => p.vectorPaths)).toEqual([600, 20]);
+    expect(engine.calls).toBe(1);
+    expect(ex.pages.map((p) => Boolean(p.ocr))).toEqual([true, false]);
   });
 
   it('reports scanned pages it cannot read when the language has no OCR data', async () => {

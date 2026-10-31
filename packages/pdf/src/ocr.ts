@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { RawItem } from './lines';
+import { plausibleWidth, type RawItem } from './lines';
 import { normalizeRunText } from './normalize';
 
 /**
@@ -32,6 +32,12 @@ export const OCR_SCALE = 3;
 /** Below this confidence only words with letters or digits are kept (noise specks are dropped). */
 const MIN_CONFIDENCE = 20;
 const WORDLIKE = /[\p{L}\p{N}]/u;
+/**
+ * On a clean page (median word confidence at least CLEAN_PAGE_MEDIAN) words below FIGURE_NOISE_CONFIDENCE are
+ * text-like noise read out of figures and photos; real words there score ~90. Poor scans keep every word.
+ */
+const CLEAN_PAGE_MEDIAN = 80;
+const FIGURE_NOISE_CONFIDENCE = 45;
 
 interface TesseractLine {
   bbox: { y0: number };
@@ -101,17 +107,25 @@ export async function createTesseractEngine(code: string): Promise<OcrEngine | n
  */
 export function ocrItems(words: OcrWord[], scale = OCR_SCALE): RawItem[] {
   const items: RawItem[] = [];
+  const scores = words
+    .filter((w) => w.text.trim())
+    .map((w) => w.confidence)
+    .sort((a, b) => a - b);
+  const clean = scores.length > 0 && (scores[Math.floor(scores.length / 2)] ?? 0) >= CLEAN_PAGE_MEDIAN;
   for (const w of words) {
     const text = normalizeRunText(w.text).trim();
     if (!text || (w.confidence < MIN_CONFIDENCE && !WORDLIKE.test(text))) continue;
+    if (clean && w.confidence < FIGURE_NOISE_CONFIDENCE) continue;
     const ascent = Math.max(1, w.baseline - w.lineTop) / scale;
+    const size = Math.max(4, Math.round((ascent / 0.72) * 2) / 2);
     items.push({
       // Tesseract already separated the words; a trailing space keeps them apart whatever the gap.
       text: `${text} `,
       x: w.x0 / scale,
       y: w.baseline / scale,
-      width: Math.max(1, (w.x1 - w.x0) / scale),
-      size: Math.max(4, Math.round((ascent / 0.72) * 2) / 2),
+      // A table rule or a dotted leader swallowed into a word box comes back hundreds of points wide.
+      width: plausibleWidth((w.x1 - w.x0) / scale, size, text),
+      size,
       font: 'ocr',
       bold: false,
       italic: false,

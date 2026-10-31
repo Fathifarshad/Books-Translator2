@@ -21,6 +21,8 @@ const PATHS = {
   chat: 'M4 5h16v11H9l-5 4z',
   send: 'M4 12l16-8-6 16-2-7z',
   stop: 'M7 7h10v10H7z',
+  play: 'M8 5v14l11-7z',
+  pause: 'M9 5v14M15 5v14',
   copy: 'M9 9h10v10H9zM5 15V5h10',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   info: 'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z',

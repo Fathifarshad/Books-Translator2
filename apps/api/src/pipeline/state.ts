@@ -10,6 +10,7 @@ import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { books } from '../db/schema';
 import type { BookEvent } from '../events';
+import type { PriceSource } from './cost';
 
 /**
  * Pipeline context shared by the API process and the agent CLI. `notify` publishes on the in-process event bus
@@ -20,7 +21,7 @@ export interface PipelineCtx {
   config: Config;
   notify: (bookId: string, event: BookEvent) => void;
   /** Provider readiness and quota for the dashboard (absent in the agent CLI). */
-  providers?: { status(engines: string[]): PipelineProviderStatus[] };
+  providers?: { status(engines: string[]): PipelineProviderStatus[] } & Partial<PriceSource>;
 }
 
 /** Per target language pipeline state, stored in `books.settings.pipeline[lang]`. */

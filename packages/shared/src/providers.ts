@@ -1,14 +1,34 @@
 import { z } from 'zod';
 
 /**
- * Free AI providers (Phase 4): Google Gemini (free tier), Ollama (local) and OpenRouter (free models, one-click
- * connect). Shared by the API (settings, runner) and the web app (settings page, wizard, dashboard).
+ * AI providers that run jobs in-process (Phase 4): Claude Code (the `claude` CLI on this computer, covered by the
+ * user's own Claude subscription — no key, no extra cost), Google Gemini (free tier), Ollama (local) and OpenRouter
+ * (free models, one-click connect). Shared by the API (settings, runner) and the web app (settings, wizard,
+ * dashboard). Claude Code comes first: it needs no key and is the default pick for a new book.
  */
-export const PROVIDER_IDS = ['gemini', 'ollama', 'openrouter'] as const;
+export const PROVIDER_IDS = ['claude_code', 'gemini', 'ollama', 'openrouter'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export function isProviderId(id: string): id is ProviderId {
   return (PROVIDER_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * What a provider's chosen model costs: free tier, pay-as-you-go, a local model that costs nothing, or a model
+ * that runs on the subscription the user already pays for (Claude Code).
+ */
+export type ModelCost = 'free' | 'paid' | 'local' | 'subscription';
+
+/**
+ * The single source of truth for «is this model paid?»: used for the free-tier request limits (runner), the
+ * «show paid models» toggle (settings) and the engine labels (wizard). OpenRouter marks its free models with a
+ * `:free` suffix; Gemini's free tier depends on the key's billing tier, not on the model, so it counts as free.
+ */
+export function modelCost(provider: ProviderId, model: string | undefined): ModelCost {
+  if (provider === 'claude_code') return 'subscription';
+  if (provider === 'ollama') return 'local';
+  if (provider === 'openrouter' && model && !model.endsWith(':free')) return 'paid';
+  return 'free';
 }
 
 export const ProviderLimitsSchema = z.object({
@@ -63,6 +83,8 @@ export interface ProviderView {
   defaultBaseUrl: string;
   limits: ProviderLimits;
   defaultLimits: ProviderLimits;
+  /** US dollars per million input / output tokens of the chosen model, when the provider lists a price. */
+  price?: { input: number; output: number };
   usage: ProviderUsage;
   problem: ProviderProblem | null;
   /** Key (when needed) and model are set and nothing blocking is reported: jobs can run. */
@@ -72,6 +94,8 @@ export interface ProviderView {
 export interface ProviderModelInfo {
   id: string;
   free?: boolean;
+  /** US dollars per million input / output tokens (paid OpenRouter models). */
+  price?: { input: number; output: number };
 }
 
 export interface ProviderTestResult {

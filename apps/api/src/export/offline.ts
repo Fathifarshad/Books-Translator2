@@ -29,7 +29,7 @@ interface OfflineBook {
 
 let fontCss: string | undefined;
 /** Vazirmatn (OFL-1.1), Arabic + Latin subsets as data URLs (≈ 110 KB), so Persian renders well on any phone. */
-function embeddedFonts(): string {
+export function embeddedFonts(): string {
   if (fontCss !== undefined) return fontCss;
   try {
     const dir = join(dirname(require.resolve('@fontsource-variable/vazirmatn/package.json')), 'files');

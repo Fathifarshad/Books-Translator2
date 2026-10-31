@@ -5,8 +5,15 @@
 > «Kickoff prompt» (پایین همین صفحه) را کپی کنید و به Claude Code یا Codex بدهید. سند محصول (PRD) در
 > `docs/PRD.md` است و مشخصات کامل فنی در `docs/SPEC.md`.
 
-Last updated: 2026-09-30 · PR #1 merged into `main`; release `v1.0.0` (open source, MIT). Friends start the app with
+Last updated: 2026-10-05 · PR #1 merged into `main`; release `v1.0.0` (open source, MIT). Friends start the app with
 `start.cmd` / `start.sh` (ADR-034). New work: branch from `main`.
+
+**Newest (ADR-038, branch `fix/ocr-outlined-text`):** the default engine is now **«Claude Code (خودکار)»** —
+the server runs the `claude` program on this computer itself, so translation needs no API key, no daily quota and
+no `/process-batches` by hand; it is paid for by the user's own Claude subscription. Together with it: translate
+chunks of one chapter run in parallel, three jobs at a time (`WORKER_CONCURRENCY`), a chunk holds at most 60
+keys, changing the engine moves the work that is still queued, and «ساختن دوباره‌ی واژه‌نامه» replaces a glossary
+a weak model spoiled.
 
 ---
 
@@ -81,7 +88,7 @@ data/         (git-ignored) app.db, uploads/, exchange/, secret.key
 | `pnpm db:migrate` · `pnpm db:seed` | database |
 | `pnpm fixtures:pdf` | regenerate synthetic PDF fixtures |
 | `pnpm pdf:inspect <file.pdf> --pages 1-20 [--html out.html]` | debug extraction |
-| `pnpm agent:status` · `agent:next --json` · `agent:submit <file>` · `agent:validate` · `agent:release <id>` | agent mode (skill `/process-batches`) |
+| `pnpm agent:status` · `agent:next --json` · `agent:submit <file>` · `agent:release <id>` | agent mode by hand (skill `/process-batches`) — only for the «Claude Code (دستی)» engine |
 
 Test environment notes: e2e uses a throw-away data folder, API on :8797, web preview on :4173 and a fake
 OpenAI-compatible provider on :8798. Chromium path can be forced with `PW_CHROMIUM_PATH`. Env flags: `OCR` (default

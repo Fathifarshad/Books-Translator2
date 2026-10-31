@@ -7,7 +7,7 @@ import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button, IconButton, ProgressBar } from '../../components/ui';
 import { booksKey, useBooks } from '../../data/books';
-import { api, type BookSummary, offlineExportUrl } from '../../lib/api';
+import { api, type BookSummary, type ExportMode, exportUrl, offlineExportUrl } from '../../lib/api';
 import { fmtNum, fmtPct } from '../../lib/format';
 import { useLibrary } from '../../stores/library';
 import { useIsOwner } from '../auth/access';
@@ -227,10 +227,25 @@ function BookMenu({ summary }: { summary: BookSummary }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  // «دوزبانه»: the exported file carries the original next to the translation.
+  const [bilingual, setBilingual] = useState(false);
+  const [notice, setNotice] = useState('');
   const remove = useMutation({
     mutationFn: () => api.deleteBook(summary.book.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: booksKey }),
   });
+  const mode: ExportMode = bilingual ? 'bilingual' : 'target';
+  const href = (format: Parameters<typeof exportUrl>[1]) => exportUrl(summary.book.id, format, mode);
+  const copyText = async () => {
+    try {
+      const text = await (await fetch(href('markdown.txt'), { credentials: 'include' })).text();
+      await navigator.clipboard.writeText(text);
+      setNotice(t('library.exportCopied'));
+    } catch {
+      setNotice(t('library.exportCopyFailed'));
+    }
+    setTimeout(() => setNotice(''), 4000);
+  };
   const item =
     'flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-text outline-none data-[highlighted]:bg-row-hover';
   return (
@@ -249,12 +264,52 @@ function BookMenu({ summary }: { summary: BookSummary }) {
             sideOffset={4}
             className="z-50 w-52 rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-popover)]"
           >
+            <DropdownMenu.Label className="px-3 pt-2 pb-1 text-xs text-muted">
+              {t('library.exportGroup')}
+            </DropdownMenu.Label>
+            <DropdownMenu.CheckboxItem
+              className={item}
+              checked={bilingual}
+              onCheckedChange={(v) => setBilingual(v === true)}
+              onSelect={(e) => e.preventDefault()}
+              data-testid="export-bilingual"
+            >
+              <Icon name={bilingual ? 'check' : 'sidebar'} size={16} />
+              {t('library.exportBilingual')}
+            </DropdownMenu.CheckboxItem>
+            <DropdownMenu.Item className={item} asChild>
+              <a href={href('markdown')} download data-testid="export-markdown">
+                <Icon name="download" size={16} />
+                {t('library.exportMarkdown')}
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} asChild>
+              <a href={href('word')} download data-testid="export-word">
+                <Icon name="download" size={16} />
+                {t('library.exportWord')}
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} asChild>
+              <a href={href('print')} target="_blank" rel="noopener noreferrer" data-testid="export-print">
+                <Icon name="download" size={16} />
+                {t('library.exportPrint')}
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} onSelect={() => void copyText()} data-testid="export-copy">
+              <Icon name="copy" size={16} />
+              {t('library.exportCopy')}
+            </DropdownMenu.Item>
             <DropdownMenu.Item className={item} asChild>
               <a href={offlineExportUrl(summary.book.id)} download data-testid="export-offline">
                 <Icon name="download" size={16} />
                 {t('library.exportOffline')}
               </a>
             </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/audio`)}>
+              <Icon name="sparkle" size={16} />
+              {t('audio.open')}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-border" />
             {owner ? (
               <>
                 <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/setup`)}>
@@ -273,6 +328,15 @@ function BookMenu({ summary }: { summary: BookSummary }) {
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+      {notice ? (
+        <span
+          role="status"
+          className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-sm rounded-lg bg-surface px-3 py-2 text-center text-sm text-text shadow-[var(--shadow-popover)]"
+          data-testid="export-notice"
+        >
+          {notice}
+        </span>
+      ) : null}
       <AlertDialog.Root open={confirm} onOpenChange={setConfirm}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 z-40 bg-black/30" />

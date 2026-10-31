@@ -82,6 +82,8 @@ test.describe
 
 test('agent mode shows the Claude Code hint with the command to run', async ({ page }) => {
   await uploadAndConfirm(page, 'two-column.pdf');
+  // «Claude Code (دستی)»: batch files for a person to process. The automatic engine is the default now.
+  await page.getByTestId('engine-all').selectOption('agent');
   await page.getByTestId('start-translation').click();
   const hint = page.getByTestId('agent-hint');
   await expect(hint).toBeVisible({ timeout: 20_000 });

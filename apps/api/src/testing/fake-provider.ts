@@ -22,6 +22,8 @@ export interface FakeProvider {
   failures: FakeFailure[];
   /** Replace the next answers' content (e.g. invalid JSON to exercise the repair round). */
   contents: string[];
+  /** Rewrites every normal answer (e.g. a weak model dropping numbers); null = answer as usual. */
+  rewrite: ((content: string) => string) | null;
   keys: Set<string>;
   requests: { path: string; auth: string | null; body: unknown }[];
   close(): Promise<void>;
@@ -134,6 +136,7 @@ export async function startFakeProvider(port = 0, host = '127.0.0.1'): Promise<F
   const state: Omit<FakeProvider, 'url' | 'server' | 'close'> = {
     failures: [],
     contents: [],
+    rewrite: null,
     keys: new Set([FAKE_KEY]),
     requests: [],
   };
@@ -211,7 +214,7 @@ export async function startFakeProvider(port = 0, host = '127.0.0.1'): Promise<F
         const failure = state.failures.shift();
         if (failure) return sendJson(res, failure.status, failure.body ?? { error: 'fail' }, failure.headers);
         const b = body as { model?: string; messages?: { role: string; content: string }[]; stream?: boolean };
-        const content = state.contents.shift() ?? answerFor(b.messages ?? []);
+        const content = state.contents.shift() ?? (state.rewrite ?? String)(answerFor(b.messages ?? []));
         const counts = { prompt_eval_count: Math.ceil(raw.length / 4), eval_count: Math.ceil(content.length / 4) };
         if (b.stream) {
           res.writeHead(200, { 'content-type': 'application/x-ndjson' });
@@ -232,7 +235,7 @@ export async function startFakeProvider(port = 0, host = '127.0.0.1'): Promise<F
         const failure = state.failures.shift();
         if (failure) return sendJson(res, failure.status, failure.body ?? { error: 'fail' }, failure.headers);
         const b = body as { model?: string; messages?: { role: string; content: string }[]; stream?: boolean };
-        const content = state.contents.shift() ?? answerFor(b.messages ?? []);
+        const content = state.contents.shift() ?? (state.rewrite ?? String)(answerFor(b.messages ?? []));
         const usage = { prompt_tokens: Math.ceil(raw.length / 4), completion_tokens: Math.ceil(content.length / 4) };
         if (b.stream) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -259,10 +262,10 @@ export async function startFakeProvider(port = 0, host = '127.0.0.1'): Promise<F
   await new Promise<void>((resolve) => server.listen(port, host, resolve));
   const address = server.address();
   const actual = typeof address === 'object' && address ? address.port : port;
-  return {
-    ...state,
+  // The same object as `state`, so tests can also replace fields such as `rewrite`.
+  return Object.assign(state, {
     url: `http://${host}:${actual}`,
     server,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
+  });
 }

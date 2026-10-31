@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { dehyphenate } from './blocks';
 import { headerPattern, inferPageLabels, removeHeadersFooters, toRoman } from './cleanup';
 import { orderPage } from './layout';
-import { buildLines, type RawItem } from './lines';
+import { buildLines, plausibleWidth, type RawItem } from './lines';
 import { mergeContinuations } from './merge';
+import { fontStyle } from './normalize';
 import { normTitle, stripNumbering, titleSimilarity } from './similarity';
 import type { Block, Line, PageData } from './types';
 import { ingestInWorker } from './worker-client';
@@ -53,6 +54,28 @@ describe('lines', () => {
   it('splits one baseline into two lines at a column gutter', () => {
     const lines = buildLines([item('left column text', 50, 100), item('right column', 260, 100)], 0);
     expect(lines.map((l) => l.text)).toEqual(['left column text', 'right column']);
+  });
+});
+
+describe('column gutters (ADR-039)', () => {
+  it('splits one baseline at the gutter of a two-column page', () => {
+    // Real geometry from a medical textbook: body text ends at 303, the next column starts at 321 (1.8 em).
+    const lines = buildLines(
+      [
+        item('At term, the plasma volume is', 175, 713, { width: 128 }),
+        item('By the end of the first trimester, maternal cardiac output', 321, 713, { width: 245 }),
+      ],
+      0,
+    );
+    expect(lines.map((l) => l.text)).toEqual([
+      'At term, the plasma volume is',
+      'By the end of the first trimester, maternal cardiac output',
+    ]);
+  });
+
+  it('keeps a wide word space inside one line', () => {
+    const lines = buildLines([item('justified', 50, 100, { width: 45 }), item('text', 109, 100)], 0);
+    expect(lines.map((l) => l.text)).toEqual(['justified text']);
   });
 });
 
@@ -114,6 +137,53 @@ describe('reading order', () => {
       'right 3',
     ]);
     expect(ordered[0]?.column).toBe(0);
+  });
+
+  /**
+   * ADR-039: a text layer written by an OCR tool reports widths of hundreds of points for short words. Such a
+   * line used to decide where the page "ends", which moved the middle out of the gutter: the two columns were
+   * then read line by line across the page and woven into each other.
+   */
+  it('finds the columns although a few lines claim to run far past the paper', () => {
+    const lines = [
+      ...[0, 1, 2, 3, 4, 5].map((i) => line(`left ${i}`, 100 + i * 14, 50, { x1: 190 })),
+      ...[0, 1, 2, 3, 4, 5].map((i) => line(`right ${i}`, 100 + i * 14, 220, { x1: i < 2 ? 1900 : 360 })),
+    ];
+    const ordered = orderPage(page(0, lines));
+    expect(ordered.map((l) => l.text)).toEqual([
+      'left 0',
+      'left 1',
+      'left 2',
+      'left 3',
+      'left 4',
+      'left 5',
+      'right 0',
+      'right 1',
+      'right 2',
+      'right 3',
+      'right 4',
+      'right 5',
+    ]);
+  });
+});
+
+describe('item widths (ADR-039)', () => {
+  it('caps a width its characters cannot cover and leaves a normal one alone', () => {
+    // «Tidal volume» on a 612-point page came back 1,639 points wide from a GlyphLessFont text layer.
+    expect(plausibleWidth(1639, 10, 'Tidal volume')).toBe(132);
+    expect(plausibleWidth(58, 10, 'Tidal volume')).toBe(58);
+    expect(plausibleWidth(0, 10, '')).toBe(1);
+  });
+
+  it('keeps the two columns apart when a line of the second one is nonsense-wide', () => {
+    const items = [
+      ...[0, 1, 2].map((i) => item('left column text', 50, 100 + i * 14)),
+      ...[0, 1, 2].map((i) => item('right column text', 220, 100 + i * 14)),
+    ];
+    // Same baselines: a line may only hold one column's words.
+    const built = buildLines(items, 0);
+    expect(built).toHaveLength(6);
+    expect(built.every((l) => l.text === 'left column text' || l.text === 'right column text')).toBe(true);
   });
 });
 
@@ -204,5 +274,12 @@ describe('worker thread', () => {
 
   it('rejects files that are not PDFs', async () => {
     await expect(ingestInWorker(fileURLToPath(import.meta.url))).rejects.toThrow();
+  });
+});
+
+describe('OCR text layers', () => {
+  it('treats the invisible GlyphLessFont as plain body text even though pdf.js calls it monospace', () => {
+    expect(fontStyle('GlyphLessFont', { family: 'monospace' })).toEqual({ bold: false, italic: false, mono: false });
+    expect(fontStyle('ABCDEF+Courier', { family: 'monospace' }).mono).toBe(true);
   });
 });

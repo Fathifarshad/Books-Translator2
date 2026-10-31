@@ -12,8 +12,25 @@ export interface OrderedLine extends Line {
 export function orderPage(page: PageData, rtl = false): OrderedLine[] {
   const lines = [...page.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0);
   if (lines.length < 6) return lines.map((l) => ({ ...l, column: 0 }));
-  const left = Math.min(...lines.map((l) => l.x0));
-  const right = Math.max(...lines.map((l) => l.x1));
+  // Where the text really ends, not where a broken line claims to (ADR-039): a text layer written by an OCR tool
+  // reports widths of hundreds of points, and one such line used to push `right` far past the paper. That moved
+  // the middle out of the gutter and hid the second column, so the two were read line by line across the page
+  // and woven into each other. Nothing can be wider than the paper, and a percentile ignores the rest.
+  const left = Math.max(
+    0,
+    percentile(
+      lines.map((l) => l.x0),
+      0.02,
+    ),
+  );
+  const right = Math.min(
+    page.width,
+    percentile(
+      lines.map((l) => l.x1),
+      0.98,
+    ),
+  );
+  if (right <= left) return lines.map((l) => ({ ...l, column: 0 }));
   const mid = (left + right) / 2;
   const gutter = (right - left) * 0.02;
   const inLeft = (l: Line) => l.x1 <= mid + gutter;
@@ -26,14 +43,20 @@ export function orderPage(page: PageData, rtl = false): OrderedLine[] {
 
   const out: OrderedLine[] = [];
   let region: Line[] = [];
+  /** A line that belongs to neither side goes to the column it sits in, by its own middle. */
+  const center = (l: Line) => (l.x0 + l.x1) / 2;
+  const isFirst = (l: Line) => (inLeft(l) || inRight(l) ? (rtl ? inRight(l) : inLeft(l)) : rtl === center(l) >= mid);
   const flush = () => {
-    const first = region.filter(rtl ? inRight : inLeft);
+    const first = region.filter(isFirst);
     const second = region.filter((l) => !first.includes(l));
     out.push(...first.map((l) => ({ ...l, column: 1 })), ...second.map((l) => ({ ...l, column: 2 })));
     region = [];
   };
   for (const line of lines) {
-    const spanning = !inLeft(line) && !inRight(line);
+    // Only a line that really runs across the page interrupts the columns. A short one near the middle — a wide
+    // table cell, a figure label — used to end the region, and the columns below it were then read a line at a
+    // time from one side to the other, which wove two paragraphs into each other (ADR-039).
+    const spanning = !inLeft(line) && !inRight(line) && line.x1 - line.x0 > (right - left) * 0.6;
     if (spanning) {
       flush();
       out.push({ ...line, column: 0 });

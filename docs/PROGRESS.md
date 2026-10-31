@@ -182,6 +182,73 @@ the sandbox has no access to the real services, so the first real connection is 
   Persian quick start, CONTRIBUTING, PR #1 merged into `main`, GitHub release `v1.0.0`. Paid `anthropic` engine
   deliberately not built (owner: free only).
 
+- [x] Engine labels name the model and its cost (owner's request, 2026-10-04) — ADR-037: «تنظیمات ترجمه» shows
+  «OpenRouter · ⁨vendor/model⁩ (پولی)» instead of a fixed «(رایگان)», and the same tag follows the model in Settings
+  and on the dashboard. `modelCost()` in `packages/shared` is the one rule for «is this model paid?» (request limits,
+  the «show paid models» toggle, the labels). Tests: `packages/shared/src/providers.test.ts`, e2e
+  `providers.spec.ts`; screens: `docs/screens/phase-4/{desktop,mobile}-{light,dark}-wizard-engines.png`.
+
+- [x] Translation that finishes without a key and without hand-work (owner's book stuck at 1%, 2026-10-05) —
+  ADR-038. Five fixes, each of which alone kept the book stalled:
+  - **`claude_code` engine**: the server runs the `claude` program on this computer headless (`claude -p
+    --output-format json`, `--effort low`, no tools / MCP / project settings / session files), with the prompts
+    from `prompts/` and the same validation and repair round as every provider. No key, no daily quota, no
+    `/process-batches` by hand; it is paid for by the user's own Claude subscription and is first in
+    `PROVIDER_IDS`, so a new book defaults to it. Node-only, so it lives behind `@dozabaneh/ai/claude-cli` and
+    `packages/ai` stays browser-safe. Tests: `packages/ai/src/engine/claude-cli.test.ts` (12: flags, stdin
+    payload, repair round, quota/auth/empty/missing-program errors, streaming, a real batch through the provider
+    engine), `apps/api/src/providers.test.ts` (4, against `testing/fake-claude-cli.mjs`), e2e `providers.spec.ts`.
+  - **Chunks run in parallel**: a translate chunk no longer waits for the previous chunk of its chapter, so a
+    one-chapter book is no longer one batch at a time. Migration `0004_parallel_chunks.sql` unchains books
+    already in the queue. Test: `apps/api/src/parallel.test.ts`.
+  - **`WORKER_CONCURRENCY`** (default 3): three jobs run side by side. Same test file.
+  - **`CHUNK_MAX_ITEMS = 60`**: a chunk is capped by keys as well as words — 2,500 words of two-column OCR had
+    become 231 keys in one answer, and one missing key rejected the lot. Test: `packages/core/.../pipeline.test.ts`.
+  - **Switching engine mid-book** moves the queued jobs and withdraws the open Claude Code batches instead of
+    needing a cancel-and-restart; **«ساختن دوباره‌ی واژه‌نامه»** throws away a glossary a weak model poisoned
+    (`pregnancy → بازگشت`) and plans the stage again, keeping locked terms and finished translations. Tests:
+    `apps/api/src/parallel.test.ts`, `apps/api/src/pipeline.test.ts`.
+  - Screens: `docs/screens/phase-4/{desktop,mobile}-{light,dark}-settings-claude-code.png`. Playwright ports are
+    overridable (`PW_WEB_PORT`) because another program on the owner's computer holds 4173 and `reuseExistingServer`
+    would otherwise run the whole suite against it.
+
+- [x] Two-column pages read as two columns (owner's chapter was unreadable, 2026-10-05) — ADR-039. An OCR tool's
+  text layer reported widths of hundreds of points, which moved the middle of the page out of the gutter; short
+  lines near the middle ended the column region; and the gutter itself was exactly on the old 1.8 em threshold.
+  Widths are now capped at what the characters can cover, the page extent comes from percentiles clamped to the
+  paper, only a line that crosses the page interrupts the columns, the gutter test is 1.6 em, and a block of
+  fewer than five words is no longer treated as a sentence cut off by the column. On the owner's chapter:
+  2,231 → 1,384 segments, 1,234 → 487 paragraphs, 24 → 55 words per paragraph. Tests:
+  `packages/pdf/src/rules.test.ts` (gutter, reading order with nonsense-wide lines, `plausibleWidth`).
+
+- [x] «گرفتن خروجی» after a translation (owner's request, 2026-10-29) — ADR-040: Markdown, Word (.docx), a
+  printable page the browser saves as a PDF, the clipboard, and the existing offline reader — each with
+  «دوزبانه» on or off. All rendered from one model so the formats cannot drift. Tests:
+  `apps/api/src/export.test.ts` (9).
+- [x] A full Claude plan no longer fails the book (2026-10-29): «You've hit your weekly limit · resets 8am»
+  matched none of the limit patterns, so the job spent its three attempts in six seconds and failed for good —
+  which is where a 991-page book stopped. It is now QUOTA (the queue waits and looks again within the hour), and
+  «resets 8am» is read as a clock time. Test: `packages/ai/src/engine/claude-cli.test.ts`.
+
+- [x] «صدا و پادکست» (owner's request, 2026-10-29) — ADR-041: the book read aloud from one of four sources — the
+  browser's own voice (reads in the reader, writes no file), Piper (free, offline, on this computer), or Azure /
+  Google / OpenAI (a key, paid per character) — one file per chapter, as a job, for the whole translation or for
+  a summary the assistant engine writes first. Keys stay encrypted on the server. Tests:
+  `apps/api/src/tts.test.ts` (15: splitting, joining, each service with an injected `fetch`, Piper with a
+  stand-in, the whole route path from book to downloaded file, and that the key never appears in an answer).
+
+- [x] Recordings that sound said, not spelled (owner: «خیلی مصنوعی و کامپیوتری‌ست», 2026-10-29) — ADR-042: by
+  rule, markup and footnote markers go, a parenthesis in the other script is dropped, and numbers, ranges,
+  percentages and short units are written as words (language registry, `speech: 'fa' | 'en'`); by judgement, a
+  new `speech` task marks the vowels only where a written word is genuinely ambiguous and breaks long sentences
+  at punctuation they already have. Azure and Google additionally get SSML (pauses, `<lang>` for foreign runs).
+  Tests: `packages/text/src/speech.test.ts` (14), `apps/api/src/tts.test.ts` (17).
+- [x] Cost estimate and a spending cap (owner's request, 2026-10-29) — ADR-043: before «شروع ترجمه» the setup
+  page shows the tokens the book will spend (from the library's own finished jobs once there are 3 per stage), and
+  dollars only for a pay-as-you-go model; each paid call records `jobs.cost_usd`; Settings → «سقف هزینه» holds a
+  daily/monthly ceiling that makes paid engines wait. Tests: `packages/shared/src/cost.test.ts` (7),
+  `apps/api/src/cost.test.ts` (9), e2e in `providers.spec.ts`.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

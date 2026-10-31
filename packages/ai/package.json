@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AI engine layer: task specs, prompt loading, result validation and engines (mock, agent; API engines in Phase 4).",
+  "description": "AI engine layer: task specs, prompt loading, result validation and engines (mock, agent, providers). Browser-safe; the Node-only Claude Code client lives behind the ./claude-cli subpath.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./claude-cli": "./src/engine/claude-cli.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

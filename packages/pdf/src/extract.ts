@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { buildLines, type RawItem } from './lines';
+import { buildLines, plausibleWidth, type RawItem } from './lines';
 import { fontStyle, normalizeRunText } from './normalize';
 import { createTesseractEngine, type OcrEngine, ocrItems, renderPagePng } from './ocr';
 import type { Box, ExtractedBook, OutlineEntry, PageData } from './types';
@@ -162,7 +162,7 @@ async function extractPage(page: PdfPage, index: number): Promise<PageData> {
       text,
       x: e,
       y: height - f,
-      width: it.width,
+      width: plausibleWidth(it.width, size, text),
       size,
       font: name,
       ...fontStyle(name, {
@@ -179,15 +179,22 @@ async function extractPage(page: PdfPage, index: number): Promise<PageData> {
     height,
     lines: buildLines(items, index),
     images: imageBoxes(ops as { fnArray: number[]; argsArray: unknown[] }, height),
+    vectorPaths: ops.fnArray.reduce((n, fn) => (fn === OPS.constructPath ? n + 1 : n), 0),
   };
 }
 
 const textLength = (p: PageData) => p.lines.reduce((n, l) => n + l.text.length, 0);
 
-/** A scanned page is (mostly) one picture: images cover at least half of it. Title pages keep their text. */
-function looksScanned(p: PageData): boolean {
+/** Filled paths on a text-less page above which its "text" is glyph outlines (a page printed as drawings). */
+export const OUTLINED_TEXT_MIN_PATHS = 300;
+
+/**
+ * A page needing OCR is (mostly) one picture — images cover at least half of it — or text converted to vector
+ * outlines: thousands of small filled paths and no text layer. Title pages keep their text.
+ */
+export function looksScanned(p: PageData): boolean {
   const area = p.images.reduce((n, b) => n + b.width * b.height, 0);
-  return area >= p.width * p.height * 0.5;
+  return area >= p.width * p.height * 0.5 || (p.vectorPaths ?? 0) >= OUTLINED_TEXT_MIN_PATHS;
 }
 
 /** pdf.js pass: metadata, page labels, outline with resolved destinations, and per-page lines (OCR when needed). */

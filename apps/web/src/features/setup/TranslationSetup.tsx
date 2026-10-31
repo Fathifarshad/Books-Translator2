@@ -1,14 +1,16 @@
 import {
   type BookBundle,
   type BookRecord,
+  type CostEstimate,
   isProviderId,
+  modelCost,
   PIPELINE_ENGINES,
   PIPELINE_TASKS,
   type PipelineEngine,
   QUALITY_PROFILES,
   type TranslationSettings,
 } from '@dozabaneh/shared';
-import { getLanguage, LANGUAGES } from '@dozabaneh/text';
+import { getLanguage, isolate, LANGUAGES } from '@dozabaneh/text';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -106,12 +108,22 @@ function SettingsStep({
     queryKey: ['estimate', book.id, lang, s.profile, s.engines.translate, s.engines.edit],
     queryFn: () => api.estimate(book.id, lang, { profile: s.profile, engines: s.engines }),
   });
+  /** «OpenRouter · ⁨x-ai/grok-4-fast⁩ (پولی)»: the engine, the model it will run and what that model costs. */
+  const engineLabel = (engine: PipelineEngine, offline: boolean) => {
+    const name = t(`setup.engines.${engine}`);
+    if (!isProviderId(engine)) return name;
+    if (offline) return `${name} ${t('setup.notConnected')}`;
+    const model = providers?.find((p) => p.id === engine)?.model ?? '';
+    // The «:free» suffix is dropped: the cost tag already says it.
+    const cost = t(`engines.cost.${modelCost(engine, model)}`);
+    // A Latin model id inside a Persian label; an <option> cannot hold a <bdi>, so isolate it with FSI/PDI.
+    return model ? `${name} · ${isolate(model.replace(/:free$/u, ''))} ${cost}` : `${name} ${cost}`;
+  };
   const engineOptions = PIPELINE_ENGINES.map((engine) => {
     const offline = isProviderId(engine) && !readyProviders.includes(engine);
     return (
       <option key={engine} value={engine} disabled={offline}>
-        {t(`setup.engines.${engine}`)}
-        {offline ? ` ${t('setup.notConnected')}` : ''}
+        {engineLabel(engine, offline)}
       </option>
     );
   });
@@ -180,7 +192,7 @@ function SettingsStep({
                 <select
                   value={s.engines[task]}
                   onChange={(ev) => setEngine(task, ev.target.value as PipelineEngine)}
-                  className={`${field} flex-1`}
+                  className={`${field} min-w-0 flex-1`}
                   data-testid={`engine-${task}`}
                 >
                   {engineOptions}
@@ -201,7 +213,7 @@ function SettingsStep({
                       engines: { brief: engine, glossary: engine, translate: engine, edit: engine },
                     }));
                 }}
-                className={field}
+                className={`${field} min-w-0 max-w-full`}
                 data-testid="engine-all"
               >
                 <option value="" disabled>
@@ -316,6 +328,7 @@ function SettingsStep({
             })}
           </p>
         ) : null}
+        {e ? <CostLine cost={e.cost} /> : null}
         <Button
           variant="primary"
           icon="sparkle"
@@ -467,5 +480,36 @@ function GlossaryStep({ book, lang }: { book: BookRecord; lang: string }) {
         </Button>
       </div>
     </section>
+  );
+}
+
+/** What the book will spend before «شروع ترجمه» (ADR-043): tokens always, dollars only where they are charged. */
+function CostLine({ cost }: { cost: CostEstimate }) {
+  const { t } = useTranslation();
+  const k = (n: number) => fmtNum(Math.round(n / 1000) * 1000);
+  return (
+    <div className="basis-full text-sm text-muted" data-testid="cost-estimate">
+      <p>
+        {t('setup.costTokens', { input: k(cost.tokens.in), output: k(cost.tokens.out) })}
+        {' · '}
+        {cost.usd === null
+          ? t('setup.costNoMoney')
+          : t('setup.costUsd', { usd: fmtNum(Math.max(Math.round(cost.usd * 100) / 100, 0.01)) })}
+      </p>
+      {cost.perEngine.length > 1 ? (
+        <ul className="mt-1 flex flex-wrap gap-x-4">
+          {cost.perEngine.map((p) => (
+            <li key={p.engine}>
+              {t('setup.costEngine', {
+                engine: t(`setup.engines.${p.engine}`),
+                input: k(p.tokens.in),
+                output: k(p.tokens.out),
+              })}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-1 text-xs">{t(`setup.costBasis.${cost.basis}`, { samples: fmtNum(cost.samples) })}</p>
+    </div>
   );
 }

@@ -296,3 +296,268 @@ Format for each entry:
   owner asked for free options only); Claude quality is available at no extra cost through agent mode with Claude Code.
 - **Consequences:** each start rebuilds the web app (~30 s); `pnpm share` remains the way to reach phones. Adding the
   paid engine later is a new provider in `packages/ai` behind the existing engine interface.
+
+## ADR-035 — OCR for pages whose text is drawn as vector outlines; figure noise filter (2026-09-30)
+- **Context:** the owner's 329-page book is not a scan: its text was "printed" as ~4,000 filled glyph paths per page,
+  with no text layer and no images, so the image-coverage test never triggered OCR (12 words extracted). OCR of such
+  pages also read figure labels and photos as garbage lines (confidence < 45) that could become fake headings.
+- **Decision:** a text-less page with ≥ 300 path operations (`OUTLINED_TEXT_MIN_PATHS`) is OCR'd like a scan. On a
+  clean page (median word confidence ≥ 80) words below 45 are dropped as figure noise; poor scans keep every word.
+- **Consequences:** ~9.5 s per page (329 pages ≈ 50 min). Text-less pages with large vector charts are OCR'd too
+  (cheap, and mostly yield nothing).
+- **Addendum:** PDFs OCR'd by other tools (PDF24, ocrmypdf) carry an invisible Tesseract text layer in
+  `GlyphLessFont`, which pdf.js reports as monospace; it is now plain body text (it had turned 230,000 words into
+  untranslated "code" blocks).
+
+## ADR-036 — Weak/limited free engines: keep item-level QA issues; cheap paid OpenRouter models (2026-10-04)
+- **Context:** on the owner's real book the free engines stalled: Gemini answers 403 from the owner's network
+  (region block), OpenRouter free models allow ~50 requests a day, Ollama Cloud's free quota ran out after 23% and the
+  local `qwen3:14b` fails validation (Latin left in place, dropped numbers). One bad item rejected a whole 36-item chunk,
+  which was then retried from scratch.
+- **Decision:** (1) after the provider's repair round, an answer whose remaining errors are only `numbers`,
+  `target_script` or `markup` is kept (SPEC §9.7: reject → repair → flag); post-processing QA flags those items for the
+  review queue. Missing keys, empty translations and schema errors stay fatal; agent results stay strict. (2) The
+  OpenRouter model list can include paid models (opt-in, cheapest first, price per million tokens shown); a paid model
+  gets pay-as-you-go limits instead of the free daily cap.
+- **Consequences:** no wasted chunks; the review queue shows the items to check. A few dollars of OpenRouter credit
+  (cards or crypto) finish a 300-page book with a cheap model; the free path is unchanged.
+
+## ADR-037 — Engine labels name the model and what it costs (2026-10-04)
+- **Context:** «تنظیمات ترجمه» labelled every engine from a fixed i18n string («OpenRouter (رایگان)»), so after
+  choosing a paid OpenRouter model (ADR-036) the page still promised «رایگان» and never said which model would run.
+  The rule «is this model paid?» (`:free` suffix) was duplicated in the runner limits, the settings toggle and nowhere
+  in the wizard.
+- **Decision:** `modelCost(provider, model)` in `packages/shared` is the single source of truth and returns
+  `free | paid | local`. The wizard builds its label at render time — «OpenRouter · ⁨vendor/model⁩ (پولی)» — with the
+  model id isolated in FSI … PDI, because an `<option>` cannot hold a `<bdi>` (golden rule 1). The same tag follows
+  the model in Settings and on the pipeline dashboard (`UsageLine`); the free-tier limits (ADR-036) and the «show paid
+  models» toggle call the same function.
+- **Consequences:** engine names in `fa.json` no longer carry a cost word (the dashboard's engine line shows the bare
+  name). Gemini counts as free because its free tier depends on the key's billing tier, not on the model, so a paid
+  Gemini key is still labelled «رایگان». Long model ids shrink the select (`min-w-0`) instead of widening the row, and
+  the `:free` suffix is not repeated in the label.
+
+## ADR-038 — Claude Code as an automatic engine; chunks that really run in parallel (2026-10-04)
+- **Context:** on the owner's real book (a 45-page Miller's Anesthesia chapter, 2,231 segments) translation sat at
+  1% for days. Four separate causes, all of them blocking:
+  1. **Every translate chunk waited for the previous chunk of its chapter.** The book is *one* chapter, so exactly
+     one chunk was ever runnable: the dashboard showed «۲ بسته در انتظار» forever, and no engine — agent or
+     provider — could do more than one piece at a time.
+  2. **Agent mode is manual.** Claude Code only works through `/process-batches`, typed by hand, one batch per
+     round trip. Fifty chunks is fifty invocations.
+  3. **Chunks were cut by words only.** In a two-column OCR'd book a "paragraph" is one broken line, so 2,500
+     words became 231 items — one model answer had to carry 231 exact keys, and a single missing key threw the
+     whole chunk away.
+  4. **No engine the owner can reach works.** Gemini answers 403 from their network, OpenRouter's free models give
+     ~50 requests a day and empty answers, Ollama Cloud's quota ran out, local `qwen3:14b` fails validation.
+- **Decision:**
+  1. A new engine **`claude_code`**: the server runs the `claude` program that is already installed on the owner's
+     computer, headless (`claude -p --output-format json`), with the project's own prompts as the system prompt and
+     no tools, MCP servers, project settings or session files. No API key — it is paid for by the Claude
+     subscription the owner already has — and the answer goes through exactly the same validation and repair round
+     as any provider. `--effort low`: translating a chunk is a direct task, and on a real batch low effort was
+     2.4× faster, used 2.9× fewer tokens and read better than the default. The client needs Node, so it lives
+     behind the `@dozabaneh/ai/claude-cli` subpath and `packages/ai` stays browser-safe.
+  2. Translate chunks no longer depend on each other. Document order survives through `seq`, the per-chapter
+     first-mention pass (`finalizeChapter`) still fixes the parentheticals, and the edit unit still waits for the
+     chunks of its own section. Migration `0004_parallel_chunks.sql` unchains the books already in the queue.
+  3. `WORKER_CONCURRENCY` (default 3): the runner keeps three jobs busy instead of one.
+  4. `CHUNK_MAX_ITEMS = 60` caps keys per chunk next to the word budget.
+  5. Starting again with another engine moves the work that is still queued (`retargetJobs`) and withdraws the open
+     Claude Code batches, instead of forcing a cancel-and-restart of the whole book.
+  6. «ساختن دوباره‌ی واژه‌نامه» (`POST /books/:id/glossary/rebuild`): the owner's glossary had been written by a
+     weak local model — `pregnancy → بازگشت`, `labor → تولید`, `cardiac output → خرج قلبی` — and the prompts tell
+     every engine to use those equivalents, so each new chunk repeated the mistakes. The action drops the
+     machine-made terms, keeps the ones the user locked, leaves finished translations alone and plans the stage
+     again with the engine chosen now. Without it the only way out was deleting the book and OCR'ing it again.
+- **Consequences:** a book translates without a key, without a daily quota and without anyone typing a command;
+  `claude_code` is first in `PROVIDER_IDS`, so a new book defaults to it. It spends the owner's Claude plan, which
+  the settings card says plainly; when the plan's limit is reached the engine waits and resumes (QUOTA with the
+  reset time) instead of failing. Chunks that run side by side see fewer already-translated neighbours as context,
+  which the chapter pass and the edit stage absorb. Measured on a real batch: 60 items (≈600 words) in ~2.5
+  minutes, 60/60 keys correct — about an hour for the owner's chapter at concurrency 3.
+
+### ADR-038 — addendum: why it was still not moving (2026-10-05)
+The engine ran, but every call hit the 600 s timeout. Three further causes, found on the owner's own machine:
+- **`CLAUDE_EFFORT` is a name Claude Code already uses.** A session exports it into the terminals it opens, so an
+  app started with `pnpm dev` in the VS Code terminal silently inherited `xhigh` and translated the book at the
+  session's effort level. The setting is now `TRANSLATE_EFFORT`, and the child no longer inherits `CLAUDECODE`,
+  `CLAUDE_CODE_SSE_PORT`, `CLAUDE_CODE_ENTRYPOINT` or `CLAUDE_EFFORT` (`childEnv`).
+- **Thinking, not translating.** `--effort low` alone was not enough: a 60-item chunk spent 48,400 output tokens
+  and 518 s on thinking for 600 words of text. At the default effort the engine now also sets
+  `MAX_THINKING_TOKENS=0`; the same chunk takes 80 s and 7,368 tokens and passes the same validation.
+  `TRANSLATE_EFFORT=medium` or higher gives thinking back.
+- **One shredded fragment killed a whole chunk.** In this two-column scan a "paragraph" is often a broken line
+  («pressure» on its own), and the translator answers nothing for it. `empty` is fatal (ADR-036), so 59 good
+  translations were thrown away over one fragment, every time, forever. Up to 10% of a chunk's items may now keep
+  their source text instead (`rescueEmptyItems`); QA flags them (`target_script`) and the review queue shows them.
+  An engine that answers nothing for most of a chunk still fails.
+- A job of a **paused** pipeline is no longer claimed, not even one left `running` by a process that died —
+  which used to come back to life (and be re-queued) behind the user's «توقف موقت».
+Measured afterwards on a real batch of the owner's book: 60 items in 80 s, 60/60 keys, accepted with one item
+flagged — about 35 minutes for the whole chapter at three jobs at a time.
+
+## ADR-039 — Two columns read as two columns: the geometry that made a chapter unreadable (2026-10-05)
+- **Context:** the owner's chapter came out of extraction as 2,231 tiny segments whose text wove the two columns
+  into each other — «more recent human trials demonstrate the use The placenta is a remarkable organ», «over the
+  time of gestation. At term, the plasma volume is By the end of the first trimester, maternal cardiac output».
+  No engine can translate that and no reader can read it. The PDF carries a text layer written by an OCR tool
+  (PDF24, `GlyphLessFont`), so our own OCR never ran: the geometry in that layer is what everything downstream
+  believed.
+- **Decision** — four changes, each one a separate reason the columns were lost:
+  1. **An item's width is capped at what its characters can cover** (`plausibleWidth`, 1.1 em per character, used
+     for the text layer and for OCR words). That layer reported 1,639 points for «Tidal volume» on a 612-point
+     page.
+  2. **A page's text extent comes from percentiles, clamped to the paper** (`orderPage`). One line claiming to end
+     at 1,966 used to put the middle of the page at 1,012, where there is no gutter — so the second column was
+     never found and the page was read line by line across both.
+  3. **Only a line that really runs across the page interrupts the columns.** A short line near the middle (a wide
+     table cell, a figure label) used to end the column region, and everything below it was read side to side.
+     Such a line now joins the column it sits in.
+  4. **The gutter threshold is 1.6 em, not 1.8** (`splitAtGutters`). This book's gutter is exactly 1.8 em, so the
+     old test (`gap > 1.8 em`) was false by a hair and the two columns became one line — which no later step can
+     take apart. Justified Latin text stretches its spaces to about 1.2 em, so 1.6 em still only ever means a
+     gutter.
+  5. A block of fewer than five words is a label or a sub-heading, not a sentence the column ran out of room for,
+     so it is no longer merged with whatever follows the break («Cardiac Output» had been glued to the table
+     beside it and then to the pages after it).
+- **Consequences** (measured on the owner's chapter): 2,231 → 1,384 segments, 1,234 → 487 paragraphs, 24 → 55
+  words per paragraph, and paragraphs that read as prose. Books already in the library keep the text they were
+  ingested with — the fix applies when a book is uploaded again. The synthetic fixtures could not be regenerated
+  on Windows (pdf.js draws pdfkit's standard-14 fonts as empty boxes here, so a re-rendered "scan" would be
+  unreadable), so the new tests pin the geometry directly instead of through a new fixture.
+
+## ADR-040 — «گرفتن خروجی»: Markdown, Word, and a PDF the browser writes (2026-10-29)
+- **Context:** a finished translation could only leave the app as the offline HTML reader, which is made for
+  reading on a phone, not for sending to someone, editing, printing or quoting.
+- **Decision:** one model (`apps/api/src/export/document.ts`) renders every format, so they cannot drift apart:
+  `markdown.ts` (the book's inline markup already *is* Markdown), `word.ts` (`docx`, MIT; direction is a property
+  of each paragraph and run, taken from the language registry, so an English quotation inside a Persian book
+  keeps its own direction) and `print.ts` (a printable page that opens the browser's print dialog). Each takes
+  `mode=target|bilingual|source`. «رونوشت» fetches the same Markdown as `text/plain` and puts it on the clipboard.
+- **Why the browser writes the PDF:** no PDF writer in Node shapes Arabic script — pdfkit would hand back
+  disconnected letters — and a headless browser would add a 150 MB dependency to an app friends install
+  themselves. The browser on this computer already shapes Persian correctly, embeds the fonts we send it, and its
+  «Save as PDF» is one dialog away. Word can do the same from the .docx.
+- **Consequences:** exports need no new service and no key. The printable page carries Vazirmatn as data URLs
+  (≈110 KB) like the offline reader. A book that is only half translated exports what it has: in `target` mode an
+  untranslated row falls back to its source text, which is visible rather than silently missing.
+
+## ADR-041 — Reading a book aloud: four sources, because Claude has no voice (2026-10-29)
+- **Context:** the owner wants the translation as audio — the whole book and, separately, a shorter telling of it —
+  to listen to and to put on a phone. No Claude model produces speech, so the sound has to come from somewhere
+  else, and that choice is the owner's: it decides what it costs, how natural it sounds, and whether a file comes
+  out at all.
+- **Decision:** one setting, four sources (`packages/shared/src/tts.ts`, `apps/api/src/tts/`):
+  - `browser` — the voice Windows or the phone already has. Free, nothing to install, and it reads the section on
+    screen («بخوان» in the reader, `ReadAloud.tsx`, text taken from the target column as rendered). It **speaks**;
+    it does not write a file, so the app says so plainly instead of offering a download that cannot work.
+  - `piper` — a small program on this computer with a Persian voice: free, offline, no limit, writes WAV (MP3 when
+    ffmpeg is installed).
+  - `azure` / `google` / `openai` — natural voices over the internet; a key per service, kept encrypted on the
+    server like every translation key (golden rule 7), paid per character.
+- **One file per chapter.** A 300-page book as one recording is unusable: a phone's player shows chapters as a
+  playlist and remembers where it stopped. Recording takes minutes, so it is a job in the same queue as
+  everything else (`stage: 'audio'`), with the progress the page follows.
+- **Two kinds.** `full` reads the translation; `summary` reads a chapter summary the assistant engine writes
+  first, through the same `/assist` path the reader's summaries use (extracted to `assist/task.ts`, so there is
+  one way to ask for a summary).
+- **Consequences:** each service's own limit on request size is handled by splitting at sentence ends and joining
+  the pieces (MP3 end to end, WAV with one header over the sum). Nothing here was verified against a real Azure,
+  Google or OpenAI account or a real Piper install — the services are tested with an injected `fetch` and Piper
+  with a stand-in program, exactly as the translation providers are. The first real connection is the owner's.
+
+## ADR-042 — Text written to be read, said out loud (2026-10-29)
+- **Context:** the first recordings sounded mechanical and sometimes said the wrong word. That is not the voice's
+  fault: a translation is written to be *read*. A speech engine says «۲۰٪» as two digits and a symbol, shouts the
+  English term out of the middle of «بی‌هوشی (Anesthesia)», reads footnote markers aloud, and — because Persian is
+  written without short vowels — has to guess which of several words «مرد» or «کرم» is in that sentence.
+- **Decision:** two passes, split by whether a rule can settle the question.
+  1. **By rule** (`packages/text/src/speech.ts`, browser-safe, no model): markup and footnote markers removed; a
+     parenthesis whose content is in the other script dropped; numbers, decimals, ranges and percentages written
+     as words; short units said in full. The words come from the language registry (`speech: 'fa' | 'en'`), the
+     same way `normalizer` and `ocr` do — a language the registry has no spoken forms for keeps its digits rather
+     than borrowing another language's words.
+  2. **By judgement** (`prompts/speech.md`, a new `speech` task): the assistant engine marks the vowels **only**
+     on words whose reading is genuinely in doubt, expands what is still short, and breaks a very long sentence
+     at punctuation it already has. It is told not to change what is said — no shortening, no improving: the
+     listener must hear the same book the reader reads. A pass that fails leaves the prepared text as it is.
+- **The speech task's checks are deliberately not the translation's.** Digits become words and the bracketed term
+  disappears, so «same numbers», «same markup» and «same length» would all fire on a correct answer. What is
+  checked is that every line comes back, in the target language, and not empty.
+- **SSML where it is taken.** Azure and Google get a pause between lines and `<lang>` around a run still written
+  in the source language, so the voice switches instead of spelling it out; Piper and OpenAI get plain text.
+- **Consequences:** the polish pass costs a model call per 40 lines and is a switch in Settings («ویرایش متن برای
+  خوانش»), on by default and skipped when no assistant engine is connected. Full vowelling was deliberately not
+  asked for: a fully voweled text reads worse, not better.
+
+## ADR-043 — What a book will cost, before «شروع ترجمه», and a ceiling (2026-10-29)
+
+- **Context:** the owner asked to know what a translation costs before it starts, and to choose the source that pays
+  for it. Tokens were already recorded per job (`jobs.tokens_in/out`); `cost_usd` existed and was never written.
+- **Two different counts.** *Tokens*, which every engine spends, and *dollars*, which only a pay-as-you-go model
+  spends. Claude Code (a subscription), Ollama (this computer) and a free tier cost no money and still have a limit,
+  so the estimate always shows tokens and shows dollars only where they are charged — «هزینه‌ی دلاری ندارد»
+  instead of a misleading «$0».
+- **Rates from the owner's own jobs** (`apps/api/src/pipeline/cost.ts`): a stage with at least 3 finished calls is
+  projected from its own tokens per segment (translate, edit) or per call (brief, glossary); until then from
+  defaults measured on one real 60-item chunk (`packages/shared/src/cost.ts`). The page says which.
+- **Prices** are the ones the provider lists for the chosen model, kept in the provider settings when the model
+  list is fetched, so an estimate needs no network. Each finished call of a paid model adds its dollars to
+  `jobs.cost_usd`.
+- **The ceiling** (Settings → «سقف هزینه», daily and/or monthly, empty = none) adds the paid engines to the runner's
+  blocked list while it is reached; their jobs wait, nothing fails, and work resumes at midnight or on the 1st.
+  It never stops an engine that spends no money.
+- **Consequences:** the estimate is a projection, not a quote — the first chunks of a new book or a new model
+  correct it. Only OpenRouter's paid models are «paid» today (`modelCost`); a direct Anthropic API engine would add
+  itself there.
+
+### ADR-041 addendum — Piper writes a file, not stdout (2026-10-29)
+
+Piper 1.x (`pip install piper-tts`, OHF-Voice/piper1-gpl) cannot write a WAV to stdout on Windows: it reopens a
+temporary file Windows keeps locked (`PermissionError`), and with no output file it plays the sound instead. Each
+piece is now written to a file in a fresh temp folder and read back; the stand-in refuses `-` like the real program.
+Verified against piper-tts 1.8.0 with `fa_IR-gyro-medium`.
+
+### ADR-041 addendum — «بخوان» uses the chosen voice, not only the browser's (2026-10-29)
+
+Windows often has no Persian voice, so «بخوان» in the reader said «مرورگر شما صدای فارسی ندارد» even with Piper
+working in Settings. When a source that writes sound is chosen and ready, the reader now sends the section to
+`POST /tts/speak` in pieces of ~700 characters (whole paragraphs), plays them in turn and fetches the next piece
+while one plays; the browser voice is the fallback. Only the rules prepare this text — the model pass would make the
+reader wait. Measured with Piper `fa_IR-gyro-medium`: ~3 s per piece.
+
+### ADR-041 addendum — Piper reads UTF-8 (2026-10-30)
+
+Python on Windows decodes stdin in the ANSI code page, so the Persian text reached Piper garbled: a sentence with
+«ژ» crashed it (`UnicodeEncodeError … surrogates not allowed`), and the rest was read as noise — a four-word test
+sentence came back as 10 s of sound instead of 2 s. Every program the speech code starts now runs with
+`PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`; the stand-in refuses to run without them, as the real one fails.
+
+### ADR-044 — Recording formats, progress and pause; «بخوان» that continues (2026-10-30)
+
+- **Formats.** A recording can be saved as MP3, WAV, OGG (Opus) or M4A (AAC). The source's own format needs no
+  conversion (Piper: WAV; services: MP3); the others go through ffmpeg (temp files, since M4A cannot be piped), and
+  `TtsView.formats` lists only what works now. Omitting `format` keeps the old behaviour — no conversion — so
+  nothing changes for callers that do not choose. (Before this, the settings page promised MP3 with ffmpeg but
+  nothing converted.)
+- **Progress.** A chapter's script is spoken in ~2,500-character segments, so progress moves inside a long chapter:
+  `AudioStatus.fraction` (0–1, weighted by chapter length) next to `done/total` chapters.
+- **Pause.** `POST /books/:id/audio/control` `{action: pause|resume}`; an in-process set (`tts/control.ts`) checked
+  between segments, the job keeps its lease with heartbeats while paused. Lost on a server restart, like the job.
+- **«بخوان».** Pause keeps the piece; «ادامه» goes on from it, «از اول» starts over, speed 0.75–2× (audio
+  `playbackRate`; the browser voice restarts the current ~300-character piece). The browser voice is paused by
+  cancelling, because `speechSynthesis.pause` is unreliable.
+- **Tutor.** Errors keep the engine's own message (`errorDetail`) and map HTTP 409/429, so «خطای ناشناخته» can be
+  diagnosed from the panel.
+- **Shortcut.** `create-shortcut.cmd` / `pnpm shortcut` writes «دوزبانه.lnk» to the desktop (start.cmd, app icon).
+  WScript.Shell cannot save a Persian file name, so it saves under a plain name and moves it.
+
+### ADR-044 addendum — a less mechanical Piper (2026-10-30)
+
+Owner's verdict on `fa_IR-gyro-medium`: about 60% natural, words sometimes badly joined. Measured with `piper --debug`:
+a zero-width joiner makes the phonemizer see «کتاب‌ها» as two words and stress the first syllable (`kˈetɑbhɑ`);
+written joined it keeps the natural stress (`ketˈɑbhɑ`). So the joiner is removed for Piper only. Piper also runs a
+little slower (`--length_scale 1.08`) with 0.4 s after each sentence (`--sentence_silence`), both adjustable in
+Settings. The voice test now reads a realistic textbook paragraph (plurals, a number with a unit, a foreign term, a
+question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/Farid) is the step up.

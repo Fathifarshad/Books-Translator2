@@ -6,10 +6,11 @@ import {
   type Engine,
   loadTaskPrompt,
   ProviderError,
+  SOFT_RULES,
   validateResult,
 } from '@dozabaneh/ai';
 import { ingestInWorker } from '@dozabaneh/pdf';
-import { type AgentBatch, isProviderId } from '@dozabaneh/shared';
+import { type AgentBatch, type AudioFormat, type AudioKind, isProviderId } from '@dozabaneh/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { type Config, repoRoot } from '../config';
@@ -23,6 +24,8 @@ import { approvedTerms, planBatch } from '../pipeline/batches';
 import { promptVersionOf } from '../pipeline/prompts';
 import { logPipeline, type PipelineCtx } from '../pipeline/state';
 import type { ProviderService } from '../settings/providers';
+import { buildAudio } from '../tts/audio';
+import type { TtsService } from '../tts/service';
 import { addUsage, claimNext, fail, heartbeat, type JobRow, requeue, succeed } from './queue';
 
 export interface RunnerDeps {
@@ -30,6 +33,7 @@ export interface RunnerDeps {
   bus: EventBus;
   config: Config;
   providers: ProviderService;
+  tts: TtsService;
   log: FastifyBaseLogger;
 }
 
@@ -47,6 +51,7 @@ const handlers: Partial<Record<JobRow['stage'], (job: JobRow, deps: RunnerDeps) 
   glossary: runPipelineJob,
   translate: runPipelineJob,
   edit: runPipelineJob,
+  audio: runAudioJob,
 };
 
 export function pipelineCtx({
@@ -97,10 +102,12 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
   const res = await engineFor(job, deps, validate).run(batch, {});
   if (res.kind !== 'done') throw new Error('in-process engines must return a result');
   if (isProviderId(job.engine)) deps.providers.reportSuccess(job.engine);
-  if (res.usage) addUsage(deps.db, job.id, res.usage);
+  if (res.usage) addUsage(deps.db, job.id, res.usage, deps.providers.usdOf(job.engine, res.usage));
   // Provider answers were validated inside the engine (with a repair round); validate every engine's output here.
   const report = validate(batch, { schemaVersion: 1, batchId: batch.batchId, ...res.output });
-  if (!report.ok || !report.output) {
+  // Item-level QA issues that survived a provider's repair round are kept; post-processing QA flags them for review.
+  const softOnly = isProviderId(job.engine) && report.errors.every((e) => SOFT_RULES.has(e.rule));
+  if ((!report.ok && !softOnly) || !report.output) {
     throw new Error(report.errors.map((e) => `${e.key ? `[${e.key}] ` : ''}${e.rule}: ${e.message}`).join(' · '));
   }
   importResult(ctx, job, keyMap, report.output, {
@@ -108,6 +115,28 @@ async function runPipelineJob(job: JobRow, deps: RunnerDeps): Promise<void> {
     ...(res.model ? { model: res.model } : {}),
     promptVersion: promptVersionOf(batch.promptRefs[0] ?? ''),
   });
+}
+
+/** Reading a book aloud: one file per chapter, with the progress the dashboard and the library show. */
+async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
+  const { db, bus, config, tts, providers } = deps;
+  const lang = job.targetLang as string;
+  const scope = job.scope as { kind?: AudioKind; format?: AudioFormat } | null;
+  const kind = (scope?.kind ?? 'full') as AudioKind;
+  await buildAudio(
+    { db, config, tts, providers },
+    {
+      bookId: job.bookId,
+      lang,
+      kind,
+      ...(scope?.format ? { format: scope.format } : {}),
+      onProgress: (done, total, fraction) => {
+        heartbeat(db, job.id, { done, total, fraction });
+        bus.publish(job.bookId, { type: 'progress', stage: 'audio', done, total });
+      },
+    },
+  );
+  bus.publish(job.bookId, { type: 'audio', lang, kind });
 }
 
 async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<void> {
@@ -134,16 +163,23 @@ async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<
 }
 
 /**
- * Inline worker (WORKER_MODE=inline): polls the DB-backed queue and runs one job at a time. PDF parsing
- * itself happens in a worker thread, so the API stays responsive during a 300+ page ingestion.
+ * Inline worker (WORKER_MODE=inline): polls the DB-backed queue and runs up to WORKER_CONCURRENCY jobs side by
+ * side. One model call per chunk takes tens of seconds, so a book of fifty chunks is only usable when several run
+ * at once. PDF parsing itself happens in a worker thread, so the API stays responsive during a 300+ page ingestion.
  */
 export class JobRunner {
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private running = false;
+  /** Jobs currently being run; each promise settles (never rejects) when its job is finished. */
+  private readonly inFlight = new Set<Promise<void>>();
+  private draining = false;
   /** Not started until start() — tests drive the queue with drain(). */
   private stopped = true;
 
   constructor(private readonly deps: RunnerDeps) {}
+
+  private get concurrency(): number {
+    return Math.max(1, this.deps.config.WORKER_CONCURRENCY);
+  }
 
   start(): void {
     this.stopped = false;
@@ -157,7 +193,7 @@ export class JobRunner {
 
   /** Wake up now (e.g. right after an upload) instead of waiting for the next poll. */
   kick(): void {
-    if (!this.running && !this.stopped) this.schedule(0);
+    if (!this.draining && !this.stopped) this.schedule(0);
   }
 
   private schedule(ms: number): void {
@@ -165,15 +201,38 @@ export class JobRunner {
     this.timer = setTimeout(() => void this.tick(), ms);
   }
 
-  /** Runs jobs until the queue is empty; resolves when idle (used by tests). */
+  /** Runs jobs until the queue is empty, `concurrency` at a time; resolves when idle (used by tests). */
   async drain(): Promise<void> {
-    while (await this.runOne()) {
-      // keep going
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (;;) {
+        while (this.inFlight.size < this.concurrency) {
+          const job = this.claim();
+          if (!job) break;
+          this.track(job);
+        }
+        if (this.inFlight.size === 0) return;
+        await Promise.race([...this.inFlight]);
+      }
+    } finally {
+      this.draining = false;
     }
   }
 
+  private track(job: JobRow): void {
+    const done: Promise<void> = this.runJob(job)
+      .catch((err: unknown) => {
+        this.deps.log.error({ jobId: job.id, err }, 'job runner crashed');
+      })
+      .finally(() => {
+        this.inFlight.delete(done);
+      });
+    this.inFlight.add(done);
+  }
+
   private async tick(): Promise<void> {
-    if (this.running || this.stopped) return;
+    if (this.draining || this.stopped) return;
     await this.drain();
     if (!this.stopped) this.schedule(1000);
   }
@@ -183,16 +242,13 @@ export class JobRunner {
     return claimNext(this.deps.db, Object.keys(handlers) as JobRow['stage'][], this.deps.providers.blockedEngines());
   }
 
-  private async runOne(): Promise<boolean> {
-    if (this.running) return false;
+  private async runJob(job: JobRow): Promise<void> {
     const { db, bus, log } = this.deps;
-    const job = this.claim();
-    if (!job) return false;
-    this.running = true;
     bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: 'running' });
     const pipeline = PIPELINE.has(job.stage) && job.targetLang ? job.targetLang : null;
     // Slow providers (a local model on a CPU) can take minutes: keep the lease alive.
     const beat = setInterval(() => heartbeat(db, job.id), 60_000);
+    beat.unref?.();
     try {
       await handlers[job.stage]?.(job, this.deps);
       succeed(db, job.id);
@@ -206,11 +262,11 @@ export class JobRunner {
           if (pipeline && err.status !== 0)
             logPipeline(pipelineCtx(this.deps), job.bookId, pipeline, `${job.engine}: ${message}`, 'warn');
           bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: 'queued' });
-          return true;
+          return;
         }
       }
       // A broken or oversized PDF will not get better on retry.
-      const retryable = !/Invalid PDF|too many pages|not a PDF/i.test(message);
+      const retryable = !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
       const outcome = fail(db, job, message, retryable);
       log.warn({ jobId: job.id, stage: job.stage, outcome }, 'job failed');
       if (outcome === 'failed' && job.stage === 'ingest') {
@@ -228,8 +284,6 @@ export class JobRunner {
       bus.publish(job.bookId, { type: 'job', jobId: job.id, stage: job.stage, status: outcome, error: message });
     } finally {
       clearInterval(beat);
-      this.running = false;
     }
-    return true;
   }
 }

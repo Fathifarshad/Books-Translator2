@@ -1,5 +1,6 @@
 import {
   createProviderClient,
+  defaultLimitsFor,
   type LimiterSnapshot,
   PROVIDERS,
   type ProviderClient,
@@ -8,9 +9,11 @@ import {
   pickDefaultModel,
   RateLimiter,
 } from '@dozabaneh/ai';
+import { createClaudeCliClient } from '@dozabaneh/ai/claude-cli';
 import {
   type AssistantEngine,
   isProviderId,
+  modelCost,
   type PipelineProviderStatus,
   PROVIDER_IDS,
   type ProviderId,
@@ -23,6 +26,7 @@ import {
 } from '@dozabaneh/shared';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
+import { budgetState, jobCostUsd } from '../pipeline/cost';
 import { keyHint, type SecretBox } from './secrets';
 import { getSetting, setSetting } from './store';
 
@@ -34,6 +38,8 @@ interface StoredProvider {
   model?: string;
   baseUrl?: string;
   limits?: ProviderLimits;
+  /** The price the provider listed for the chosen model, kept so an estimate needs no network (ADR-043). */
+  price?: { input: number; output: number };
   problem?: ProviderProblem;
 }
 
@@ -66,9 +72,13 @@ export class ProviderService {
   }
 
   defaultBaseUrl(id: ProviderId): string {
-    const env = { gemini: this.config.GEMINI_BASE_URL, ollama: this.config.OLLAMA_BASE_URL };
-    const fromEnv = id === 'openrouter' ? this.config.OPENROUTER_BASE_URL : env[id];
-    return (fromEnv || PROVIDERS[id].baseUrl).replace(/\/+$/u, '');
+    const env: Partial<Record<ProviderId, string | undefined>> = {
+      gemini: this.config.GEMINI_BASE_URL,
+      ollama: this.config.OLLAMA_BASE_URL,
+      openrouter: this.config.OPENROUTER_BASE_URL,
+    };
+    // claude_code is a local program, not an endpoint: it has no address.
+    return (env[id] || PROVIDERS[id].baseUrl).replace(/\/+$/u, '');
   }
 
   baseUrl(id: ProviderId): string {
@@ -76,7 +86,8 @@ export class ProviderService {
   }
 
   private limits(id: ProviderId): ProviderLimits {
-    return this.stored(id).limits ?? PROVIDERS[id].limits;
+    const s = this.stored(id);
+    return s.limits ?? defaultLimitsFor(id, s.model);
   }
 
   /** The decrypted key; null when none is stored; undefined when it cannot be decrypted. */
@@ -107,7 +118,8 @@ export class ProviderService {
     const key = this.apiKey(id);
     const state = this.limiter(id).state();
     const hasKey = typeof key === 'string';
-    const model = s.model ?? '';
+    // Providers with a fixed model list (Claude Code) are usable straight away; the others start empty.
+    const model = s.model || preset.defaultModel;
     return {
       id,
       needsKey: preset.needsKey,
@@ -121,7 +133,8 @@ export class ProviderService {
       baseUrl: this.baseUrl(id),
       defaultBaseUrl: this.defaultBaseUrl(id),
       limits: this.limits(id),
-      defaultLimits: preset.limits,
+      defaultLimits: defaultLimitsFor(id, model),
+      ...(s.price ? { price: s.price } : {}),
       usage: {
         usedLastMinute: state.usedLastMinute,
         usedToday: state.usedToday,
@@ -188,7 +201,7 @@ export class ProviderService {
     delete next.problem;
     this.save(id, next);
     const lim = this.limiter(id);
-    lim.setLimits(next.limits ?? PROVIDERS[id].limits);
+    lim.setLimits(next.limits ?? defaultLimitsFor(id, next.model));
     lim.unblock();
     this.persistLimiter(id);
     return this.view(id);
@@ -196,12 +209,26 @@ export class ProviderService {
 
   client(id: ProviderId, model?: string): ProviderClient {
     const key = this.apiKey(id);
+    // Claude Code is a program on this computer, not an endpoint (and its client needs Node, so it is imported
+    // from the package's Node-only subpath).
+    if (id === 'claude_code') {
+      return createClaudeCliClient({
+        provider: id,
+        model: model ?? this.stored(id).model ?? PROVIDERS[id].defaultModel,
+        cli: {
+          ...(this.config.CLAUDE_CLI ? { command: this.config.CLAUDE_CLI } : {}),
+          // Run outside the repository: the engine must never pick up project files or settings.
+          cwd: this.config.dataDir,
+          effort: this.config.TRANSLATE_EFFORT,
+        },
+      });
+    }
     if (PROVIDERS[id].needsKey && typeof key !== 'string') {
       throw new ProviderError('AUTH', key === undefined ? 'The stored key cannot be read; enter it again.' : 'No key.');
     }
     return createProviderClient({
       provider: id,
-      model: model ?? this.stored(id).model ?? '',
+      model: model ?? this.stored(id).model ?? PROVIDERS[id].defaultModel,
       baseUrl: this.baseUrl(id),
       ...(typeof key === 'string' ? { apiKey: key } : {}),
       ...(this.fetchImpl ? { fetch: this.fetchImpl } : {}),
@@ -209,7 +236,30 @@ export class ProviderService {
   }
 
   async models(id: ProviderId): Promise<ProviderModel[]> {
-    return this.client(id, '').listModels();
+    const list = await this.client(id, '').listModels();
+    this.rememberPrice(id, list);
+    return list;
+  }
+
+  /**
+   * Keeps the listed price of the chosen model, so an estimate can be made without asking the provider again —
+   * and so a book started offline still knows what it will cost.
+   */
+  private rememberPrice(id: ProviderId, models: ProviderModel[]): void {
+    const stored = this.stored(id);
+    const chosen = models.find((m) => m.id === stored.model);
+    const price = chosen?.price;
+    const same = stored.price?.input === price?.input && stored.price?.output === price?.output;
+    if (same) return;
+    const next = { ...stored };
+    if (price) next.price = price;
+    else delete next.price;
+    this.save(id, next);
+  }
+
+  /** The price of the chosen model, as the provider last listed it. */
+  price(id: ProviderId): { input: number; output: number } | undefined {
+    return this.stored(id).price;
   }
 
   /**
@@ -249,7 +299,22 @@ export class ProviderService {
 
   /** Providers whose jobs must not be claimed now (not ready, or waiting for their limits). */
   blockedEngines(): ProviderId[] {
-    return PROVIDER_IDS.filter((id) => !this.view(id).ready || this.limiter(id).waitMs() > 0);
+    // A reached spending cap stops only the engines that spend money (ADR-043).
+    const capped = budgetState(this.db).blocked;
+    return PROVIDER_IDS.filter(
+      (id) => !this.view(id).ready || this.limiter(id).waitMs() > 0 || (capped && this.isPaid(id)),
+    );
+  }
+
+  /** A pay-as-you-go model: the only kind a spending cap applies to. */
+  isPaid(id: ProviderId): boolean {
+    return modelCost(id, this.view(id).model) === 'paid';
+  }
+
+  /** Dollars a call cost on this engine, from the listed price of its chosen model; 0 when it is not charged. */
+  usdOf(engine: string, usage: { tokensIn: number; tokensOut: number }): number {
+    if (!isProviderId(engine) || !this.isPaid(engine)) return 0;
+    return jobCostUsd(this.price(engine), { in: usage.tokensIn, out: usage.tokensOut });
   }
 
   /** Milliseconds until the first blocked-but-ready provider may run again (for the runner's next poll). */

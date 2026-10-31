@@ -29,7 +29,8 @@
     "agent:submit": "pnpm --silent --filter @dozabaneh/api agent submit",
     "agent:validate": "pnpm --silent --filter @dozabaneh/api agent validate",
     "agent:release": "pnpm --silent --filter @dozabaneh/api agent release",
-    "share": "node scripts/share.mjs"
+    "share": "node scripts/share.mjs",
+    "shortcut": "node scripts/create-shortcut.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

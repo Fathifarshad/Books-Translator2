@@ -25,6 +25,11 @@ export interface LanguageInfo {
   refLabels: { fig: string; tab: string };
   /** Tesseract language code for OCR of scanned pages (its data package must be installed). */
   ocr?: string;
+  /**
+   * Spoken forms for reading aloud (number words, units, «percent»), resolved in `speech.ts`. A language
+   * without them is still read — only numbers and units stay as written.
+   */
+  speech?: string;
 }
 
 export const LANGUAGES = {
@@ -41,6 +46,7 @@ export const LANGUAGES = {
     emphasis: 'italic',
     refLabels: { fig: 'Figure', tab: 'Table' },
     ocr: 'eng',
+    speech: 'en',
   },
   fa: {
     name: 'Persian',
@@ -57,6 +63,7 @@ export const LANGUAGES = {
     emphasis: 'weight',
     refLabels: { fig: 'شکل', tab: 'جدول' },
     ocr: 'fas',
+    speech: 'fa',
   },
 } as const satisfies Record<string, LanguageInfo>;
 

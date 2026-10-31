@@ -2,8 +2,13 @@ import type { SearchResults, SearchSide, StructureOp } from '@dozabaneh/core';
 import {
   API_PREFIX,
   type AssistantEngine,
+  type AudioFormat,
+  type AudioKind,
+  type AudioStatus,
   type BookBundle,
   type BookRecord,
+  type Budget,
+  type BudgetStatus,
   type ChatEvent,
   ChatEventSchema,
   type GlossaryKind,
@@ -22,6 +27,10 @@ import {
   type SummaryRequest,
   type TranslationSettings,
   type TranslationStatus,
+  type TtsTestResult,
+  type TtsUpdate,
+  type TtsView,
+  type TtsVoice,
   type TutorEngineInput,
 } from '@dozabaneh/shared';
 
@@ -218,6 +227,12 @@ export const api = {
     }),
   applyTerm: (id: string, termId: string) =>
     request<{ segments: number }>(`/books/${id}/glossary/${termId}/apply`, { method: 'POST' }),
+  /** Throw away the machine-made terms and build the glossary again with the engine chosen now. */
+  rebuildGlossary: (id: string, lang: string) =>
+    request<{ removed: number }>(`/books/${id}/glossary/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({ lang }),
+    }),
 
   // Edits, history and review (SPEC §9.8, §13.5)
   /** `reason`: "undo", "edit" or the user's own short note (stored with the revision). */
@@ -262,6 +277,48 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ engine }),
     }),
+  // Spending cap (ADR-043): stops only the engines charged per token
+  budget: () => request<BudgetStatus>('/settings/budget'),
+  setBudget: (budget: Budget) =>
+    request<BudgetStatus>('/settings/budget', { method: 'PUT', body: JSON.stringify(budget) }),
+  /** A piece of the section on screen, read by the voice source chosen in Settings; the sound comes back. */
+  speak: async (text: string, lang: string, signal?: AbortSignal): Promise<Blob> => {
+    const res = await fetch(apiUrl('/tts/speak'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, lang }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { code: string; details?: Record<string, unknown> };
+      };
+      throw new ApiError(res.status, body.error?.code ?? 'UNKNOWN', body.error?.details ?? {});
+    }
+    return res.blob();
+  },
+  // Voice (SPEC §13.9): which source reads the book, and the recordings it produced
+  tts: () => request<TtsView>('/settings/tts'),
+  updateTts: (patch: TtsUpdate) => request<TtsView>('/settings/tts', { method: 'PUT', body: JSON.stringify(patch) }),
+  ttsVoices: (lang: string) =>
+    request<{ voices: TtsVoice[]; error?: string }>(`/settings/tts/voices?lang=${encodeURIComponent(lang)}`),
+  testTts: (lang: string) =>
+    request<TtsTestResult>(`/settings/tts/test?lang=${encodeURIComponent(lang)}`, { method: 'POST' }),
+  audio: (bookId: string, kind: AudioKind, lang?: string) => {
+    const params = new URLSearchParams({ kind });
+    if (lang) params.set('lang', lang);
+    return request<AudioStatus>(`/books/${bookId}/audio?${params.toString()}`);
+  },
+  startAudio: (bookId: string, kind: AudioKind, lang?: string, format?: AudioFormat) =>
+    request<AudioStatus>(`/books/${bookId}/audio`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, ...(lang ? { lang } : {}), ...(format ? { format } : {}) }),
+    }),
+  controlAudio: (bookId: string, action: 'pause' | 'resume' | 'cancel', kind: AudioKind, lang?: string) =>
+    request<AudioStatus>(`/books/${bookId}/audio/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action, kind, ...(lang ? { lang } : {}) }),
+    }),
   summary: (body: SummaryRequest) =>
     request<{ markdown: string; engine: ProviderId; model: string }>('/assist/summary', {
       method: 'POST',
@@ -277,6 +334,32 @@ export const api = {
 /** «نسخه‌ی آفلاین»: one HTML file with the book and a phone reader (downloaded by the browser). */
 export function offlineExportUrl(bookId: string, lang?: string): string {
   return apiUrl(`/books/${bookId}/export/offline${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
+}
+
+/** All the chapters of a recording joined into one file. */
+export function audioAllUrl(bookId: string, kind: AudioKind, lang?: string): string {
+  const params = new URLSearchParams({ kind });
+  if (lang) params.set('lang', lang);
+  return apiUrl(`/books/${bookId}/audio/all?${params.toString()}`);
+}
+
+/** «فایل صوتی» (SPEC §13.9): the recording of a book, one file per chapter. */
+export function audioTrackUrl(bookId: string, trackId: string, kind: AudioKind, lang?: string): string {
+  const params = new URLSearchParams({ kind });
+  if (lang) params.set('lang', lang);
+  return apiUrl(`/books/${bookId}/audio/${trackId}?${params.toString()}`);
+}
+
+/** «گرفتن خروجی» (SPEC §13.8): Markdown, Word, or the printable page the browser saves as a PDF. */
+export type ExportFormat = 'markdown' | 'markdown.txt' | 'word' | 'print' | 'offline';
+export type ExportMode = 'target' | 'bilingual';
+
+export function exportUrl(bookId: string, format: ExportFormat, mode: ExportMode = 'target', lang?: string): string {
+  const params = new URLSearchParams();
+  if (lang) params.set('lang', lang);
+  if (mode !== 'target') params.set('mode', mode);
+  const query = params.toString();
+  return apiUrl(`/books/${bookId}/export/${format}${query ? `?${query}` : ''}`);
 }
 
 /** Full-page navigation target of «اتصال با یک کلیک» (OpenRouter's authorization page, then back here). */
@@ -300,8 +383,17 @@ export async function* streamTutor(input: TutorEngineInput, signal: AbortSignal)
     return;
   }
   if (!res.ok || !res.body) {
-    const code = res.status === 400 ? 'CONTEXT_TOO_LONG' : 'UNKNOWN';
-    yield { type: 'error', code, message: String(res.status), retryable: code === 'UNKNOWN' };
+    const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
+    const code =
+      res.status === 400
+        ? 'CONTEXT_TOO_LONG'
+        : res.status === 409
+          ? 'NO_ENGINE'
+          : res.status === 429
+            ? 'RATE_LIMIT'
+            : 'UNKNOWN';
+    const detail = [res.status, body.error?.code, body.error?.message].filter(Boolean).join(' ');
+    yield { type: 'error', code, message: detail, retryable: code === 'UNKNOWN' };
     return;
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

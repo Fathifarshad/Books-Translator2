@@ -30,6 +30,16 @@ async function shoot(page: Page, name: string, path: string, ready: (p: Page) =>
   await page.setViewportSize({ width: 1440, height: 900 });
 }
 
+const FREE = '(رایگان)';
+const PAID = '(پولی)';
+const SUBSCRIPTION = '(اشتراکی)';
+
+/**
+ * How the wizard labels an engine: the engine, the model it will run and what that model costs. The model id is an
+ * LTR run inside a Persian label and an <option> cannot hold a <bdi>, so it is isolated with FSI … PDI.
+ */
+const engineLabel = (engine: string, model: string, cost: string) => `${engine} · \u2068${model}\u2069 ${cost}`;
+
 /** A fresh copy of a fixture (a trailing PDF comment changes its hash, so it is not a duplicate). */
 async function freshBook(request: APIRequestContext): Promise<string> {
   const file = fileURLToPath(new URL('../../../fixtures/pdf/no-outline.pdf', import.meta.url));
@@ -49,6 +59,71 @@ test.describe
   .serial('free AI providers', () => {
     test.afterAll(async ({ request }) => {
       await request.put('/api/v1/settings/assistant', { data: { engine: 'mock' } });
+    });
+
+    /** ADR-038: Claude Code needs no key — it is the one engine that is ready the moment the app starts. */
+    test('shows Claude Code as connected without a key and answers its connection test', async ({ page }) => {
+      await page.goto('/settings');
+      const card = page.getByTestId('provider-claude_code');
+      await expect(card).toBeVisible();
+      await expect(page.getByTestId('provider-claude_code-status')).toHaveText('وصل است');
+      await expect(card.getByTestId('claude-code-model')).toHaveValue('sonnet');
+      await card.getByTestId('test-claude-code').click();
+      await expect(card.getByTestId('test-ok')).toBeVisible({ timeout: 30_000 });
+      await expectNoSeriousA11yViolations(page);
+      await shoot(
+        page,
+        'settings-claude-code',
+        '/settings',
+        (pg) => expect(pg.getByTestId('provider-claude_code')).toBeVisible(),
+        true,
+      );
+    });
+
+    /** ADR-041: Claude has no voice, so the user picks where the sound comes from. */
+    test('offers four voice sources, and says the browser one writes no file', async ({ page }) => {
+      await page.goto('/settings');
+      const card = page.getByTestId('voice-section');
+      await expect(card).toBeVisible();
+      // The browser's own voice is the starting point: free, nothing to install, no file.
+      await expect(card.getByTestId('voice-source')).toHaveValue('browser');
+      await expect(card).toContainText('فایل صوتی نمی‌سازد');
+      await expect(card.getByTestId('voice-test')).toHaveCount(0);
+
+      await card.getByTestId('voice-source').selectOption('azure');
+      await expect(card.getByTestId('voice-key')).toBeVisible();
+      await expect(card.getByTestId('voice-region')).toBeVisible();
+      await expect(card.getByTestId('voice-test')).toBeVisible();
+      await expectNoSeriousA11yViolations(page);
+      await shoot(
+        page,
+        'settings-voice',
+        '/settings',
+        (pg) => expect(pg.getByTestId('voice-section')).toBeVisible(),
+        true,
+      );
+      await card.getByTestId('voice-source').selectOption('browser');
+    });
+
+    /** ADR-043: a ceiling for the engines charged per token. */
+    test('saves a spending cap and reports what was spent', async ({ page, request }) => {
+      await page.goto('/settings');
+      const card = page.getByTestId('budget-section');
+      await expect(card).toBeVisible();
+      await card.getByTestId('budget-daily').fill('2');
+      await card.getByRole('button').click();
+      await expect(card.getByRole('button')).toHaveText('ذخیره شد');
+      expect((await (await request.get('/api/v1/settings/budget')).json()).dailyUsd).toBe(2);
+      await expect(card.getByTestId('budget-spent')).toBeVisible();
+      await expectNoSeriousA11yViolations(page);
+      await shoot(
+        page,
+        'settings-budget',
+        '/settings',
+        (pg) => expect(pg.getByTestId('budget-section')).toBeVisible(),
+        true,
+      );
+      await request.put('/api/v1/settings/budget', { data: { dailyUsd: null, monthlyUsd: null } });
     });
 
     test('connects Gemini by pasting a key, OpenRouter with one click, and finds Ollama', async ({ page }) => {
@@ -127,13 +202,45 @@ test.describe
       await request.put('/api/v1/settings/providers/gemini', { data: { limits: { rpm: 1000, rpd: 400 } } });
       await page.goto(`/books/${bookId}/setup`);
       await expect(page.getByTestId('translation-settings')).toBeVisible();
-      // Untouched defaults switch to the first connected free provider.
+      // Untouched defaults switch to the first connected engine — Claude Code, which needs no key (ADR-038).
+      for (const task of ['brief', 'glossary', 'translate', 'edit']) {
+        await expect(page.getByTestId(`engine-${task}`)).toHaveValue('claude_code');
+      }
+      await expect(page.getByTestId('engine-translate').locator('option[value="claude_code"]')).toHaveText(
+        engineLabel('Claude Code (خودکار)', 'sonnet', SUBSCRIPTION),
+      );
+      // This test is about Gemini: choose it for every task.
+      await page.getByTestId('engine-all').selectOption('gemini');
       for (const task of ['brief', 'glossary', 'translate', 'edit']) {
         await expect(page.getByTestId(`engine-${task}`)).toHaveValue('gemini');
       }
-      await expect(page.getByTestId('engine-all')).toHaveValue('gemini');
+      // The engine label names the model that will run and whether it costs money (ADR-037).
+      const option = (engine: string) => page.getByTestId('engine-translate').locator(`option[value="${engine}"]`);
+      await expect(option('gemini')).toHaveText(engineLabel('Gemini', 'gemini-flash-lite-latest', FREE));
+      await expect(option('openrouter')).toHaveText(engineLabel('OpenRouter', 'vendor/good-model', FREE));
+      // A paid OpenRouter model is labelled «پولی», not «رایگان».
+      await request.put('/api/v1/settings/providers/openrouter', { data: { model: 'vendor/big-model' } });
+      await page.reload();
+      await expect(option('openrouter')).toHaveText(engineLabel('OpenRouter', 'vendor/big-model', PAID));
+      await request.put('/api/v1/settings/providers/openrouter', { data: { model: 'vendor/good-model:free' } });
+      await page.reload();
+      await page.getByTestId('engine-all').selectOption('gemini');
       await expect(page.getByTestId('estimate')).toBeVisible();
-      await page.screenshot({ path: `${OUT}desktop-light-wizard-engines.png`, fullPage: true });
+      // ADR-043: tokens before «شروع ترجمه»; a free tier spends no dollars.
+      await expect(page.getByTestId('cost-estimate')).toContainText('توکن ورودی');
+      await expect(page.getByTestId('cost-estimate')).toContainText('هزینه‌ی دلاری ندارد');
+      await shoot(
+        page,
+        'wizard-engines',
+        `/books/${bookId}/setup`,
+        (p) => expect(p.getByTestId('translation-settings')).toBeVisible(),
+        true,
+      );
+      // `shoot` leaves the dark theme seeded; the rest of this test (and its a11y check) runs on the light one.
+      await seedSettings(page, { theme: 'light' });
+      await page.goto(`/books/${bookId}/setup`);
+      await expect(page.getByTestId('translation-settings')).toBeVisible();
+      await page.getByTestId('engine-all').selectOption('gemini');
       await page.getByTestId('start-translation').click();
 
       const step = page.getByTestId('glossary-step');

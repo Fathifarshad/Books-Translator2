@@ -3,9 +3,11 @@
  * (free models, one-click key). One fetch-based client talks to all of them — no SDK, so it runs in Node and tests
  * can inject a fake `fetch`. Model ids and free-tier limits change often, so both are settings, not constants.
  */
-import { isProviderId, PROVIDER_IDS, type ProviderId } from '@dozabaneh/shared';
+import { isProviderId, modelCost, PROVIDER_IDS, type ProviderId, type ProviderLimits } from '@dozabaneh/shared';
+import type { ClaudeCliOptions } from './claude-cli';
+import { ProviderError, type ProviderErrorCode } from './provider-errors';
 
-export { isProviderId, PROVIDER_IDS, type ProviderId };
+export { isProviderId, PROVIDER_IDS, ProviderError, type ProviderErrorCode, type ProviderId };
 
 export interface ProviderPreset {
   id: ProviderId;
@@ -33,6 +35,20 @@ export interface ProviderPreset {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
+  claude_code: {
+    id: 'claude_code',
+    // Not an HTTP service: the client runs the `claude` CLI installed on this computer.
+    baseUrl: '',
+    needsKey: false,
+    defaultModel: 'sonnet',
+    // The subscription's own limits apply; these only keep the queue from starting dozens of CLI processes at once.
+    limits: { rpm: 20, rpd: 5_000 },
+    jsonMode: 'prompt',
+    timeoutMs: 10 * 60_000,
+    // Smaller pieces than the default 2,500: one rejected item costs less, and more chunks run side by side.
+    chunkWords: { translate: 1_200, edit: 1_500 },
+    preferredModels: [/^sonnet$/u, /^haiku$/u, /^opus$/u],
+  },
   gemini: {
     id: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -73,6 +89,14 @@ export const PROVIDERS: Record<ProviderId, ProviderPreset> = {
  * A sensible model when the user has not chosen one: the first preferred pattern that matches a listed model. For
  * OpenRouter only free models qualify. Returns '' when nothing fits (the user picks from the list).
  */
+function pricingOf(p: { prompt?: string; completion?: string }): Pick<ProviderModel, 'free' | 'price'> {
+  // Per-token prices as strings (e.g. "0.00000027"); toPrecision drops float noise such as 0.9999999999999999.
+  const input = Number((Number(p.prompt) * 1e6).toPrecision(6));
+  const output = Number((Number(p.completion) * 1e6).toPrecision(6));
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return {};
+  return input === 0 && output === 0 ? { free: true } : { free: false, price: { input, output } };
+}
+
 export function pickDefaultModel(provider: ProviderId, models: ProviderModel[]): string {
   const candidates = provider === 'openrouter' ? models.filter((m) => m.free) : models;
   const preset = PROVIDERS[provider];
@@ -94,33 +118,6 @@ export interface ProviderUsage {
   tokensOut: number;
 }
 
-export type ProviderErrorCode =
-  | 'AUTH'
-  | 'RATE_LIMIT'
-  | 'QUOTA'
-  | 'OVERLOADED'
-  | 'NETWORK'
-  | 'TIMEOUT'
-  | 'NOT_FOUND'
-  | 'BAD_RESPONSE'
-  | 'UNKNOWN';
-
-/** A typed provider failure; `retryAfterMs` tells the scheduler when to try again. */
-export class ProviderError extends Error {
-  constructor(
-    readonly code: ProviderErrorCode,
-    message: string,
-    readonly status = 0,
-    readonly retryAfterMs?: number,
-  ) {
-    super(message);
-  }
-
-  get retryable(): boolean {
-    return ['RATE_LIMIT', 'QUOTA', 'OVERLOADED', 'NETWORK', 'TIMEOUT'].includes(this.code);
-  }
-}
-
 export interface ProviderConfig {
   provider: ProviderId;
   model: string;
@@ -131,6 +128,8 @@ export interface ProviderConfig {
   timeoutMs?: number;
   /** Ollama context window (default: the preset's). */
   contextTokens?: number;
+  /** Claude Code: the executable to run (default `claude`), its working directory and an injectable spawn. */
+  cli?: ClaudeCliOptions;
 }
 
 export interface ChatOptions {
@@ -146,6 +145,17 @@ export interface ProviderModel {
   id: string;
   /** True when the provider reports it as free (OpenRouter pricing). */
   free?: boolean;
+  /** US dollars per million input / output tokens, for paid models (OpenRouter pricing). */
+  price?: { input: number; output: number };
+}
+
+/** OpenRouter's limits for pay-as-you-go models; the small free-tier caps apply to `:free` models only. */
+const PAID_OPENROUTER_LIMITS: ProviderLimits = { rpm: 60, rpd: 100_000 };
+
+/** A provider's default limits for the chosen model: paid OpenRouter models are not held to the free daily cap. */
+export function defaultLimitsFor(provider: ProviderId, model: string | undefined): ProviderLimits {
+  if (modelCost(provider, model) === 'paid') return PAID_OPENROUTER_LIMITS;
+  return PROVIDERS[provider].limits;
 }
 
 export interface ProviderClient {
@@ -218,7 +228,15 @@ async function* lines(body: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
   if (rest) yield rest;
 }
 
+/**
+ * OpenAI-compatible providers only. Claude Code is a local program, not an endpoint: its client lives in
+ * `@dozabaneh/ai/claude-cli` so that this package stays usable in the browser (the web app imports the mock
+ * engines from it), and the server builds it there.
+ */
 export function createProviderClient(config: ProviderConfig): ProviderClient {
+  if (config.provider === 'claude_code') {
+    throw new ProviderError('UNKNOWN', 'Use createClaudeCliClient() from @dozabaneh/ai/claude-cli for Claude Code.');
+  }
   const preset = PROVIDERS[config.provider];
   const base = (config.baseUrl || preset.baseUrl).replace(/\/+$/u, '');
   const doFetch = config.fetch ?? fetch;
@@ -389,7 +407,7 @@ export function createProviderClient(config: ProviderConfig): ProviderClient {
       return list
         .map((m) => ({
           id: m.id.replace(/^models\//u, ''),
-          ...(m.pricing ? { free: Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 } : {}),
+          ...(m.pricing ? pricingOf(m.pricing) : {}),
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
     },

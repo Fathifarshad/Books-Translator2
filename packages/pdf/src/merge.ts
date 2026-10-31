@@ -10,6 +10,18 @@ function isBreak(a: Block, b: Block): boolean {
   return b.page !== a.pageEnd || b.column !== a.column;
 }
 
+/** Words below which a block is a label or a heading, not a sentence the column ran out of room for. */
+const MIN_CUT_OFF_WORDS = 5;
+
+/**
+ * Whether `a` is a sentence the column ran out of room for, rather than something that simply ended. A label or
+ * a sub-heading has no terminal punctuation either, and merging it with whatever follows the break is how
+ * «Cardiac Output» ended up glued to the table beside it and then to the pages after it (ADR-039).
+ */
+function looksCutOff(plainA: string, hyphenEnd: boolean): boolean {
+  return hyphenEnd || plainA.split(/\s+/u).filter(Boolean).length >= MIN_CUT_OFF_WORDS;
+}
+
 /**
  * Continuation across column and page breaks (SPEC §8.4, fixes prototype bug §4.2-6): when a block ends
  * without terminal punctuation (or with a hyphen) and the next body block after a break is not indented,
@@ -27,6 +39,7 @@ export function mergeContinuations(blocks: Block[], stats: DocStats): Block[] {
     const plainA = stripMarkup(a.text).trimEnd();
     const hyphenEnd = /\p{L}[-‐]$/u.test(plainA);
     if (!hyphenEnd && endsWithTerminalPunctuation(plainA, stats.lang)) continue;
+    if (!looksCutOff(plainA, hyphenEnd)) continue;
     const typeOk = b.type === 'paragraph' || (b.type === 'quote' && (a.type === 'quote' || a.type === 'list_item'));
     if (!typeOk || Math.abs(a.size - b.size) > 0.6) continue;
     if (startsWithListMarker(stripMarkup(b.text))) continue;

@@ -7,8 +7,10 @@ import { languageName } from '../../lib/format';
 import { useSignOut } from '../auth/AccessGate';
 import { useIsOwner } from '../auth/access';
 import { AccessSection } from './AccessSection';
+import { BudgetSection } from './BudgetSection';
 import { DisplaySettingsForm } from './DisplaySettingsForm';
 import { EnginesSection } from './EnginesSection';
+import { VoiceSection } from './VoiceSection';
 
 /** Settings «تنظیمات» (SPEC §13.7): display, AI engines (free providers, keys stay on the server), languages. */
 export function SettingsPage() {
@@ -31,6 +33,8 @@ export function SettingsPage() {
       {owner ? (
         <>
           <EnginesSection />
+          <BudgetSection />
+          <VoiceSection />
           <AccessSection />
         </>
       ) : (

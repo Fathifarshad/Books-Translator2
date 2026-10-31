@@ -15,6 +15,8 @@ export interface ChatMessage {
   followups: string[];
   status: MessageStatus;
   errorCode?: ChatErrorCode;
+  /** What the engine itself said, so an «unknown» failure can still be diagnosed. */
+  errorDetail?: string;
   engine: TutorEngine['id'];
   attempt: number;
   createdAt: string;

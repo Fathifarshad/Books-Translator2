@@ -13,7 +13,14 @@ const iso = (ms = Date.now()) => new Date(ms).toISOString();
 
 export function enqueue(
   db: Db,
-  job: { bookId: string; stage: Stage; priority?: number; scope?: Record<string, unknown> },
+  job: {
+    bookId: string;
+    stage: Stage;
+    priority?: number;
+    scope?: Record<string, unknown>;
+    /** Set for work that belongs to one target language (a recording, a pipeline stage). */
+    targetLang?: string;
+  },
 ): string {
   const id = newId('jb');
   db.insert(jobs)
@@ -24,6 +31,7 @@ export function enqueue(
       status: 'queued',
       priority: job.priority ?? 0,
       scope: job.scope ?? null,
+      ...(job.targetLang ? { targetLang: job.targetLang } : {}),
     })
     .run();
   return id;
@@ -38,7 +46,9 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
   const stageFilter = stages?.length ? `AND j.stage IN (${stages.map(() => '?').join(',')})` : '';
   // Providers that are not connected or wait for their rate limits.
   const engineFilter = excludeEngines.length ? `AND j.engine NOT IN (${excludeEngines.map(() => '?').join(',')})` : '';
-  // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded.
+  // Agent jobs are materialized as batch files instead; a job waits until its dependencies succeeded. A job of a
+  // paused pipeline is never claimed — not even one left 'running' by a process that died, which would otherwise
+  // come back to life (and be re-queued) behind the user's «توقف موقت».
   const row = db.$client
     .prepare(
       `UPDATE jobs SET status = 'running', attempts = attempts + 1, lease_until = ?, started_at = COALESCE(started_at, ?)
@@ -48,6 +58,9 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
              AND j.engine <> 'agent'
              AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(j.depends_on, '[]')) d
                                JOIN jobs p ON p.id = d.value WHERE p.status <> 'succeeded')
+             AND NOT EXISTS (SELECT 1 FROM books bk
+                              WHERE bk.id = j.book_id AND j.target_lang IS NOT NULL
+                                AND json_extract(bk.settings, '$.pipeline.' || j.target_lang || '.paused') = 1)
            ORDER BY j.priority DESC, j.seq ASC, j.created_at ASC LIMIT 1)
         RETURNING id`,
     )
@@ -55,7 +68,7 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
   return row ? db.select().from(jobs).where(eq(jobs.id, row.id)).get() : undefined;
 }
 
-export function heartbeat(db: Db, jobId: string, progress?: { done: number; total: number }): void {
+export function heartbeat(db: Db, jobId: string, progress?: { done: number; total: number; fraction?: number }): void {
   db.update(jobs)
     .set({ leaseUntil: iso(Date.now() + LEASE_MS), ...(progress ? { progress } : {}) })
     .where(and(eq(jobs.id, jobId), eq(jobs.status, 'running')))
@@ -88,10 +101,13 @@ export function requeue(db: Db, jobId: string): void {
     .run(jobId);
 }
 
-export function addUsage(db: Db, jobId: string, usage: { tokensIn: number; tokensOut: number }): void {
+/** Records what a call spent; `usd` only for a model charged per token (ADR-043). */
+export function addUsage(db: Db, jobId: string, usage: { tokensIn: number; tokensOut: number }, usd = 0): void {
   db.$client
-    .prepare('UPDATE jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ? WHERE id = ?')
-    .run(usage.tokensIn, usage.tokensOut, jobId);
+    .prepare(
+      'UPDATE jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?, cost_usd = COALESCE(cost_usd, 0) + ? WHERE id = ?',
+    )
+    .run(usage.tokensIn, usage.tokensOut, usd, jobId);
 }
 
 export function latestJob(db: Db, bookId: string, stage: Stage): JobRow | undefined {

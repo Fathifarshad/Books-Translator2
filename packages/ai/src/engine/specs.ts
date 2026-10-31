@@ -156,6 +156,51 @@ const edit: TaskSpec<'edit'> = {
   },
 };
 
+/**
+ * The speech pass (ADR-042) rewrites a line to be *said*: digits become words, short units are spelled out, the
+ * bracketed original term is dropped. So the checks that guard a translation — same numbers, same markup, same
+ * length — would all fire on a correct answer. What must still hold is that every line comes back, in the
+ * target language, and not empty.
+ */
+const speech: TaskSpec<'speech'> = {
+  task: 'speech',
+  input: TASK_INPUT_SCHEMAS.speech,
+  output: TASK_RESULT_SCHEMAS.speech,
+  check(input, output, ctx) {
+    const issues = checkKeys(
+      input.items.map((i) => i.key),
+      output.items.map((i) => i.key),
+    );
+    const script = getLanguage(ctx.targetLang).script;
+    for (const item of output.items) {
+      const text = item.tgt.trim();
+      if (!text) {
+        issues.push({
+          level: 'error',
+          rule: 'empty',
+          key: item.key,
+          message: 'The spoken form is empty.',
+          fix: 'Return the line unchanged when it needs nothing.',
+        });
+        continue;
+      }
+      const letters = text.match(/\p{L}/gu) ?? [];
+      const latin = letters.filter((c) => /\p{Script=Latin}/u.test(c)).length;
+      const own = script === 'Latn' ? latin : letters.length - latin;
+      if (letters.length >= 3 && own / letters.length < 0.5) {
+        issues.push({
+          level: 'warning',
+          rule: 'target_script',
+          key: item.key,
+          message: `The spoken form is not predominantly written in ${getLanguage(ctx.targetLang).name}.`,
+          fix: 'Keep the line in the target language; a foreign name may stay as it is.',
+        });
+      }
+    }
+    return issues;
+  },
+};
+
 const glossary: TaskSpec<'glossary'> = {
   task: 'glossary',
   input: TASK_INPUT_SCHEMAS.glossary,
@@ -314,6 +359,7 @@ export const TASK_SPECS: { [T in AgentTask]: TaskSpec<T> } = {
   glossary,
   translate,
   edit,
+  speech,
   summary,
   quiz,
   tutor_answer: tutorAnswer,

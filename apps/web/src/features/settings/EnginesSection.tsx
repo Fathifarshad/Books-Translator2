@@ -1,6 +1,7 @@
 import {
   ASSISTANT_ENGINES,
   type AssistantEngine,
+  modelCost,
   type ProviderId,
   type ProviderModelInfo,
   type ProviderTestResult,
@@ -18,6 +19,7 @@ import { api, openRouterConnectUrl } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { providersKey, useProviders } from './engines';
 
+const CLAUDE_CODE_DOCS = 'https://docs.claude.com/en/docs/claude-code/setup';
 const OLLAMA_DOWNLOAD = 'https://ollama.com/download';
 const OLLAMA_LIBRARY = 'https://ollama.com/library';
 /** Example only; the guide and the page point to the library for current model names. */
@@ -86,6 +88,7 @@ export function EnginesSection() {
         <p className="mt-4 text-sm text-muted">{t('app.loading')}</p>
       ) : (
         <div className="mt-5 flex flex-col gap-4">
+          <ClaudeCodeCard view={byId('claude_code') as ProviderView} />
           <GeminiCard view={byId('gemini') as ProviderView} />
           <OpenRouterCard view={byId('openrouter') as ProviderView} />
           <OllamaCard view={byId('ollama') as ProviderView} />
@@ -140,7 +143,7 @@ function ProviderCard({ view, children }: { view: ProviderView; children: ReactN
   );
 }
 
-export function UsageLine({ view }: { view: Pick<ProviderView, 'model' | 'usage' | 'limits'> }) {
+export function UsageLine({ view }: { view: Pick<ProviderView, 'id' | 'model' | 'usage' | 'limits'> }) {
   const { t } = useTranslation();
   const time = view.usage.waitUntil
     ? new Intl.DateTimeFormat(uiLocale(), { hour: '2-digit', minute: '2-digit' }).format(new Date(view.usage.waitUntil))
@@ -152,7 +155,8 @@ export function UsageLine({ view }: { view: Pick<ProviderView, 'model' | 'usage'
           {t('engines.modelLabel')}{' '}
           <bdi dir="ltr" className="font-mono">
             {view.model}
-          </bdi>
+          </bdi>{' '}
+          {t(`engines.cost.${modelCost(view.id, view.model)}`)}
         </span>
       ) : null}
       <span>{t('engines.usage', { used: fmtNum(view.usage.usedToday), limit: fmtNum(view.limits.rpd) })}</span>
@@ -226,6 +230,62 @@ function ExternalLink({ href, children, primary = false }: { href: string; child
       {children}
       <Icon name="link" size={14} />
     </a>
+  );
+}
+
+/**
+ * Claude Code: the `claude` program already installed on this computer, run by the server for every batch. No key
+ * and no manual step — the user's own Claude subscription pays for it — so the card is only: install, model, test.
+ */
+function ClaudeCodeCard({ view }: { view: ProviderView }) {
+  const { t } = useTranslation();
+  const { save, test } = useProviderActions('claude_code');
+  const models = useQuery({
+    queryKey: ['provider-models', 'claude_code'],
+    queryFn: () => api.providerModels('claude_code'),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const notFound = test.data?.ok === false && test.data.error?.code === 'NOT_FOUND';
+  return (
+    <ProviderCard view={view}>
+      <ol className="flex flex-col gap-3">
+        <Step n={1}>
+          <p>{t('engines.claude_code.step1')}</p>
+          <div className="mt-2">
+            <ExternalLink href={CLAUDE_CODE_DOCS}>{t('engines.claude_code.install')}</ExternalLink>
+          </div>
+        </Step>
+        <Step n={2}>
+          <p>{t('engines.claude_code.step2')}</p>
+          <div className="mt-2">
+            <ModelSelect
+              value={view.model}
+              models={models.data?.models ?? []}
+              onChange={(model) => save.mutate({ model }, { onSuccess: () => test.mutate() })}
+              testId="claude-code-model"
+            />
+          </div>
+        </Step>
+        <Step n={3}>
+          <p>{t('engines.claude_code.step3')}</p>
+          <div className="mt-2">
+            <Button onClick={() => test.mutate()} disabled={test.isPending} data-testid="test-claude-code">
+              {test.isPending ? t('engines.testing') : t('engines.test')}
+            </Button>
+          </div>
+        </Step>
+      </ol>
+      {notFound ? (
+        <p role="alert" className="mt-2 text-sm text-danger" data-testid="claude-code-missing">
+          {t('engines.claude_code.notFound')}
+        </p>
+      ) : (
+        <TestOutcome result={test.data} />
+      )}
+      <p className="mt-3 text-xs leading-6 text-muted">{t('engines.claude_code.hint')}</p>
+      <Advanced view={view} showModel={false} />
+    </ProviderCard>
   );
 }
 
@@ -500,11 +560,16 @@ function ModelSelect({
         <option key={m.id} value={m.id}>
           {m.id}
           {m.free ? ` ${t('engines.freeSuffix')}` : ''}
+          {m.price ? ` ${t('engines.priceSuffix', { input: usd(m.price.input), output: usd(m.price.output) })}` : ''}
         </option>
       ))}
     </select>
   );
 }
+
+/** A per-million-token price with two significant digits (0.075 → "0.075", 1.1 → "1.1"). */
+const usd = (n: number) => String(Number(n.toPrecision(2)));
+const costOf = (m: ProviderModelInfo) => (m.price ? m.price.input + m.price.output : 0);
 
 /** Model, request limits and (Ollama) the service address. */
 function Advanced({
@@ -531,7 +596,11 @@ function Advanced({
     retry: false,
     staleTime: 60_000,
   });
-  const list = (models.data?.models ?? []).filter((m) => !freeOnly || m.free);
+  // Paid OpenRouter models are opt-in and listed cheapest first; free ones stay the default.
+  const [showPaid, setShowPaid] = useState(modelCost(view.id, view.model) === 'paid');
+  const all = models.data?.models ?? [];
+  const list =
+    freeOnly && showPaid ? [...all].sort((a, b) => costOf(a) - costOf(b)) : all.filter((m) => !freeOnly || m.free);
 
   return (
     <details className="mt-3" onToggle={(e) => setOpen(e.currentTarget.open)}>
@@ -545,6 +614,18 @@ function Advanced({
             ) : (
               <span className="text-xs text-muted">{models.isFetching ? t('app.loading') : view.model || '—'}</span>
             )}
+            {freeOnly ? (
+              <label className="mt-1 flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={showPaid}
+                  onChange={(e) => setShowPaid(e.target.checked)}
+                  data-testid={`show-paid-${view.id}`}
+                />
+                {t('engines.showPaid')}
+              </label>
+            ) : null}
+            {freeOnly && showPaid ? <span className="text-xs text-muted">{t('engines.priceHint')}</span> : null}
           </div>
         ) : null}
         <fieldset className="flex flex-wrap items-end gap-3">

@@ -5,6 +5,8 @@ import type {
   EditInput,
   GlossaryEntry,
   GlossaryInput,
+  SpeechInput,
+  SpeechResult,
   TaskResult,
   TranslateInput,
 } from '@dozabaneh/shared';
@@ -182,6 +184,11 @@ function mockBrief(batch: AgentBatch<BriefInput>): TaskResult<'brief'> {
 }
 
 /** The mock result of a batch, for every task the pipeline runs. */
+/** The mock speech pass hands every line back as it was: nothing a rule could not already settle. */
+function mockSpeech(batch: AgentBatch<SpeechInput>): SpeechResult {
+  return { items: batch.input.items.map((i) => ({ key: i.key, tgt: i.src })) };
+}
+
 export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T> {
   switch (batch.task) {
     case 'translate':
@@ -192,6 +199,8 @@ export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T
       return mockGlossary(batch as AgentBatch<GlossaryInput>) as TaskResult<T>;
     case 'brief':
       return mockBrief(batch as AgentBatch<BriefInput>) as TaskResult<T>;
+    case 'speech':
+      return mockSpeech(batch as AgentBatch<SpeechInput>) as TaskResult<T>;
     default:
       throw new Error(`The mock engine does not run "${batch.task}" batches in the pipeline.`);
   }

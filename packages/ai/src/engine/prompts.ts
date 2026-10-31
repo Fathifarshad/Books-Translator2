@@ -10,6 +10,7 @@ export const PROMPT_REFS: Record<AgentTask, string> = {
   glossary: 'prompts/glossary.md',
   translate: 'prompts/translate.md',
   edit: 'prompts/edit.md',
+  speech: 'prompts/speech.md',
   summary: 'prompts/summary.md',
   quiz: 'prompts/quiz.md',
   tutor_answer: 'prompts/tutor.md',
