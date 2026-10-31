@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { readConfig } from './config';
 import { bookDocument } from './export/document';
-import { audioSeconds, planFullAudio, scriptForSpeech } from './tts/audio';
+import { audioSeconds, planFullAudio, scriptForSpeech, splitLongTracks } from './tts/audio';
 import { audioControl, audioKey } from './tts/control';
 import { createSpeechEngine, joinWav, resolveProgram, SpeechError, splitForSpeech } from './tts/engines';
 
@@ -298,6 +298,52 @@ describe('the audio routes', () => {
     expect(done).toMatchObject({ state: 'done', fraction: 1 });
   });
 
+  it('gives up a recording that is stuck, also one no worker is running any more', async () => {
+    const app = await appPromise;
+    const url = '/api/v1/books/bk_sample/audio';
+    await app.inject({ method: 'POST', url, payload: { kind: 'summary', lang: 'fa' } }).catch(() => undefined);
+    // A job left behind by a server that was closed: queued or running, with nobody to run it.
+    app.ctx.db.$client
+      .prepare(
+        `INSERT INTO jobs (id, book_id, stage, status, target_lang, scope, attempts, created_at)
+         VALUES ('job_zombie', 'bk_sample', 'audio', 'running', 'fa', '{"kind":"full"}', 1, '2099-01-01T00:00:00Z')`,
+      )
+      .run();
+    const before = (await app.inject({ url: `${url}?kind=full&lang=fa` })).json() as AudioStatus;
+    expect(before.state).toBe('running');
+    const res = await app.inject({
+      method: 'POST',
+      url: `${url}/control`,
+      payload: { action: 'cancel', kind: 'full', lang: 'fa' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().state).not.toBe('running');
+    // A fresh recording is not held back by the earlier cancel.
+    const again = await app.inject({ method: 'POST', url, payload: { kind: 'full', lang: 'fa' } });
+    expect(again.statusCode).toBe(200);
+    await app.ctx.runner.drain();
+    expect(((await app.inject({ url: `${url}?kind=full&lang=fa` })).json() as AudioStatus).state).toBe('done');
+  });
+
+  it('hands over the whole recording as one file, and says so when there is none', async () => {
+    const app = await appPromise;
+    const url = '/api/v1/books/bk_sample/audio';
+    await app.inject({ method: 'POST', url, payload: { kind: 'full', lang: 'fa' } });
+    await app.ctx.runner.drain();
+    const status = (await app.inject({ url: `${url}?kind=full&lang=fa` })).json() as AudioStatus;
+    const total = status.tracks.reduce((sum, t) => sum + t.bytes, 0);
+    const all = await app.inject({ url: `${url}/all?kind=full&lang=fa` });
+    expect(all.statusCode).toBe(200);
+    expect(all.headers['content-type']).toBe('audio/wav');
+    expect(all.headers['content-disposition']).toContain('.wav"');
+    expect(all.rawPayload.subarray(0, 4).toString('latin1')).toBe('RIFF');
+    // One header over every chapter's sound: about the sum of the parts, less the repeated headers.
+    expect(all.rawPayload.length).toBeGreaterThan(total - 44 * status.tracks.length - 1);
+
+    const none = await app.inject({ url: `${url}/all?kind=summary&lang=fa` });
+    expect(none.statusCode).toBe(404);
+  });
+
   it('asks Piper for an unhurried pace and a pause per sentence, and writes joined words without the joiner', async () => {
     const log = join(dataDir, 'piper.log');
     process.env.FAKE_PIPER_LOG = log;
@@ -399,5 +445,27 @@ describe('pausing a recording', () => {
     abort.abort();
     await waiting;
     audioControl.resume(key);
+  });
+});
+
+describe('long chapters', () => {
+  it('are cut into numbered parts at line ends, in reading order', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i} `.padEnd(10, 'x'));
+    const plan = splitLongTracks(
+      [
+        { index: 1, title: 'One', text: lines.join('\n') },
+        { index: 2, title: 'Two', text: 'short' },
+      ],
+      35,
+    );
+    expect(plan.map((t) => t.index)).toEqual([1, 2, 3, 4, 5]);
+    expect(plan[0]?.title).toBe('One (1/4)');
+    expect(plan.at(-1)).toMatchObject({ title: 'Two', text: 'short' });
+    expect(
+      plan
+        .slice(0, 4)
+        .map((t) => t.text)
+        .join('\n'),
+    ).toBe(lines.join('\n'));
   });
 });

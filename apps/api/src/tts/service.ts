@@ -74,9 +74,12 @@ export class TtsService {
     return this.stored().source ?? 'browser';
   }
 
-  /** Whether the assistant engine prepares each line before it is read (ADR-042). */
+  /**
+   * Whether the assistant engine prepares each line before it is read (ADR-042). On unless turned off — except for
+   * Piper, whose voice does not use the vowel marks and where the model pass only made a long book wait for hours.
+   */
   polish(): boolean {
-    return this.stored().polish !== false;
+    return this.stored().polish ?? this.source() !== 'piper';
   }
 
   /** The decrypted key of a source; null when none is stored, undefined when it cannot be read. */

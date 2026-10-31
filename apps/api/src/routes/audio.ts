@@ -12,7 +12,7 @@ import { z } from 'zod';
 import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
 import { enqueue } from '../jobs/queue';
-import { audioStatus, bookTitleFor, trackFile } from '../tts/audio';
+import { audioStatus, bookTitleFor, mergedFile, trackFile } from '../tts/audio';
 import { audioControl, audioKey } from '../tts/control';
 import { SpeechError } from '../tts/engines';
 import { httpError } from './errors';
@@ -70,6 +70,8 @@ export async function audioRoutes(app: FastifyInstance, { ctx }: { ctx: AppConte
       bookId: req.params.id,
       stage: 'audio',
       targetLang: lang,
+      // Asked for by the owner and waited for: ahead of the hundreds of translation jobs a book may have queued.
+      priority: 100,
       scope: { kind: body.kind, ...(body.format ? { format: body.format } : {}) },
     });
     ctx.runner.kick();
@@ -85,7 +87,19 @@ export async function audioRoutes(app: FastifyInstance, { ctx }: { ctx: AppConte
     if (current.state !== 'running' && current.state !== 'paused') throw httpError(409, 'AUDIO_NOT_RUNNING');
     const key = audioKey(req.params.id, lang, body.kind);
     if (body.action === 'pause') audioControl.pause(key);
-    else audioControl.resume(key);
+    else if (body.action === 'resume') audioControl.resume(key);
+    else {
+      // A recording this server is making notices the flag and stops; one left behind by a server that was closed
+      // has no worker at all, so its job is closed here as well.
+      audioControl.cancel(key);
+      ctx.db.$client
+        .prepare(
+          `UPDATE jobs SET status = 'cancelled', lease_until = NULL, finished_at = ?
+            WHERE book_id = ? AND stage = 'audio' AND target_lang = ? AND json_extract(scope, '$.kind') = ?
+              AND status IN ('queued', 'running')`,
+        )
+        .run(new Date().toISOString(), req.params.id, lang, body.kind);
+    }
     return audioStatus(deps(), req.params.id, lang, body.kind);
   });
 
@@ -109,6 +123,26 @@ export async function audioRoutes(app: FastifyInstance, { ctx }: { ctx: AppConte
       const e = err instanceof SpeechError ? err : new SpeechError('OTHER', (err as Error).message);
       throw httpError(503, 'TTS_FAILED', { reason: e.code, message: e.message.slice(0, 300) });
     }
+  });
+
+  /** Every chapter joined into one file, for a player that should not change files in the middle of a book. */
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/books/:id/audio/all`, async (req, reply) => {
+    const { lang, kind } = read(req.params.id, req.query);
+    let merged: Awaited<ReturnType<typeof mergedFile>>;
+    try {
+      merged = await mergedFile(ctx.config, req.params.id, lang, kind);
+    } catch (err) {
+      const e = err instanceof SpeechError ? err : new SpeechError('OTHER', (err as Error).message);
+      throw httpError(503, 'AUDIO_JOIN_FAILED', { message: e.message.slice(0, 300) });
+    }
+    if (!merged) throw httpError(404, 'TRACK_NOT_FOUND');
+    const name = exportFileName(bookTitleFor(ctx.db, req.params.id), `dozabaneh-${req.params.id}`, merged.format);
+    return reply
+      .header('Content-Type', MIME[merged.format])
+      .header('Content-Disposition', `attachment; filename="${name}"`)
+      .header('Content-Length', String(merged.bytes))
+      .header('Cache-Control', 'no-store')
+      .send(createReadStream(merged.path));
   });
 
   app.get<{ Params: { id: string; trackId: string } }>(`${API_PREFIX}/books/:id/audio/:trackId`, async (req, reply) => {

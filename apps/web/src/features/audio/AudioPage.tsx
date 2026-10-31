@@ -1,4 +1,4 @@
-import { AUDIO_KINDS, type AudioFormat, type AudioKind } from '@dozabaneh/shared';
+import { AUDIO_FORMATS, AUDIO_KINDS, type AudioFormat, type AudioKind } from '@dozabaneh/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,7 @@ import { Link, useParams } from 'react-router';
 import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui';
-import { api, audioTrackUrl } from '../../lib/api';
+import { api, audioAllUrl, audioTrackUrl } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { targetOf, useBookLiveUpdates } from '../pipeline/live';
 import { useVoice } from '../settings/VoiceSection';
@@ -49,13 +49,18 @@ export function AudioPage() {
     onSuccess: (data) => queryClient.setQueryData(audioKey(bookId, kind), data),
   });
   const control = useMutation({
-    mutationFn: (action: 'pause' | 'resume') => api.controlAudio(bookId, action, kind, lang || undefined),
+    mutationFn: (action: 'pause' | 'resume' | 'cancel') => api.controlAudio(bookId, action, kind, lang || undefined),
     onSuccess: (data) => queryClient.setQueryData(audioKey(bookId, kind), data),
   });
 
   const data = status.data;
   const formats = voice.data?.formats ?? [];
-  const format = chosenFormat && formats.includes(chosenFormat) ? chosenFormat : (formats[0] ?? undefined);
+  const format =
+    chosenFormat && formats.includes(chosenFormat)
+      ? chosenFormat
+      : formats.includes('mp3')
+        ? 'mp3'
+        : (formats[0] ?? undefined);
   const active = data?.state === 'running' || data?.state === 'paused';
   const percent = Math.round((data?.fraction ?? 0) * 100);
   const browserOnly = voice.data?.source === 'browser';
@@ -110,23 +115,29 @@ export function AudioPage() {
         </div>
       )}
 
-      {!blocked && formats.length > 1 ? (
-        <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{t('audio.format')}</span>
-          <select
-            value={format}
-            onChange={(e) => setChosenFormat(e.target.value as AudioFormat)}
-            disabled={active}
-            className="rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm"
-            data-testid="audio-format"
-          >
-            {formats.map((id) => (
-              <option key={id} value={id}>
-                {t(`audio.formats.${id}`)}
-              </option>
+      {!blocked ? (
+        <fieldset className="mt-4" disabled={active}>
+          <legend className="mb-2 text-sm font-medium">{t('audio.format')}</legend>
+          <div className="flex flex-wrap gap-2">
+            {AUDIO_FORMATS.map((id) => (
+              <Button
+                key={id}
+                variant="pill"
+                aria-pressed={format === id}
+                disabled={!formats.includes(id)}
+                onClick={() => setChosenFormat(id)}
+                data-testid={`audio-format-${id}`}
+              >
+                {id.toUpperCase()}
+              </Button>
             ))}
-          </select>
-        </label>
+          </div>
+          <p className="mt-2 text-xs leading-6 text-muted">
+            {formats.length < AUDIO_FORMATS.length
+              ? t('audio.formatsNeedFfmpeg')
+              : t(`audio.formats.${format ?? 'mp3'}`)}
+          </p>
+        </fieldset>
       ) : null}
 
       {active && data ? (
@@ -146,6 +157,15 @@ export function AudioPage() {
               data-testid="audio-pause"
             >
               {data.state === 'paused' ? t('audio.resume') : t('audio.pause')}
+            </Button>
+            <Button
+              variant="ghost"
+              icon="close"
+              onClick={() => control.mutate('cancel')}
+              disabled={control.isPending}
+              data-testid="audio-cancel"
+            >
+              {t('audio.cancel')}
             </Button>
           </div>
           <progress
@@ -170,7 +190,20 @@ export function AudioPage() {
           </p>
         ) : (
           <>
-            <h2 className="mb-3 text-sm text-muted">{t('audio.tracks', { count: fmtNum(data.tracks.length) })}</h2>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <h2 className="text-sm text-muted">{t('audio.tracks', { count: fmtNum(data.tracks.length) })}</h2>
+              {data.tracks.length > 1 ? (
+                <a
+                  href={audioAllUrl(bookId, kind, lang || undefined)}
+                  download
+                  className="ms-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-accent hover:border-accent/60"
+                  data-testid="audio-download-all"
+                >
+                  <Icon name="download" size={14} />
+                  {t('audio.downloadAll')}
+                </a>
+              ) : null}
+            </div>
             <ul className="flex flex-col gap-3">
               {data.tracks.map((track) => (
                 <li key={track.id} className="rounded-xl border border-border bg-surface p-4" data-testid="audio-track">

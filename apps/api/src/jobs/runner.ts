@@ -266,7 +266,7 @@ export class JobRunner {
         }
       }
       // A broken or oversized PDF will not get better on retry.
-      const retryable = !/Invalid PDF|too many pages|not a PDF/i.test(message);
+      const retryable = !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
       const outcome = fail(db, job, message, retryable);
       log.warn({ jobId: job.id, stage: job.stage, outcome }, 'job failed');
       if (outcome === 'failed' && job.stage === 'ingest') {

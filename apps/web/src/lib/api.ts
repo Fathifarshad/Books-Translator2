@@ -314,7 +314,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ kind, ...(lang ? { lang } : {}), ...(format ? { format } : {}) }),
     }),
-  controlAudio: (bookId: string, action: 'pause' | 'resume', kind: AudioKind, lang?: string) =>
+  controlAudio: (bookId: string, action: 'pause' | 'resume' | 'cancel', kind: AudioKind, lang?: string) =>
     request<AudioStatus>(`/books/${bookId}/audio/control`, {
       method: 'POST',
       body: JSON.stringify({ action, kind, ...(lang ? { lang } : {}) }),
@@ -334,6 +334,13 @@ export const api = {
 /** «نسخه‌ی آفلاین»: one HTML file with the book and a phone reader (downloaded by the browser). */
 export function offlineExportUrl(bookId: string, lang?: string): string {
   return apiUrl(`/books/${bookId}/export/offline${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
+}
+
+/** All the chapters of a recording joined into one file. */
+export function audioAllUrl(bookId: string, kind: AudioKind, lang?: string): string {
+  const params = new URLSearchParams({ kind });
+  if (lang) params.set('lang', lang);
+  return apiUrl(`/books/${bookId}/audio/all?${params.toString()}`);
 }
 
 /** «فایل صوتی» (SPEC §13.9): the recording of a book, one file per chapter. */

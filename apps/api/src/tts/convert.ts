@@ -14,6 +14,37 @@ const ENCODE: Record<AudioFormat, string[]> = {
 };
 
 /**
+ * Joins files of one format into one without re-encoding (ffmpeg's concat list), so a book recorded in parts can
+ * be had as a single file whose length a player reports correctly. Names are relative to `dir`, which keeps odd
+ * characters in a data folder's path out of the list file.
+ */
+export async function concatAudio(dir: string, names: string[], to: string): Promise<void> {
+  const ffmpeg = onPath('ffmpeg');
+  if (!ffmpeg) throw new SpeechError('NOT_FOUND', 'Joining the files needs ffmpeg.', true);
+  const list = `${to}.list.txt`;
+  await writeFile(join(dir, list), names.map((n) => `file '${n}'`).join('\n'), 'utf8');
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(ffmpeg, ['-y', '-loglevel', 'error', '-f', 'concat', '-i', list, '-c', 'copy', to], {
+        cwd: dir,
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      });
+      let err = '';
+      child.stderr?.setEncoding('utf8').on('data', (c: string) => {
+        err += c;
+      });
+      child.on('error', (e) => reject(new SpeechError('OTHER', `ffmpeg could not be started: ${e.message}`)));
+      child.on('close', (code) =>
+        code === 0 ? resolve() : reject(new SpeechError('OTHER', `ffmpeg failed: ${err.slice(0, 200)}`)),
+      );
+    });
+  } finally {
+    await rm(join(dir, list), { force: true });
+  }
+}
+
+/**
  * Turns a finished recording into another format with ffmpeg. Files, not pipes: M4A cannot be written to a pipe,
  * and a temp folder keeps one code path for all four.
  */

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AudioFormat, AudioKind, AudioStatus, AudioTrack, TtsSource } from '@dozabaneh/shared';
 import { getLanguage, speechText, stripMarkup } from '@dozabaneh/text';
@@ -9,8 +9,8 @@ import { getBookRow, getBundle } from '../db/repo';
 import { type BookDocument, bookDocument } from '../export/document';
 import type { ProviderService } from '../settings/providers';
 import { audioControl, audioKey } from './control';
-import { convertAudio } from './convert';
-import { join_, SpeechError, splitForSpeech } from './engines';
+import { concatAudio, convertAudio } from './convert';
+import { join_, onPath, SpeechError, splitForSpeech } from './engines';
 import type { TtsService } from './service';
 
 /**
@@ -37,6 +37,8 @@ interface Manifest {
 }
 
 const MANIFEST = 'manifest.json';
+/** The error a recording that was given up ends with; the status page shows it as «not started», not as a failure. */
+export const CANCELLED = 'cancelled';
 /** Rows of a chapter offered to the assistant engine when it writes the summary. */
 const SUMMARY_PASSAGES = 120;
 /** Characters spoken per request while recording, so progress moves and a pause takes effect within seconds. */
@@ -70,7 +72,36 @@ export function planFullAudio(doc: BookDocument): AudioTrackPlan[] {
     }
     track.text = `${track.text}\n${lines.join('\n')}`.trim();
   }
-  return plan.filter((t) => t.text.length > 0);
+  return splitLongTracks(plan.filter((t) => t.text.length > 0));
+}
+
+/** A track longer than this is cut into parts: a book that is one chapter must not be one file of many hours. */
+export const MAX_TRACK_CHARS = 30_000;
+
+/** Cuts long tracks at line ends into numbered parts, and renumbers all tracks in reading order. */
+export function splitLongTracks(plan: AudioTrackPlan[], max = MAX_TRACK_CHARS): AudioTrackPlan[] {
+  const out: AudioTrackPlan[] = [];
+  for (const track of plan) {
+    if (track.text.length <= max) {
+      out.push({ ...track, index: out.length + 1 });
+      continue;
+    }
+    const parts: string[] = [];
+    let current = '';
+    for (const line of track.text.split('\n')) {
+      if (current && current.length + line.length + 1 > max) {
+        parts.push(current);
+        current = line;
+      } else {
+        current = current ? `${current}\n${line}` : line;
+      }
+    }
+    if (current) parts.push(current);
+    for (const [n, text] of parts.entries()) {
+      out.push({ index: out.length + 1, title: `${track.title} (${n + 1}/${parts.length})`, text });
+    }
+  }
+  return out;
 }
 
 /** Chapter summaries, written by the assistant engine, as the script of the short recording. */
@@ -123,6 +154,8 @@ export async function scriptForSpeech(
   deps: Pick<AudioDeps, 'providers' | 'tts'>,
   doc: BookDocument,
   text: string,
+  /** Told how far the model pass has got (0–1), so a long chapter does not look stuck. */
+  onBatch?: (fraction: number) => void,
 ): Promise<string> {
   const lang = doc.lang.tgt;
   const prepared = text
@@ -156,6 +189,7 @@ export async function scriptForSpeech(
     } catch {
       // The prepared text is already much better than the written one; keep it and read on.
     }
+    onBatch?.(Math.min(1, (start + SPEECH_BATCH_LINES) / prepared.length));
   }
   return out.join('\n');
 }
@@ -215,6 +249,10 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   mkdirSync(dir, { recursive: true });
 
   const key = audioKey(opts.bookId, opts.lang, opts.kind);
+  audioControl.uncancel(key);
+  const checkCancelled = () => {
+    if (audioControl.isCancelled(key)) throw new SpeechError('OTHER', CANCELLED);
+  };
   const weights = plan.map((p) => Math.max(1, p.text.length));
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   let doneWeight = 0;
@@ -227,16 +265,19 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
     for (const [i, item] of plan.entries()) {
       report(i, 0);
       await audioControl.whilePaused(key, beat, opts.signal);
-      const script = await scriptForSpeech({ providers, tts }, doc, item.text);
+      checkCancelled();
+      const polishShare = tts.polish() ? 0.3 : 0;
+      const script = await scriptForSpeech({ providers, tts }, doc, item.text, (f) => report(i, f * polishShare));
       const segments = splitForSpeech(script, SEGMENT_CHARS);
       const parts: Buffer[] = [];
       let native: AudioFormat = engine.format;
       for (const [n, segment] of segments.entries()) {
         await audioControl.whilePaused(key, beat, opts.signal);
+        checkCancelled();
         const spoken = await engine.speak(segment, opts.signal);
         parts.push(spoken.audio);
         native = spoken.format;
-        report(i, (n + 1) / segments.length);
+        report(i, polishShare + (1 - polishShare) * ((n + 1) / segments.length));
       }
       if (parts.length === 0) throw new SpeechError('OTHER', 'Nothing was spoken for this chapter.');
       let audio = join_(parts, native);
@@ -259,7 +300,7 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
       });
     }
   } finally {
-    audioControl.resume(key);
+    audioControl.clear(key);
   }
   opts.onProgress?.(plan.length, plan.length, 1);
 
@@ -309,7 +350,7 @@ export function audioStatus(deps: AudioDeps, bookId: string, lang: string, kind:
       ? audioControl.isPaused(audioKey(bookId, lang, kind))
         ? 'paused'
         : 'running'
-      : row?.status === 'failed'
+      : row?.status === 'failed' && row.error !== CANCELLED
         ? 'failed'
         : manifest
           ? 'done'
@@ -317,7 +358,7 @@ export function audioStatus(deps: AudioDeps, bookId: string, lang: string, kind:
     done: progress?.done ?? manifest?.tracks.length ?? 0,
     total: progress?.total ?? manifest?.tracks.length ?? 0,
     fraction: running ? (progress?.fraction ?? 0) : manifest ? 1 : 0,
-    error: row?.status === 'failed' ? (row.error ?? null) : null,
+    error: row?.status === 'failed' && row.error !== CANCELLED ? (row.error ?? null) : null,
     tracks: manifest?.tracks ?? [],
   };
 }
@@ -338,8 +379,47 @@ export function trackFile(
   return existsSync(path) ? { path, track } : null;
 }
 
+/**
+ * The whole recording as one file: every track in reading order. Kept next to the tracks and made again only when
+ * the recording is newer than it, so a second download does not wait.
+ */
+export async function mergedFile(
+  config: Config,
+  bookId: string,
+  lang: string,
+  kind: AudioKind,
+): Promise<{ path: string; format: AudioFormat; bytes: number } | null> {
+  const manifest = readManifest(config, bookId, lang, kind);
+  const tracks = [...(manifest?.tracks ?? [])].sort((a, b) => a.index - b.index);
+  const first = tracks[0];
+  if (!manifest || !first) return null;
+  const format = first.format;
+  const dir = audioDir(config, bookId, lang, kind);
+  const name = `all.${format}`;
+  const target = join(dir, name);
+  const stale = !existsSync(target) || statSync(target).mtimeMs < statSync(join(dir, MANIFEST)).mtimeMs;
+  if (stale) {
+    const names = tracks.map((t) => `${t.id}.${t.format}`);
+    if (names.some((n) => !existsSync(join(dir, n)))) return null;
+    if (names.length === 1) copyFileSync(join(dir, names[0] as string), target);
+    else if (onPath('ffmpeg')) await concatAudio(dir, names, name);
+    else if (format === 'wav' || format === 'mp3') {
+      writeFileSync(
+        target,
+        join_(
+          names.map((n) => readFileSync(join(dir, n))),
+          format,
+        ),
+      );
+    } else {
+      throw new SpeechError('NOT_FOUND', `Joining ${format.toUpperCase()} files needs ffmpeg.`, true);
+    }
+  }
+  return { path: target, format, bytes: statSync(target).size };
+}
+
 /** Title for the downloaded file, from the book itself. */
 export function bookTitleFor(db: Db, bookId: string): string {
   const row = getBookRow(db, bookId);
-  return row ? (row.titles[row.sourceLang] ?? bookId) : bookId;
+  return row ? (row.titles[row.sourceLang] ?? bookId).replace(/\.pdf$/iu, '') : bookId;
 }

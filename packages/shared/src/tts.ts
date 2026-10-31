@@ -110,9 +110,9 @@ export const AudioRequestSchema = z.object({
 });
 export type AudioRequest = z.infer<typeof AudioRequestSchema>;
 
-/** Pauses a recording that is being made, or lets it go on. */
+/** Pauses a recording that is being made, lets it go on, or gives it up. */
 export const AudioControlSchema = z.object({
-  action: z.enum(['pause', 'resume']),
+  action: z.enum(['pause', 'resume', 'cancel']),
   lang: z.string().min(2).max(12).optional(),
   kind: AudioKindSchema.default('full'),
 });
