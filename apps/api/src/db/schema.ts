@@ -209,6 +209,7 @@ export const jobs = sqliteTable(
         'quiz',
         'tutor_answer',
         'audio',
+        'book_pdf',
       ],
     }).notNull(),
     scope: text('scope', { mode: 'json' }).$type<Record<string, unknown>>(),

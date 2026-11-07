@@ -600,3 +600,73 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   `packages/ai/src/engine/quiz-levels.test.ts`, `apps/web/src/features/quiz/sheet.test.ts`,
   `apps/api/src/edit-only.test.ts` (upload → edit with the agent → errata in three formats), e2e
   `edit-quiz.spec.ts`; screenshots in `docs/screens/edit-quiz/`.
+
+## ADR-046 — «کتاب PDF»: a typeset book with its figures translated in place (2026-11-07)
+
+- **Context:** the owner found the PDF export of a translated or edited book badly disordered and asked, as a
+  professional editor would, for a real book: a cover (their own image, or one the app makes) carrying the
+  preparer «دکتر فرشاد فتحی، متخصص طب اورژانس، فلوشیپ انفورماتیک بالینی», a professional table of contents, a
+  proper PDF, and the book's charts, algorithms and figures translated into Persian and set exactly where they were.
+  The disorder had five causes: (1) the words inside flowcharts and table cells were ingested as scattered
+  paragraphs and translated as fragments; (2) paragraphs broken at column/page ends and bullet lists run into one
+  paragraph; (3) the source book's own contents pages, dot leaders included, printed as text; (4) chapter titles
+  printed in pieces and headings printed twice; (5) no cover, no page numbers, no numbered contents, and a file made
+  through the browser's print dialog.
+- **Decision — the browser on this computer writes the PDF.** ADR-040 rejected a headless browser for its 150 MB
+  download; `playwright-core` (Apache-2.0, a few MB) drives the **installed** Edge (every Windows has it), Chrome or
+  Chromium instead (`BROWSER_PATH` overrides; Playwright's own Chromium is the last resort, which is what CI has).
+  Chromium's paged media gives named pages (no number on the cover and front matter), the chapter title in each
+  running head, page numbers in the book's digits (`counter(page, persian)`), and a PDF outline built from the
+  headings. The old print page stays as the fallback when no browser is found.
+- **Contents with page numbers: two prints.** The first print's **outline** lists every heading in document order
+  with its page; every heading carries an id (figures a hidden `h6` anchor, which also becomes a bookmark), so ids
+  and outline entries pair one to one, and the second print carries the numbers. Invisible text markers were tried
+  first and rejected: Chromium drops absolutely positioned text inside an element that is moved to the next page.
+  A mismatched outline gives no numbers rather than wrong ones.
+- **Editorial reflow (`packages/text/src/reflow.ts`)** works on the rows of a section without changing a word:
+  drops dot-leader lines and stray marks; makes capital-letter lines (English) and «Box N …» titles subheadings;
+  joins a paragraph broken mid-sentence, deciding on the *source* text (a translator may close a fragment with a
+  full stop; a sentence ending in plain reference digits «… required.25,26» counts as ended); splits run-in bullets,
+  and Persian articles and items («ماده ۵ -»، «الف -»، «۲ -») at sentence ends — the words for those come from the
+  language registry (`listLetters`, `articleWords`, `boxWords`, `captionWords`).
+- **Book layout (`apps/api/src/export/book/layout.ts`):** chapters from the table-of-contents tree; heading-only
+  chapter pieces in a row are joined and their source translated whole («Patient Blood» + «Management:» +
+  «Therapy» → «مدیریت خون بیمار: درمان تزریق خون»); a heading printed at the end of one section and again as the
+  next section's title is kept once; the contents list chapters and sections, and inner headings when there are at
+  most 80 (else only numbered ones).
+- **Figures (`packages/pdf/src/figures.ts`, `figure-images.ts`):** a page with a caption (or a picture ingestion
+  saw) is drawn **without its text** (pdf.js has no switch for that; the text operators of that one render are
+  replaced — tested against the pinned pdf.js, and when impossible the words stay drawn and no labels are set over
+  them). Its ink, as connected components of a 2-point grid, is grown from each caption — upwards for a figure,
+  downwards for a table — through drawing and small text, and never across another caption: a sentence that merely
+  begins «Table 45.18 lists …» claims nothing. The words inside become labels (stacked lines of one box joined, the
+  raised «+» of «O+» kept in its word), and the free space around each label is measured on the drawing itself (the
+  inside of its box), so a longer Persian label wraps and shrinks inside it. Tables are **mirrored** for a
+  right-to-left book (the owner's choice): their rules and shading are symmetric, the cells are set again from the
+  right, and the title stands above the table. Segments whose words are printed inside a figure leave the text
+  (matched by a bag of words on that page) and the figure takes their place; caption segments become its caption.
+  A book edited in its own language keeps the words of its pictures.
+- **Labels are translated by the book's own engine** through the shared `translate` task and prompt (new item type
+  `lbl`, `translate.md` v2: terse, no added full stop), with the glossary (no parentheticals) and the captions as
+  context; up to 60 labels of consecutive figures per request, a failed request retried in halves, the rest keep
+  their printed words. Abbreviations and numbers are not sent (digits follow the target language). Answers are kept
+  per book and language (`data/book-pdf/<book>/labels-<lang>.json`), so a rebuild asks nothing: on the Miller test
+  chapter (72 pages, 30 figures and tables) the first build took 44 minutes with one request per figure through
+  Claude Code — hence the batching — and a rebuild 2 minutes 20 seconds.
+- **Cover and front matter:** generated covers in four themes (navy and gold, emerald, burgundy, ivory) with an
+  eight-pointed star field and medallion, the title, the original title and the preparer; or the owner's image
+  (JPG/PNG/WebP, checked by its bytes) with an optional title band; a matching back cover; title page, imprint, and
+  lists of figures and tables. The preparer is remembered (`app_settings: book:preparer`) for the next book. Page
+  sizes A4, «وزیری», «رقعی»; body type Noto Naskh Arabic (OFL, `@fontsource/noto-naskh-arabic`) or Vazirmatn.
+- **Runs as a job** (`stage: 'book_pdf'`, not retried automatically — the page shows a failure at once) with steps
+  and progress; `GET/POST /books/:id/book-pdf`, `GET …/book-pdf/file`, `POST/GET/DELETE /books/:id/cover`,
+  `GET …/book-pdf/cover-preview` (the cover at A4, scaled to the page's preview frame). UI: library menu «کتاب PDF
+  حرفه‌ای (با جلد و فهرست)» → `/books/:id/book-pdf`.
+- **Consequences / limits:** figures are found from captions and known pictures; a captionless vector drawing stays
+  out. Words inside a raster image (a scanned figure, a photo with text) are not translated — the image is placed as
+  it is. A figure is never split across pages, so a large one may leave white space at a page foot (Chromium cannot
+  float to the next page). The chapter's first page still carries its running head (`@page name:first` is not
+  honoured). Reviewing label translations before printing is the next step (the owner chose automatic for now).
+  Tests: `packages/text/src/reflow.test.ts` (10), `packages/pdf/src/figures.test.ts` (12, a synthetic flowchart PDF
+  drawn and cut out), `apps/api/src/book-pdf.test.ts` (17, including a real print when a browser exists), e2e
+  `book-pdf.spec.ts` (2); screenshots in `docs/screens/book-pdf/`.

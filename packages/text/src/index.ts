@@ -8,6 +8,7 @@ export * from './markup';
 export * from './parentheticals';
 export * from './postprocess';
 export * from './qa';
+export * from './reflow';
 export * from './search';
 export * from './sentences';
 export * from './speech';

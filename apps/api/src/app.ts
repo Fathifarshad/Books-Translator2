@@ -15,6 +15,7 @@ import { NotificationPoller } from './pipeline/notify';
 import { assistRoutes } from './routes/assist';
 import { audioRoutes } from './routes/audio';
 import { authRoutes } from './routes/auth';
+import { bookPdfRoutes } from './routes/book-pdf';
 import { bookRoutes } from './routes/books';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
@@ -113,6 +114,7 @@ export async function buildApp(
   await app.register(assistRoutes, { ctx });
   await app.register(exportRoutes, { ctx });
   await app.register(audioRoutes, { ctx });
+  await app.register(bookPdfRoutes, { ctx });
 
   if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
     app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');

@@ -33,8 +33,8 @@ export const GlossaryEntrySchema = z.object({
 });
 export type GlossaryEntry = z.infer<typeof GlossaryEntrySchema>;
 
-/** Short item types used in translate batches. */
-export const ITEM_TYPES = ['h', 'p', 'li', 'q', 'cap', 'fn'] as const;
+/** Short item types used in translate batches; `lbl` is a label inside a figure or a table cell (ADR-046). */
+export const ITEM_TYPES = ['h', 'p', 'li', 'q', 'cap', 'fn', 'lbl'] as const;
 export const ItemTypeSchema = z.enum(ITEM_TYPES);
 export type ItemType = z.infer<typeof ItemTypeSchema>;
 

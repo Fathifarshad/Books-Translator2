@@ -254,6 +254,13 @@ the sandbox has no access to the real services, so the first real connection is 
   hard / professional level, with a downloadable answer key. Tests: 6 new unit/API test files (27 tests), 4 e2e;
   screenshots in `docs/screens/edit-quiz/`.
 
+- [x] Professional book PDF (owner's request, 2026-11-07) — ADR-046: library menu → «کتاب PDF» → a real PDF made by
+  the installed Edge/Chrome: generated or uploaded cover with the preparer, title page, imprint, numbered contents
+  and PDF bookmarks, lists of figures and tables, running heads, Persian page numbers, editorial reflow of the text,
+  figures/algorithms/tables cut from the original PDF with their labels translated in place (tables right to
+  left), glossary, back cover. Tests: 3 new unit/API test files (39 tests), 2 e2e; screenshots in
+  `docs/screens/book-pdf/`.
+
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers
 - [ ] Highlights & notes · export EPUB/DOCX/Markdown · global glossary + CSV

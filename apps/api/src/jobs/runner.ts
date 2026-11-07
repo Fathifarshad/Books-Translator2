@@ -10,7 +10,13 @@ import {
   validateResult,
 } from '@dozabaneh/ai';
 import { ingestInWorker } from '@dozabaneh/pdf';
-import { type AgentBatch, type AudioFormat, type AudioKind, isProviderId } from '@dozabaneh/shared';
+import {
+  type AgentBatch,
+  type AudioFormat,
+  type AudioKind,
+  BookPdfOptionsSchema,
+  isProviderId,
+} from '@dozabaneh/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { type Config, repoRoot } from '../config';
@@ -18,6 +24,9 @@ import type { Db } from '../db/client';
 import { getBookRow, getBundle, saveIngestion } from '../db/repo';
 import { books } from '../db/schema';
 import type { EventBus } from '../events';
+import { buildBookPdf } from '../export/book/build';
+import { BrowserNotFoundError } from '../export/book/print';
+import { clearProgress, reportProgress } from '../export/book/status';
 import { advancePipeline } from '../pipeline/advance';
 import { applyMemory, importResult } from '../pipeline/apply';
 import { approvedTerms, planBatch } from '../pipeline/batches';
@@ -52,6 +61,7 @@ const handlers: Partial<Record<JobRow['stage'], (job: JobRow, deps: RunnerDeps) 
   translate: runPipelineJob,
   edit: runPipelineJob,
   audio: runAudioJob,
+  book_pdf: runBookPdfJob,
 };
 
 export function pipelineCtx({
@@ -137,6 +147,34 @@ async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
     },
   );
   bus.publish(job.bookId, { type: 'audio', lang, kind });
+}
+
+/** «کتاب PDF» (ADR-046): figures, labels, layout and two prints, with the progress the page follows. */
+async function runBookPdfJob(job: JobRow, deps: RunnerDeps): Promise<void> {
+  const { db, bus, config, providers } = deps;
+  const lang = job.targetLang as string;
+  const options = BookPdfOptionsSchema.parse((job.scope as { options?: unknown } | null)?.options ?? {});
+  try {
+    await buildBookPdf(
+      { db, config, providers },
+      {
+        bookId: job.bookId,
+        lang,
+        options,
+        onProgress: (step, done, total, fraction) => {
+          reportProgress(job.bookId, lang, { step, done, total, fraction });
+          heartbeat(db, job.id, { done, total, fraction });
+          bus.publish(job.bookId, { type: 'progress', stage: 'book_pdf', done, total });
+        },
+      },
+    );
+  } catch (err) {
+    // The page shows a code it can explain; anything else keeps its message.
+    if (err instanceof BrowserNotFoundError) throw new Error('BROWSER_NOT_FOUND');
+    throw err;
+  } finally {
+    clearProgress(job.bookId, lang);
+  }
 }
 
 async function runIngest(job: JobRow, { db, bus, config }: RunnerDeps): Promise<void> {
@@ -266,7 +304,8 @@ export class JobRunner {
         }
       }
       // A broken or oversized PDF will not get better on retry.
-      const retryable = !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
+      // A book PDF is asked for and waited on: a failure is shown at once rather than tried again behind the page.
+      const retryable = job.stage !== 'book_pdf' && !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
       const outcome = fail(db, job, message, retryable);
       log.warn({ jobId: job.id, stage: job.stage, outcome }, 'job failed');
       if (outcome === 'failed' && job.stage === 'ingest') {

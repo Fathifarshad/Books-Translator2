@@ -21,7 +21,7 @@ export interface AssistTaskBody {
   book: { title: string; authors: string[] };
 }
 
-export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech'>(
+export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech' | 'translate'>(
   providers: ProviderService,
   engine: ProviderId,
   task: T,
@@ -33,7 +33,7 @@ export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech'>(
     schemaVersion: 1,
     batchId: newId('as'),
     task,
-    promptRefs: promptRefsFor(task, body.targetLang),
+    promptRefs: promptRefsFor(task, body.targetLang, body.sourceLang),
     sourceLanguage: body.sourceLang,
     targetLanguage: body.targetLang,
     options: { ezafe: 'yeh', parenthetical: 'first_in_chapter' },

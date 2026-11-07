@@ -6,6 +6,8 @@ import {
   type AudioKind,
   type AudioStatus,
   type BookBundle,
+  type BookPdfRequest,
+  type BookPdfStatus,
   type BookRecord,
   type Budget,
   type BudgetStatus,
@@ -314,6 +316,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ kind, ...(lang ? { lang } : {}), ...(format ? { format } : {}) }),
     }),
+  // «کتاب PDF» (ADR-046): the typeset book, its cover image, and the build that makes it
+  bookPdf: (bookId: string, lang?: string) =>
+    request<BookPdfStatus>(`/books/${bookId}/book-pdf${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
+  startBookPdf: (bookId: string, body: BookPdfRequest) =>
+    request<BookPdfStatus>(`/books/${bookId}/book-pdf`, { method: 'POST', body: JSON.stringify(body) }),
+  uploadCover: (bookId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<BookPdfStatus>(`/books/${bookId}/cover`, { method: 'POST', body: form });
+  },
+  removeCover: (bookId: string) => request<BookPdfStatus>(`/books/${bookId}/cover`, { method: 'DELETE' }),
   controlAudio: (bookId: string, action: 'pause' | 'resume' | 'cancel', kind: AudioKind, lang?: string) =>
     request<AudioStatus>(`/books/${bookId}/audio/control`, {
       method: 'POST',
@@ -348,6 +361,33 @@ export function audioTrackUrl(bookId: string, trackId: string, kind: AudioKind, 
   const params = new URLSearchParams({ kind });
   if (lang) params.set('lang', lang);
   return apiUrl(`/books/${bookId}/audio/${trackId}?${params.toString()}`);
+}
+
+/** The finished book PDF (ADR-046). */
+export function bookPdfFileUrl(bookId: string, lang?: string): string {
+  return apiUrl(`/books/${bookId}/book-pdf/file${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
+}
+
+/** The uploaded cover image; `v` changes the URL after each upload so the browser does not show the old one. */
+export function coverImageUrl(bookId: string, v: number): string {
+  return apiUrl(`/books/${bookId}/cover?v=${v}`);
+}
+
+/** The cover as it will be printed, for the live preview. */
+export function coverPreviewUrl(
+  bookId: string,
+  o: { theme: string; cover: string; coverText: boolean; role: string; name: string; title: string; v: number },
+): string {
+  const params = new URLSearchParams({
+    theme: o.theme,
+    cover: o.cover,
+    coverText: o.coverText ? '1' : '0',
+    role: o.role,
+    name: o.name,
+    title: o.title,
+    v: String(o.v),
+  });
+  return apiUrl(`/books/${bookId}/book-pdf/cover-preview?${params.toString()}`);
 }
 
 /** «گرفتن خروجی» (SPEC §13.8): Markdown, Word, or the printable page the browser saves as a PDF. */

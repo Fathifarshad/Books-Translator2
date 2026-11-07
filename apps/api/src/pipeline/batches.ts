@@ -64,7 +64,7 @@ export function glossarySubset(terms: GlossaryTermRecord[], texts: string[], src
   return terms.filter((t) => hit.has(t.id));
 }
 
-const toEntry = (g: GlossaryTermRecord): GlossaryEntry => ({
+export const toEntry = (g: GlossaryTermRecord): GlossaryEntry => ({
   src: g.src,
   tgt: g.tgt,
   kind: g.kind,

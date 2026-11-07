@@ -13,6 +13,9 @@ export interface DocRow {
   type: DocRowType;
   src: string;
   tgt: string;
+  /** Segment id and printed page of the source (the book PDF places figures by them). */
+  id?: string;
+  page?: number;
 }
 
 export interface DocSection {
@@ -22,6 +25,11 @@ export interface DocSection {
   titleSrc: string;
   /** Chapter this section belongs to, when it is not the chapter itself. */
   chapter?: string;
+  chapterSrc?: string;
+  chapterId?: string;
+  chapterDepth?: number;
+  /** Kind of the table-of-contents node (chapter, section, chapter_intro, front, …). */
+  kind?: string;
   depth: number;
   rows: DocRow[];
 }
@@ -65,9 +73,23 @@ export function bookDocument(bundle: BookBundle, lang: string, now = new Date())
       id: node.id,
       title: section.title.tgt ?? section.title.src,
       titleSrc: section.title.src,
-      ...(chapterTitle ? { chapter: chapterTitle.tgt ?? chapterTitle.src } : {}),
+      ...(chapter && chapterTitle
+        ? {
+            chapter: chapterTitle.tgt ?? chapterTitle.src,
+            chapterSrc: chapterTitle.src,
+            chapterId: chapter.id,
+            chapterDepth: chapter.depth,
+          }
+        : {}),
+      kind: node.kind,
       depth: node.depth,
-      rows: section.rows.map((r) => ({ type: r.type as DocRowType, src: r.src, tgt: r.tgt ?? '' })),
+      rows: section.rows.map((r) => ({
+        type: r.type as DocRowType,
+        src: r.src,
+        tgt: r.tgt ?? '',
+        id: r.segmentId,
+        page: r.page,
+      })),
     });
   }
 

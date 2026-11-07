@@ -23,6 +23,20 @@ export interface LanguageInfo {
   emphasis: 'italic' | 'weight';
   /** Words used for `[[fig:…]]` / `[[tab:…]]` references inside text of this language. */
   refLabels: { fig: string; tab: string };
+  /**
+   * Words that open a figure or table caption in a printed book of this language («Fig. 45.7 …», «جدول ۳ …»);
+   * used to find the figures of a page and the drawing that belongs to each (ADR-046).
+   */
+  captionWords: { fig: readonly string[]; tab: readonly string[] };
+  /** Words that open the title of a boxed sidebar («Box 45.1 …», «کادر ۲ …»): a heading, never a paragraph's end. */
+  boxWords?: readonly string[];
+  /**
+   * Book layout of this language (ADR-046): letters used as list markers («الف -», «ب -») and the words that open a
+   * numbered article of a legal or regulatory text («ماده ۵ -»). Both mark where a paragraph that swallowed several
+   * items should be split again.
+   */
+  listLetters?: readonly string[];
+  articleWords?: readonly string[];
   /** Tesseract language code for OCR of scanned pages (its data package must be installed). */
   ocr?: string;
   /**
@@ -45,6 +59,11 @@ export const LANGUAGES = {
     terminalPunctuation: '.?!:”’)"\'…',
     emphasis: 'italic',
     refLabels: { fig: 'Figure', tab: 'Table' },
+    captionWords: {
+      fig: ['Fig.', 'Fig', 'Figure', 'Algorithm', 'Chart', 'Diagram', 'Plate', 'Exhibit'],
+      tab: ['Table'],
+    },
+    boxWords: ['Box'],
     ocr: 'eng',
     speech: 'en',
   },
@@ -62,6 +81,35 @@ export const LANGUAGES = {
     terminalPunctuation: '.?!:؟»)…',
     emphasis: 'weight',
     refLabels: { fig: 'شکل', tab: 'جدول' },
+    captionWords: { fig: ['شکل', 'نمودار', 'تصویر', 'الگوریتم', 'نگاره'], tab: ['جدول'] },
+    boxWords: ['کادر'],
+    listLetters: [
+      'الف',
+      'ب',
+      'پ',
+      'ت',
+      'ث',
+      'ج',
+      'چ',
+      'ح',
+      'خ',
+      'د',
+      'ذ',
+      'ر',
+      'ز',
+      'ژ',
+      'س',
+      'ش',
+      'ط',
+      'ی',
+      'ک',
+      'ل',
+      'م',
+      'ن',
+      'ه',
+      'و',
+    ],
+    articleWords: ['ماده', 'تبصره'],
     ocr: 'fas',
     speech: 'fa',
   },

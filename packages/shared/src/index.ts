@@ -1,4 +1,5 @@
 export * from './agent';
+export * from './book-pdf';
 export * from './chat';
 export * from './constants';
 export * from './cost';

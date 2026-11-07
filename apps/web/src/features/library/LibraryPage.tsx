@@ -289,6 +289,14 @@ function BookMenu({ summary }: { summary: BookSummary }) {
                 {t('library.exportWord')}
               </a>
             </DropdownMenu.Item>
+            <DropdownMenu.Item
+              className={item}
+              onSelect={() => navigate(`/books/${summary.book.id}/book-pdf`)}
+              data-testid="export-book-pdf"
+            >
+              <Icon name="book" size={16} />
+              {t('library.exportBookPdf')}
+            </DropdownMenu.Item>
             <DropdownMenu.Item className={item} asChild>
               <a href={href('print')} target="_blank" rel="noopener noreferrer" data-testid="export-print">
                 <Icon name="download" size={16} />

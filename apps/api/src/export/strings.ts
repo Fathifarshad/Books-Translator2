@@ -53,6 +53,36 @@ export function errataStrings(): ErrataStrings {
   return errataCache;
 }
 
+/** Strings printed inside the book PDF (`fa.json` → "bookPdf.book"), and the preparer's default role. */
+export interface BookStrings {
+  toc: string;
+  figures: string;
+  tables: string;
+  glossary: string;
+  figure: string;
+  table: string;
+  image: string;
+  by: string;
+  imprint: string;
+  fields: Record<'title' | 'original' | 'authors' | 'publisher' | 'kind' | 'date' | 'figures', string>;
+  kinds: Record<'translation' | 'edition', string>;
+  made: string;
+  personalUse: string;
+  defaultRole: string;
+}
+
+let bookCache: BookStrings | undefined;
+
+export function bookStrings(): BookStrings {
+  if (!bookCache) {
+    const all = JSON.parse(readFileSync(join(repoRoot(), 'apps/web/src/i18n/fa.json'), 'utf8')) as {
+      bookPdf: { book: Omit<BookStrings, 'defaultRole'>; defaultRole: string };
+    };
+    bookCache = { ...all.bookPdf.book, defaultRole: all.bookPdf.defaultRole };
+  }
+  return bookCache;
+}
+
 /** `{{name}}` placeholders filled in, the way i18next would. */
 export function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/gu, (_m, key: string) => values[key] ?? '');
