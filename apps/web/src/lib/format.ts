@@ -1,4 +1,4 @@
-import { formatNumber, formatPercent, localizeDigits } from '@dozabaneh/text';
+import { formatNumber, formatPercent, isEditOnly, localizeDigits } from '@dozabaneh/text';
 import i18next from 'i18next';
 import { uiLocale } from '../i18n';
 
@@ -19,4 +19,14 @@ export function languageName(code: string): string {
     displayNames.set(ui, dn);
   }
   return dn.of(code) ?? code;
+}
+
+/**
+ * Name of a reader column: its language — or, in a book edited in its own language (ADR-045), where both columns
+ * are in the same language, «متن اصلی» for the original and «ویراسته» for the edited text.
+ */
+export function columnName(side: 'source' | 'target', sourceLang: string, targetLang: string): string {
+  if (isEditOnly(sourceLang, targetLang))
+    return i18next.t(side === 'source' ? 'reader.columnOriginal' : 'reader.columnEdited');
+  return languageName(side === 'source' ? sourceLang : targetLang);
 }

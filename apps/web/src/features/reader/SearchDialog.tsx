@@ -9,7 +9,7 @@ import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui';
 import { api } from '../../lib/api';
-import { fmtNum, languageName } from '../../lib/format';
+import { columnName, fmtNum } from '../../lib/format';
 import { useReaderUi } from '../../stores/reader';
 import { useReader } from './context';
 
@@ -94,7 +94,7 @@ export function SearchDialog() {
                 aria-pressed={sides[s]}
                 onClick={() => setSides((v) => ({ ...v, [s]: !v[s] }))}
               >
-                {languageName(s === 'target' ? targetLang : sourceLang)}
+                {columnName(s === 'target' ? 'target' : 'source', sourceLang, targetLang)}
               </Button>
             ))}
             <Button

@@ -114,6 +114,8 @@ export async function assistRoutes(app: FastifyInstance, { ctx }: { ctx: AppCont
       scope: body.scope,
       passages: body.passages.map((p) => ({ label: p.label, src: p.src, tgt: p.tgt ?? '' })),
       glossary: body.glossary,
+      level: body.level,
+      ...(body.count ? { count: body.count } : {}),
     });
   });
 }

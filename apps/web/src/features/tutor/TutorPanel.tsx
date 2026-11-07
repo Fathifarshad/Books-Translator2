@@ -1,5 +1,5 @@
 import { buildSection, chapterOf, glossaryFor } from '@dozabaneh/core';
-import type { Citation, SelectionContext, TutorMode } from '@dozabaneh/shared';
+import { type Citation, QUIZ_DIFFICULTIES, type SelectionContext, type TutorMode } from '@dozabaneh/shared';
 import { DropdownMenu } from 'radix-ui';
 import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,9 @@ import { useAssistantEngine } from '../settings/engines';
 import { Markdown } from './Markdown';
 import { nodeLabelFor, retryAnswer, selectTutorEngine, sendQuestion, stopStreaming } from './runner';
 import { type ChatMessage, type Conversation, conversationsForBook, useTutor } from './store';
+
+/** Questions in one set a reader (or a teacher) asks the tutor for at a chosen level. */
+const QUESTION_SET = 5;
 
 interface TutorPanelProps {
   bookId: string;
@@ -198,6 +201,22 @@ export function TutorPanel({ bookId, onClose }: TutorPanelProps) {
             />
           </div>
         ) : null}
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" data-testid="tutor-question-levels">
+          <span className="text-xs text-muted">{t('tutor.questions.label')}</span>
+          {QUIZ_DIFFICULTIES.map((level) => (
+            <Button
+              key={level}
+              variant="pill"
+              className="px-2.5 py-0.5 text-xs"
+              disabled={Boolean(streamingMsg) || (needsNetwork && !online)}
+              onClick={() =>
+                send(t('tutor.questions.ask', { level: t(`quiz.levels.${level}`), count: fmtNum(QUESTION_SET) }))
+              }
+            >
+              {t(`quiz.levels.${level}`)}
+            </Button>
+          ))}
+        </div>
         <div className="mb-2 flex gap-1.5">
           {(['simpler', 'deeper'] as const).map((m) => (
             <Button

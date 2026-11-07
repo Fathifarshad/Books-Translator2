@@ -30,6 +30,8 @@ export interface ExtractOptions {
   maxPages?: number;
   /** Only extract these page indexes (inspect tool). */
   pages?: number[];
+  /** Right-to-left source language: words of a line are read from the right edge. */
+  rtl?: boolean;
 }
 
 type PdfDoc = Awaited<ReturnType<typeof getDocument>['promise']>;
@@ -139,7 +141,7 @@ function imageBoxes(ops: { fnArray: number[]; argsArray: unknown[] }, pageHeight
   return boxes;
 }
 
-async function extractPage(page: PdfPage, index: number): Promise<PageData> {
+async function extractPage(page: PdfPage, index: number, rtl = false): Promise<PageData> {
   const viewport = page.getViewport({ scale: 1 });
   const height = viewport.height;
   const content = await page.getTextContent();
@@ -177,7 +179,7 @@ async function extractPage(page: PdfPage, index: number): Promise<PageData> {
     index,
     width: viewport.width,
     height,
-    lines: buildLines(items, index),
+    lines: buildLines(items, index, rtl),
     images: imageBoxes(ops as { fnArray: number[]; argsArray: unknown[] }, height),
     vectorPaths: ops.fnArray.reduce((n, fn) => (fn === OPS.constructPath ? n + 1 : n), 0),
   };
@@ -220,7 +222,7 @@ export async function extractPdf(data: Uint8Array, opts: ExtractOptions = {}): P
         try {
           let data: PageData;
           try {
-            data = await withTimeout(extractPage(page, i), opts.pageTimeoutMs ?? 20_000, `page ${i + 1}`);
+            data = await withTimeout(extractPage(page, i, opts.rtl), opts.pageTimeoutMs ?? 20_000, `page ${i + 1}`);
           } catch {
             // A page that cannot be parsed in time is treated as empty (reported as "no text").
             const viewport = page.getViewport({ scale: 1 });
@@ -236,7 +238,7 @@ export async function extractPdf(data: Uint8Array, opts: ExtractOptions = {}): P
                   ocr.pageTimeoutMs ?? 120_000,
                   `OCR of page ${i + 1}`,
                 );
-                const lines = buildLines(ocrItems(words), i);
+                const lines = buildLines(ocrItems(words), i, opts.rtl);
                 if (lines.length) {
                   data = { ...data, lines, ocr: true };
                   ocrPages++;

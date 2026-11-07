@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isEditOnly } from '@dozabaneh/text';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getBookRow, getBundle } from '../db/repo';
 import { agentBatches, books, glossaryTerms, jobs } from '../db/schema';
@@ -40,15 +41,24 @@ export function advancePipeline(ctx: PipelineCtx, bookId: string, lang: string):
   const settings = translationSettings(row, lang);
   let list = pipelineJobs(db, bookId, lang);
   const of = (stage: string) => list.filter((j) => j.stage === stage);
+  // A book edited in its own language (ADR-045) has nothing to translate: no brief, no glossary, straight to editing.
+  const editOnly = isEditOnly(row.sourceLang, lang);
+  if (editOnly && !(state.glossaryPlanned && state.glossaryApproved)) {
+    state = updatePipelineState(db, bookId, lang, (s) => {
+      s.glossaryPlanned = true;
+      s.glossaryApproved = true;
+    });
+    logPipeline(ctx, bookId, lang, 'edit only: brief, glossary and translation skipped');
+  }
 
   // 1. Brief.
-  if (!row.brief?.[lang] && of('brief').length === 0) {
+  if (!editOnly && !row.brief?.[lang] && of('brief').length === 0) {
     createBriefJob(db, bookId, lang, settings);
     result.created++;
     logPipeline(ctx, bookId, lang, 'brief: queued');
     list = pipelineJobs(db, bookId, lang);
   }
-  const briefDone = Boolean(row.brief?.[lang]) || (of('brief').length > 0 && allSucceeded(of('brief')));
+  const briefDone = editOnly || Boolean(row.brief?.[lang]) || (of('brief').length > 0 && allSucceeded(of('brief')));
 
   // 2. Glossary candidates → consolidation batches.
   if (briefDone && !state.glossaryPlanned) {

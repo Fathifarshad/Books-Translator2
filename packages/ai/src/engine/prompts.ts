@@ -1,5 +1,5 @@
 import type { AgentTask } from '@dozabaneh/shared';
-import { getLanguage } from '@dozabaneh/text';
+import { getLanguage, isEditOnly } from '@dozabaneh/text';
 
 /**
  * Prompt files live in prompts/ and are shared by every engine (SPEC §10.1). Each file starts with a heading that
@@ -21,10 +21,20 @@ export function styleGuideRef(lang: string): string | undefined {
   return getLanguage(lang).styleGuide;
 }
 
-/** Prompt files an agent must read for a task: the task prompt, then the target language's style guide. */
-export function promptRefsFor(task: AgentTask, targetLang: string): string[] {
+/** The edit pass of a book edited in its own language (ADR-045): copy-editing the author's text, not a translation. */
+export const COPYEDIT_PROMPT_REF = 'prompts/copyedit.md';
+
+/**
+ * Prompt files an agent must read for a task: the task prompt, then the target language's style guide. With the
+ * source language given, the edit task of an edit-only book reads the copy-editing prompt instead.
+ */
+export function promptRefsFor(task: AgentTask, targetLang: string, sourceLang?: string): string[] {
   const style = styleGuideRef(targetLang);
-  return style ? [PROMPT_REFS[task], style] : [PROMPT_REFS[task]];
+  const main =
+    task === 'edit' && sourceLang !== undefined && isEditOnly(sourceLang, targetLang)
+      ? COPYEDIT_PROMPT_REF
+      : PROMPT_REFS[task];
+  return style ? [main, style] : [main];
 }
 
 /** "v1" from «# Task: translate — v1»; "v0" when the heading has no version. */
@@ -58,7 +68,7 @@ export function loadTaskPrompt(
   langs: { sourceLang: string; targetLang: string },
   read: PromptReader,
 ): LoadedPrompt {
-  const refs = promptRefsFor(task, langs.targetLang);
+  const refs = promptRefsFor(task, langs.targetLang, langs.sourceLang);
   const [taskRef, ...rest] = refs;
   const taskText = read(taskRef as string);
   const system = [renderPrompt(taskText, langs), ...rest.map((r) => read(r))].join('\n\n---\n\n');

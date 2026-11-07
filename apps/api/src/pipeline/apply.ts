@@ -276,7 +276,7 @@ function applyEdit(
       db,
       segId,
       lang,
-      { final: t, status: review ? 'flagged' : 'final', flags, confidence: item.confidence },
+      { final: t, status: review ? 'flagged' : 'final', flags, confidence: item.confidence, changes: item.changes },
       meta,
       t,
       reason,

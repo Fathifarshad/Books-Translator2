@@ -144,6 +144,10 @@ export const translations = sqliteTable(
     version: integer('version').notNull().default(1),
     /** A newer engine result for a user-edited segment: shown as a suggestion, never applied automatically. */
     suggestion: text('suggestion'),
+    /** What the editor changed and why (EditResultV1 `changes`): the reasons in the errata list (ADR-045). */
+    changes: text('changes', { mode: 'json' }).$type<
+      { type: string; before: string; after: string; reason: string }[]
+    >(),
     promptVersion: text('prompt_version'),
     updatedAt: updatedAt(),
   },

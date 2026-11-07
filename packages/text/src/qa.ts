@@ -1,6 +1,6 @@
 import { toLatinDigits } from './digits';
 import { createGlossaryMatcher } from './glossary-match';
-import { getLanguage, type LanguageInfo } from './languages';
+import { getLanguage, isEditOnly, type LanguageInfo } from './languages';
 import { compareMarkup, plainText, tokenize } from './markup';
 import { maskProtected } from './postprocess';
 
@@ -167,7 +167,9 @@ export function checkTranslation(src: string, tgt: string, ctx: QaContext): QaIs
         fix: `Translate the text into ${tgtInfo.name}; keep Latin script only for names in parentheses, code and identifiers.`,
       });
     }
+    // In an edited book (ADR-045) the author's own English terms are not leftovers of a translation.
     const latinRun =
+      !isEditOnly(ctx.srcLang, ctx.tgtLang) &&
       /(?:\p{Script=Latin}[\p{Script=Latin}'’-]*[\s,;:]+){3,}\p{Script=Latin}[\p{Script=Latin}'’-]*/u.exec(prose(tgt));
     if (latinRun && !issues.some((i) => i.code === 'target_script')) {
       issues.push({

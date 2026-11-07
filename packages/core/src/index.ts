@@ -1,4 +1,5 @@
 export * from './book';
+export * from './errata';
 export * from './pipeline/candidates';
 export * from './pipeline/plan';
 export * from './search';

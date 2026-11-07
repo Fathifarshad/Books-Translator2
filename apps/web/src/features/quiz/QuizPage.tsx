@@ -1,7 +1,7 @@
 import { mockQuiz } from '@dozabaneh/ai';
 import { type BookIndex, buildSection, glossaryFor } from '@dozabaneh/core';
-import type { QuizQuestion } from '@dozabaneh/shared';
-import { stripMarkup } from '@dozabaneh/text';
+import { QUIZ_COUNT, QUIZ_LEVELS, type QuizLevel, type QuizQuestion } from '@dozabaneh/shared';
+import { getLanguage, stripMarkup } from '@dozabaneh/text';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ import { api } from '../../lib/api';
 import { fmtNum, uiDigits } from '../../lib/format';
 import { assistErrorKey } from '../reader/SummaryCard';
 import { assistBook, useAssistantEngine } from '../settings/engines';
+import { quizSheetMarkdown } from './sheet';
 
 interface Passage {
   label: string;
@@ -45,6 +46,9 @@ function chapterPassages(index: BookIndex, chapterId: string, lang: string): Pas
 /** A provider reads at most this many passages of a chapter for one quiz. */
 const MAX_QUIZ_PASSAGES = 300;
 
+/** Question counts offered next to the level. */
+const COUNTS = [5, QUIZ_COUNT.default, 10, 15, QUIZ_COUNT.max] as const;
+
 /** Chapter quiz «آزمون این فصل» (SPEC §13.6), generated on demand by the assistant engine (mock or a provider). */
 export function QuizPage() {
   const { t } = useTranslation();
@@ -55,7 +59,14 @@ export function QuizPage() {
   const [seed, setSeed] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number | boolean | string>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
+  const [level, setLevel] = useState<QuizLevel>('mixed');
+  const [count, setCount] = useState<number>(QUIZ_COUNT.default);
   const engine = useAssistantEngine();
+  /** A new level or size is a new quiz: earlier answers belong to other questions. */
+  const restart = () => {
+    setAnswers({});
+    setChecked({});
+  };
 
   const data = useMemo(() => {
     if (!index) return undefined;
@@ -69,13 +80,13 @@ export function QuizPage() {
       .map((g) => ({ src: g.src, tgt: g.tgt, ...(g.definition ? { definition: g.definition } : {}) }));
     const mock =
       engine === 'mock'
-        ? mockQuiz({ scope: 'chapter', targetLang: lang, passages, glossary, seed: String(seed) })
+        ? mockQuiz({ scope: 'chapter', targetLang: lang, passages, glossary, seed: String(seed), level })
         : null;
     return { chapter, passages, glossary, mock, lang };
-  }, [index, chapterId, seed, engine]);
+  }, [index, chapterId, seed, engine, level]);
 
   const remote = useQuery({
-    queryKey: ['quiz', bookId, chapterId, seed, engine],
+    queryKey: ['quiz', bookId, chapterId, seed, engine, level, count],
     queryFn: () => {
       if (!data || !index) throw new Error('no chapter');
       return api.quiz({
@@ -87,6 +98,8 @@ export function QuizPage() {
         passages: data.passages
           .slice(0, MAX_QUIZ_PASSAGES)
           .map((p) => ({ label: p.label, src: p.src, ...(p.tgt ? { tgt: p.tgt } : {}) })),
+        level,
+        count,
       });
     },
     enabled: Boolean(data) && engine !== 'mock',
@@ -109,6 +122,53 @@ export function QuizPage() {
         {t('quiz.backToReading')}
       </Link>
       <h1 className="mt-4 text-2xl font-bold">{t('quiz.chapterTitle', { n: uiDigits(chapter.numberLabel ?? '') })}</h1>
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Native radios: arrow keys and semantics for free; each input covers its pill. */}
+        <fieldset className="flex flex-wrap items-center gap-1.5" data-testid="quiz-level">
+          <legend className="sr-only">{t('quiz.level')}</legend>
+          <span aria-hidden="true" className="text-sm text-muted">
+            {t('quiz.level')}:
+          </span>
+          {QUIZ_LEVELS.map((l) => (
+            <label
+              key={l}
+              className="relative rounded-full border border-border bg-surface px-3.5 py-1 text-sm text-muted hover:text-text has-checked:border-accent/60 has-checked:bg-accent-soft has-checked:text-accent has-focus-visible:ring-2 has-focus-visible:ring-accent"
+            >
+              <input
+                type="radio"
+                name="quiz-level"
+                value={l}
+                checked={level === l}
+                onChange={() => {
+                  setLevel(l);
+                  restart();
+                }}
+                className="absolute inset-0 cursor-pointer appearance-none rounded-full outline-none"
+              />
+              {t(`quiz.levels.${l}`)}
+            </label>
+          ))}
+        </fieldset>
+        {engine === 'mock' ? null : (
+          <label className="flex items-center gap-1.5 text-sm text-muted">
+            {t('quiz.count')}
+            <select
+              value={count}
+              onChange={(e) => {
+                setCount(Number(e.target.value));
+                restart();
+              }}
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-text"
+            >
+              {COUNTS.map((n) => (
+                <option key={n} value={n}>
+                  {fmtNum(n)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
     </>
   );
 
@@ -236,20 +296,53 @@ export function QuizPage() {
         })}
       </ol>
 
-      <div className="mt-8 flex justify-center">
+      <div className="mt-8 flex flex-wrap justify-center gap-2">
         <Button
           icon="history"
           onClick={() => {
             setSeed((s) => s + 1);
-            setAnswers({});
-            setChecked({});
+            restart();
           }}
         >
           {t('quiz.newQuiz')}
         </Button>
+        <Button
+          icon="download"
+          onClick={() => {
+            const title = t('quiz.chapterTitle', { n: uiDigits(chapter.numberLabel ?? '') });
+            const md = quizSheetMarkdown(quiz.questions, {
+              title: level === 'mixed' ? title : `${title} — ${t(`quiz.levels.${level}`)}`,
+              questions: t('quiz.sheet.questions'),
+              answers: t('quiz.sheet.answers'),
+              difficulty: (q) => t(`quiz.difficulty.${q.difficulty}`),
+              trueLabel: t('quiz.true'),
+              falseLabel: t('quiz.false'),
+              answer: t('quiz.sheet.answer'),
+              explanation: t('quiz.explanation'),
+              keyPoints: t('quiz.keyPoints'),
+              optionMarks: (getLanguage(lang).dir === 'rtl' ? t('quiz.sheet.optionMarksRtl') : 'A,B,C,D,E,F').split(
+                ',',
+              ),
+              num: (n) => fmtNum(n),
+              list: (items) => new Intl.ListFormat(uiLocale(), { type: 'unit' }).format(items),
+            });
+            downloadText(md, `quiz-${chapterId}-${level}.md`);
+          }}
+        >
+          {t('quiz.sheet.download')}
+        </Button>
       </div>
     </main>
   );
+}
+
+function downloadText(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function isCorrect(q: QuizQuestion, answer: number | boolean | string | undefined): boolean {

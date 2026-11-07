@@ -1,15 +1,23 @@
+import { toLatinDigits } from '@dozabaneh/text';
 import { weightedMode } from './layout';
 import { titleSimilarity } from './similarity';
 import type { Line, OutlineEntry, PageData } from './types';
 
 const ZONE = 0.08;
-const LONE_PAGE_NUMBER = /^(?:page\s+)?[-–—\s]*(?:\d{1,4}|[ivxlcdm]{1,7})[-–—\s]*$/i;
+/** Digits of every script a page number is printed in: Latin, Persian (۰–۹) and Arabic-Indic (٠–٩). */
+const DIGIT = '[0-9\u06F0-\u06F9\u0660-\u0669]';
+/** «12», «۱۲», «page 12», «صفحه ۱۲», «— xii —»: a printed page number alone on its line. */
+const LONE_PAGE_NUMBER = new RegExp(
+  String.raw`^(?:page\s+|صفحه\s+)?[-–—\s]*(?:${DIGIT}{1,4}|[ivxlcdm]{1,7})[-–—\s]*$`,
+  'iu',
+);
+const EDGE_NUMBER = new RegExp(String.raw`^(${DIGIT}{1,4})\s|\s(${DIGIT}{1,4})$`, 'u');
 
 /** Normalized form used to recognise repeating header/footer lines ("12 Chapter One" → "# chapter one"). */
 export function headerPattern(text: string): string {
   return text
     .toLowerCase()
-    .replace(/\d+/g, '#')
+    .replace(/[0-9۰-۹٠-٩]+/gu, '#')
     .replace(/\b[ivxlcdm]{1,7}\b/g, '#')
     .replace(/\s+/g, ' ')
     .trim();
@@ -98,11 +106,12 @@ export function removeHeadersFooters(
       if (!where) return true;
       const lone = LONE_PAGE_NUMBER.test(line.text);
       const drop = lone || repeating.has(`${where}|${headerPattern(line.text)}`) || isTitleHead(line);
-      if (lone) printed.set(page.index, line.text.replace(/^page\s+/i, '').replace(/[-–—\s]/g, ''));
+      if (lone)
+        printed.set(page.index, toLatinDigits(line.text.replace(/^(?:page|صفحه)\s+/iu, '').replace(/[-–—\s]/g, '')));
       else if (drop) {
         // "12   Chapter One" style running heads carry the printed number too.
-        const n = /^(\d{1,4})\s|\s(\d{1,4})$/.exec(line.text.trim());
-        if (n) printed.set(page.index, (n[1] ?? n[2]) as string);
+        const n = EDGE_NUMBER.exec(line.text.trim());
+        if (n) printed.set(page.index, toLatinDigits((n[1] ?? n[2]) as string));
       }
       if (drop) removed++;
       return !drop;

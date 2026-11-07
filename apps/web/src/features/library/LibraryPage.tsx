@@ -7,7 +7,7 @@ import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button, IconButton, ProgressBar } from '../../components/ui';
 import { booksKey, useBooks } from '../../data/books';
-import { api, type BookSummary, type ExportMode, exportUrl, offlineExportUrl } from '../../lib/api';
+import { api, type BookSummary, type ExportMode, errataUrl, exportUrl, offlineExportUrl } from '../../lib/api';
 import { fmtNum, fmtPct } from '../../lib/format';
 import { useLibrary } from '../../stores/library';
 import { useIsOwner } from '../auth/access';
@@ -305,6 +305,23 @@ function BookMenu({ summary }: { summary: BookSummary }) {
                 {t('library.exportOffline')}
               </a>
             </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-border" />
+            <DropdownMenu.Label className="px-3 pt-1 pb-1 text-xs text-muted">
+              {t('library.errataGroup')}
+            </DropdownMenu.Label>
+            <DropdownMenu.Item className={item} asChild>
+              <a href={errataUrl(summary.book.id, 'word')} download data-testid="export-errata-word">
+                <Icon name="download" size={16} />
+                {t('library.errataWord')}
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={item} asChild>
+              <a href={errataUrl(summary.book.id, 'csv')} download data-testid="export-errata-csv">
+                <Icon name="download" size={16} />
+                {t('library.errataCsv')}
+              </a>
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="my-1 h-px bg-border" />
             <DropdownMenu.Item className={item} onSelect={() => navigate(`/books/${summary.book.id}/audio`)}>
               <Icon name="sparkle" size={16} />
               {t('audio.open')}

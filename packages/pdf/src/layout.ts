@@ -10,7 +10,7 @@ export interface OrderedLine extends Line {
  * (reversed for right-to-left source languages).
  */
 export function orderPage(page: PageData, rtl = false): OrderedLine[] {
-  const lines = [...page.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0);
+  const lines = [...page.lines].sort((a, b) => a.y - b.y || (rtl ? b.x1 - a.x1 : a.x0 - b.x0));
   if (lines.length < 6) return lines.map((l) => ({ ...l, column: 0 }));
   // Where the text really ends, not where a broken line claims to (ADR-039): a text layer written by an OCR tool
   // reports widths of hundreds of points, and one such line used to push `right` far past the paper. That moved

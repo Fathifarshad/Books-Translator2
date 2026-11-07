@@ -220,6 +220,9 @@ importers:
       '@tesseract.js-data/eng':
         specifier: ^1.0.0
         version: 1.0.0
+      '@tesseract.js-data/fas':
+        specifier: ^1.0.0
+        version: 1.0.0
       pdfjs-dist:
         specifier: ^6.3.289
         version: 6.3.289
@@ -1906,6 +1909,9 @@ packages:
 
   '@tesseract.js-data/eng@1.0.0':
     resolution: {integrity: sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==}
+
+  '@tesseract.js-data/fas@1.0.0':
+    resolution: {integrity: sha512-TA2y9dabKPx5Uy9LHvsrkwljJfbyGhtHlfyLyNob6oYz2rTnj02cygUwFrGqlog5MRNSZOebJ9fzzrMuNHJSDQ==}
 
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
@@ -4907,6 +4913,8 @@ snapshots:
       react: 19.3.0
 
   '@tesseract.js-data/eng@1.0.0': {}
+
+  '@tesseract.js-data/fas@1.0.0': {}
 
   '@testing-library/dom@10.4.2':
     dependencies:

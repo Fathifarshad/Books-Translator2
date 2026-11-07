@@ -248,6 +248,11 @@ the sandbox has no access to the real services, so the first real connection is 
   dollars only for a pay-as-you-go model; each paid call records `jobs.cost_usd`; Settings → «سقف هزینه» holds a
   daily/monthly ceiling that makes paid engines wait. Tests: `packages/shared/src/cost.test.ts` (7),
   `apps/api/src/cost.test.ts` (9), e2e in `providers.spec.ts`.
+- [x] Persian books without translation (owner's request, 2026-11-07) — ADR-045: upload as «کتاب فارسی — بدون
+  ترجمه» → right-to-left extraction (Persian OCR included) → copy-edit only (`prompts/copyedit.md`) → «فایل سوتی»
+  (Word / Excel / Markdown) from the library menu; chapter quizzes and the tutor prepare questions at easy / medium /
+  hard / professional level, with a downloadable answer key. Tests: 6 new unit/API test files (27 tests), 4 e2e;
+  screenshots in `docs/screens/edit-quiz/`.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

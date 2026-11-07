@@ -29,8 +29,9 @@ export function plausibleWidth(width: number, size: number, text: string): numbe
 /**
  * Groups text items into lines by baseline (tolerance ≈ 0.3 × font size) and orders them by x
  * (SPEC §8.4). Smaller items raised above the baseline become superscripts (footnote markers).
+ * In a right-to-left book (`rtl`) a line reads from its right edge, with embedded Latin runs kept left to right.
  */
-export function buildLines(items: RawItem[], page: number): Line[] {
+export function buildLines(items: RawItem[], page: number, rtl = false): Line[] {
   const sorted = items.filter((i) => i.text.length > 0).sort((a, b) => a.y - b.y || a.x - b.x);
   const groups: RawItem[][] = [];
   for (const item of sorted) {
@@ -66,8 +67,41 @@ export function buildLines(items: RawItem[], page: number): Line[] {
   // Same baseline but separated by a column gutter → separate lines.
   return groups
     .flatMap(splitAtGutters)
-    .map((g) => toLine(g, page))
-    .sort((a, b) => a.y - b.y || a.x0 - b.x0);
+    .map((g) => toLine(g, page, rtl))
+    .sort((a, b) => a.y - b.y || (rtl ? b.x1 - a.x1 : a.x0 - b.x0));
+}
+
+/** Right-to-left letters (Arabic, Persian, Hebrew…) and left-to-right ones (Latin letters, digits). */
+const STRONG_RTL = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}]/u;
+const STRONG_LTR = /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}0-9]/u;
+
+/**
+ * Logical order of a right-to-left line's items: from the right edge to the left, except that a run of
+ * left-to-right items (an English term, a number written in Latin digits, `p < 0.05`) reads left to right inside
+ * it. Neutral items (punctuation, spaces) between two such items belong to the run; elsewhere they stay put.
+ * pdf.js already gives every single item in logical order, so only the order *between* items is decided here.
+ */
+export function rtlOrder<T extends { x: number; width: number; text: string }>(items: T[]): T[] {
+  const ordered = [...items].sort((a, b) => b.x + b.width - (a.x + a.width) || b.x - a.x);
+  const kind = (it: T) => (STRONG_RTL.test(it.text) ? 'rtl' : STRONG_LTR.test(it.text) ? 'ltr' : 'neutral');
+  const out: T[] = [];
+  let i = 0;
+  while (i < ordered.length) {
+    const it = ordered[i] as T;
+    if (kind(it) !== 'ltr') {
+      out.push(it);
+      i++;
+      continue;
+    }
+    // The run ends at the last LTR item before the next RTL item.
+    let end = i;
+    for (let j = i + 1; j < ordered.length && kind(ordered[j] as T) !== 'rtl'; j++) {
+      if (kind(ordered[j] as T) === 'ltr') end = j;
+    }
+    out.push(...ordered.slice(i, end + 1).reverse());
+    i = end + 1;
+  }
+  return out;
 }
 
 /**
@@ -102,7 +136,7 @@ function dominant(group: RawItem[]): RawItem {
   return best;
 }
 
-function toLine(group: RawItem[], page: number): Line {
+function toLine(group: RawItem[], page: number, rtl = false): Line {
   const bySize = new Map<number, number>();
   for (const g of group) {
     const key = Math.round(g.size * 2) / 2;
@@ -110,16 +144,26 @@ function toLine(group: RawItem[], page: number): Line {
   }
   const size = [...bySize.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? group[0]?.size ?? 10;
   const baseline = group.find((g) => Math.abs(g.size - size) < 0.6)?.y ?? group[0]?.y ?? 0;
-  const items = [...group].sort((a, b) => a.x - b.x);
+  const items = rtl ? rtlOrder(group) : [...group].sort((a, b) => a.x - b.x);
   const runs: TextRun[] = [];
   let prevEnd: number | null = null;
+  let prev: RawItem | undefined;
   for (const it of items) {
     const sup = it.size < size * 0.85 && baseline - it.y > size * 0.15;
-    // Insert a space when there is a visible gap and neither side already has one.
-    if (prevEnd !== null && it.x - prevEnd > Math.min(it.size, size) * 0.15) {
+    // Insert a space when there is a visible gap and neither side already has one. Right to left, the gap is the
+    // distance between the two boxes, whichever side the previous item is on.
+    const gap = rtl
+      ? prev
+        ? Math.max(it.x - (prev.x + prev.width), prev.x - (it.x + it.width))
+        : null
+      : prevEnd !== null
+        ? it.x - prevEnd
+        : null;
+    if (gap !== null && gap > Math.min(it.size, size) * 0.15) {
       const last = runs[runs.length - 1];
       if (last && !/\s$/.test(last.text) && !/^\s/.test(it.text) && !sup) last.text += ' ';
     }
+    prev = it;
     const run: TextRun = {
       text: it.text,
       x: it.x,
@@ -134,7 +178,11 @@ function toLine(group: RawItem[], page: number): Line {
     const last = runs[runs.length - 1];
     if (last && sameStyle(last, run) && !sup && !last.sup) {
       last.text += run.text;
-      last.width = run.x + run.width - last.x;
+      if (rtl) {
+        const x0 = Math.min(last.x, run.x);
+        last.width = Math.max(last.x + last.width, run.x + run.width) - x0;
+        last.x = x0;
+      } else last.width = run.x + run.width - last.x;
     } else runs.push(run);
     prevEnd = it.x + it.width;
   }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QuizCountSchema, QuizDifficultySchema, QuizLevelSchema } from './quiz';
 
 /**
  * Agent batch files (SPEC Appendix E, schema version 1). The app writes one batch per unit of AI work to
@@ -94,6 +95,9 @@ export const QuizInputSchema = z.object({
   scope: z.enum(['chapter', 'selection']),
   passages: z.array(PassageSchema),
   glossary: TermsSchema.optional(),
+  /** Asked level (`mixed` when absent) and number of questions (the prompt's default when absent). */
+  level: QuizLevelSchema.optional(),
+  count: QuizCountSchema.optional(),
 });
 export type QuizInput = z.infer<typeof QuizInputSchema>;
 
@@ -200,7 +204,7 @@ export const QuizTaskResultSchema = z.object({
       answer: z.union([z.number(), z.boolean(), z.string()]),
       keyPoints: z.array(z.string()).optional(),
       explanation: z.string(),
-      difficulty: z.enum(['easy', 'medium', 'hard']),
+      difficulty: QuizDifficultySchema,
       sources: z.array(z.string()),
     }),
   ),

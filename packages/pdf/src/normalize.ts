@@ -9,16 +9,21 @@ const LIGATURES: Record<string, string> = {
 };
 
 /**
- * Page cleanup on raw text (SPEC §8.3): NFC, ligatures expanded, soft hyphens removed, odd spaces
- * normalized. Curly quotes and dashes are kept.
+ * Page cleanup on raw text (SPEC §8.3): NFC, ligatures and Arabic presentation forms expanded, soft hyphens
+ * removed, odd spaces normalized. Curly quotes, dashes and the zero-width non-joiner («می‌شود») are kept.
  */
 export function normalizeRunText(text: string): string {
-  return text
-    .normalize('NFC')
-    .replace(/[ﬀ-ﬆ]/gu, (c) => LIGATURES[c] ?? c)
-    .replace(/\u{00AD}/gu, '')
-    .replace(/[\u{00A0}\u{2000}-\u{200A}\u{202F}\u{205F}\u{3000}]/gu, ' ')
-    .replace(/[\u{200B}\u{FEFF}]/gu, '');
+  return (
+    text
+      .normalize('NFC')
+      .replace(/[ﬀ-ﬆ]/gu, (c) => LIGATURES[c] ?? c)
+      // Arabic-script presentation forms (contextual glyph shapes some Persian/Arabic PDFs map their text to) become
+      // the letters they show, so «ﺳﻼﻡ» is searchable and editable as «سلام».
+      .replace(/[\u{FB50}-\u{FDFF}\u{FE70}-\u{FEFC}]/gu, (c) => c.normalize('NFKC'))
+      .replace(/\u{00AD}/gu, '')
+      .replace(/[\u{00A0}\u{2000}-\u{200A}\u{202F}\u{205F}\u{3000}]/gu, ' ')
+      .replace(/[\u{200B}\u{FEFF}]/gu, '')
+  );
 }
 
 const BOLD = /bold|black|heavy|semibold|demi|[-,]b$|extrabold|ultrabold/i;

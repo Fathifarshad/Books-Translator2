@@ -25,6 +25,34 @@ export function exportStrings(): ExportStrings {
   return cache;
 }
 
+/** Strings of the errata list («فایل سوتی», `fa.json` → "errata"). */
+export interface ErrataStrings {
+  title: string;
+  subtitle: string;
+  summary: string;
+  none: string;
+  systematic: string;
+  exported: string;
+  paragraph: string;
+  heading: string;
+  deleted: string;
+  inserted: string;
+  columns: Record<string, string | undefined>;
+  types: Record<string, string | undefined>;
+}
+
+let errataCache: ErrataStrings | undefined;
+
+export function errataStrings(): ErrataStrings {
+  if (!errataCache) {
+    const all = JSON.parse(readFileSync(join(repoRoot(), 'apps/web/src/i18n/fa.json'), 'utf8')) as {
+      errata: ErrataStrings;
+    };
+    errataCache = all.errata;
+  }
+  return errataCache;
+}
+
 /** `{{name}}` placeholders filled in, the way i18next would. */
 export function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/gu, (_m, key: string) => values[key] ?? '');

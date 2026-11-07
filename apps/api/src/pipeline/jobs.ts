@@ -16,6 +16,7 @@ import {
   type SegmentRecord,
   type TranslationSettings,
 } from '@dozabaneh/shared';
+import { isEditOnly } from '@dozabaneh/text';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { getBundle, newId } from '../db/repo';
@@ -223,8 +224,12 @@ export function effectiveSkip(bundle: BookBundle): Set<string> {
   return out;
 }
 
-/** The translate/edit work for a book (also used for the estimate before starting). */
+/**
+ * The translate/edit work for a book (also used for the estimate before starting). A book edited in its own
+ * language (ADR-045) has no translate chunks, and its edit pass runs at every quality profile — it is the work.
+ */
 export function planTranslation(bundle: BookBundle, lang: string, settings: TranslationSettings): TranslationPlan {
+  const editOnly = isEditOnly(bundle.book.sourceLang, lang);
   const index = createBookIndex(bundle);
   const skipped = effectiveSkip(bundle);
   const status = new Map(bundle.translations.filter((t) => t.lang === lang).map((t) => [t.segmentId, t.status]));
@@ -241,12 +246,14 @@ export function planTranslation(bundle: BookBundle, lang: string, settings: Tran
       count++;
       words += s.src.split(/\s+/u).length;
     }
-    const chunks = chunkSegments(toTranslate, {
-      lang: bundle.book.sourceLang,
-      maxWords: chunkWordsFor(settings.engines.translate, 'translate'),
-    }).map((c) => c.map((s: SegmentRecord) => s.id));
+    const chunks = editOnly
+      ? []
+      : chunkSegments(toTranslate, {
+          lang: bundle.book.sourceLang,
+          maxWords: chunkWordsFor(settings.engines.translate, 'translate'),
+        }).map((c) => c.map((s: SegmentRecord) => s.id));
     const edits =
-      settings.profile === 'economy'
+      settings.profile === 'economy' && !editOnly
         ? []
         : chunkSegments(todo, {
             lang: bundle.book.sourceLang,
@@ -273,6 +280,7 @@ export function createTranslationJobs(
   const bundle = getBundle(db, bookId);
   if (!bundle) return 0;
   const plan = planTranslation(bundle, lang, settings);
+  const editOnly = isEditOnly(bundle.book.sourceLang, lang);
   const index = createBookIndex(bundle);
   const priorityChapters = new Set(
     [...settings.priorityNodeIds, ...boosted].map((id) => chapterOf(index, id)?.id ?? id),
@@ -316,6 +324,7 @@ export function createTranslationJobs(
         });
         created++;
       });
+      if (editOnly) seedDrafts(db, bundle, lang, unit.edits.flat());
       const queued = unit.chunks.flat();
       for (const segmentId of queued) {
         db.insert(translations)
@@ -330,4 +339,28 @@ export function createTranslationJobs(
     }
   });
   return created;
+}
+
+/** Statuses after which a segment already has a text of its own in the target language. */
+const HAS_TEXT = new Set(['drafted', 'edited', 'final', 'flagged', 'user_edited']);
+
+/**
+ * Edit-only books (ADR-045): the original text is the draft the editor works on, so the reader shows it in the
+ * edited column until the edit arrives, and the errata list compares the edit with it.
+ */
+export function seedDrafts(db: Db, bundle: BookBundle, lang: string, segmentIds: string[]): void {
+  const byId = new Map(bundle.segments.map((s) => [s.id, s]));
+  const status = new Map(bundle.translations.filter((t) => t.lang === lang).map((t) => [t.segmentId, t.status]));
+  for (const id of segmentIds) {
+    const seg = byId.get(id);
+    if (!seg || HAS_TEXT.has(status.get(id) ?? 'pending')) continue;
+    db.insert(translations)
+      .values({ segmentId: id, lang, draft: seg.src, status: 'drafted', engine: 'source' })
+      .onConflictDoUpdate({
+        target: [translations.segmentId, translations.lang],
+        set: { draft: seg.src, final: null, status: 'drafted', engine: 'source' },
+        setWhere: sql`${translations.status} IN ('pending', 'queued')`,
+      })
+      .run();
+  }
 }

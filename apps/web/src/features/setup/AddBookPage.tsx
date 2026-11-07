@@ -1,3 +1,4 @@
+import { type BookKind, bookKinds } from '@dozabaneh/text';
 import { useQueryClient } from '@tanstack/react-query';
 import { type DragEvent, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +7,7 @@ import { Icon } from '../../components/Icon';
 import { Button, ProgressBar } from '../../components/ui';
 import { booksKey } from '../../data/books';
 import { ApiError, uploadBook } from '../../lib/api';
-import { fmtNum, fmtPct } from '../../lib/format';
+import { fmtNum, fmtPct, languageName } from '../../lib/format';
 
 const STEPS = ['upload', 'extract', 'review', 'settings', 'glossary', 'translate'] as const;
 const KNOWN_ERRORS = new Set(['NOT_A_PDF', 'FILE_TOO_LARGE', 'NETWORK']);
@@ -21,6 +22,15 @@ export function AddBookPage() {
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  const kinds = bookKinds();
+  const [kind, setKind] = useState<BookKind>(kinds[0] as BookKind);
+  const kindLabel = (k: BookKind) =>
+    k.editOnly
+      ? t('upload.kind.edit', { lang: languageName(k.sourceLang) })
+      : t('upload.kind.translate', {
+          source: languageName(k.sourceLang),
+          target: languageName(k.targetLang),
+        });
 
   const send = async (file: File | undefined) => {
     if (!file) return;
@@ -32,7 +42,10 @@ export function AddBookPage() {
     }
     setProgress(0);
     try {
-      const { bookId } = await uploadBook(file, setProgress);
+      const { bookId } = await uploadBook(file, setProgress, {
+        sourceLang: kind.sourceLang,
+        targetLang: kind.targetLang,
+      });
       await queryClient.invalidateQueries({ queryKey: booksKey });
       navigate(`/books/${bookId}/setup`);
     } catch (err) {
@@ -60,6 +73,38 @@ export function AddBookPage() {
       </Link>
       <h1 className="mt-4 text-2xl font-bold">{t('setup.addBookTitle')}</h1>
       <p className="mt-2 text-sm text-muted">{t('library.addBookHint')}</p>
+
+      <fieldset className="mt-6" data-testid="book-kind">
+        <legend className="mb-2 text-sm font-medium">{t('upload.kind.legend')}</legend>
+        <div className="flex flex-col gap-2">
+          {kinds.map((k) => {
+            const id = `${k.sourceLang}-${k.targetLang}`;
+            const checked = k.sourceLang === kind.sourceLang && k.targetLang === kind.targetLang;
+            return (
+              <label
+                key={id}
+                className="flex cursor-pointer items-start gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm has-checked:border-accent has-checked:bg-accent-soft"
+              >
+                <input
+                  type="radio"
+                  name="book-kind"
+                  value={id}
+                  checked={checked}
+                  disabled={progress !== null}
+                  onChange={() => setKind(k)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="block font-medium">{kindLabel(k)}</span>
+                  <span className="block text-xs text-muted">
+                    {k.editOnly ? t('upload.kind.editHint') : t('upload.kind.translateHint')}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
 
       <label
         onDragOver={(e) => {

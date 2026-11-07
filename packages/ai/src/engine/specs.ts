@@ -339,8 +339,38 @@ const quiz: TaskSpec<'quiz'> = {
       output.questions.flatMap((q) => q.sources),
       'unknown_source',
     ),
+    ...quizLevelIssues(input, output),
   ],
 };
+
+/**
+ * A single asked level must be the level of every question; a wrong count is only a warning (a short chapter may
+ * not carry twenty good questions, and a weak model's quiz is still worth showing).
+ */
+function quizLevelIssues(input: TaskInput<'quiz'>, output: TaskResult<'quiz'>): ValidationIssue[] {
+  const out: ValidationIssue[] = [];
+  const level = input.level ?? 'mixed';
+  if (level !== 'mixed') {
+    output.questions.forEach((q, i) => {
+      if (q.difficulty !== level)
+        out.push({
+          level: 'error',
+          rule: 'quiz_level',
+          message: `Question ${i + 1}: difficulty is "${q.difficulty}" but the quiz was asked at level "${level}".`,
+          fix: `Write every question at level "${level}" and set "difficulty": "${level}".`,
+        });
+    });
+  }
+  if (input.count !== undefined && output.questions.length !== input.count) {
+    out.push({
+      level: 'warning',
+      rule: 'quiz_count',
+      message: `The quiz has ${output.questions.length} questions; ${input.count} were asked for.`,
+      fix: `Return exactly ${input.count} questions.`,
+    });
+  }
+  return out;
+}
 
 const tutorAnswer: TaskSpec<'tutor_answer'> = {
   task: 'tutor_answer',

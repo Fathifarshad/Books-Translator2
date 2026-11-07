@@ -362,6 +362,13 @@ export function exportUrl(bookId: string, format: ExportFormat, mode: ExportMode
   return apiUrl(`/books/${bookId}/export/${format}${query ? `?${query}` : ''}`);
 }
 
+/** «فایل سوتی» (ADR-045): the corrections of the edit pass as a Word table, a CSV for Excel, or Markdown. */
+export function errataUrl(bookId: string, format: 'word' | 'csv' | 'markdown', lang?: string): string {
+  const params = new URLSearchParams({ format });
+  if (lang) params.set('lang', lang);
+  return apiUrl(`/books/${bookId}/export/errata?${params.toString()}`);
+}
+
 /** Full-page navigation target of «اتصال با یک کلیک» (OpenRouter's authorization page, then back here). */
 export function openRouterConnectUrl(returnTo: string): string {
   return apiUrl(`/settings/providers/openrouter/connect?return=${encodeURIComponent(returnTo)}`);
@@ -426,10 +433,19 @@ export async function* streamTutor(input: TutorEngineInput, signal: AbortSignal)
 }
 
 /** Upload with progress (XHR, since fetch has no upload progress events). */
-export function uploadBook(file: File, onProgress: (ratio: number) => void): Promise<{ bookId: string }> {
+/**
+ * Uploads a PDF. `langs` says what the book is: its language and the language to make of it — the same language
+ * twice means «edit, don't translate» (ADR-045); without it the server's defaults apply.
+ */
+export function uploadBook(
+  file: File,
+  onProgress: (ratio: number) => void,
+  langs?: { sourceLang: string; targetLang: string },
+): Promise<{ bookId: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', apiUrl('/books'));
+    const query = langs ? `?${new URLSearchParams(langs).toString()}` : '';
+    xhr.open('POST', apiUrl(`/books${query}`));
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };

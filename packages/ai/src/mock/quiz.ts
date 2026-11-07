@@ -1,4 +1,4 @@
-import type { ContextGlossaryEntry, QuizQuestion, QuizResult } from '@dozabaneh/shared';
+import type { ContextGlossaryEntry, QuizDifficulty, QuizLevel, QuizQuestion, QuizResult } from '@dozabaneh/shared';
 import { splitSentences } from '@dozabaneh/text';
 import { seededRandom, shuffle } from './chunks';
 import { mockStrings } from './strings';
@@ -10,11 +10,16 @@ export interface QuizInput {
   glossary: ContextGlossaryEntry[];
   /** Changes the question selection for «آزمون تازه». */
   seed?: string;
+  /** Asked level; `mixed` (the default) spreads the questions over all levels. */
+  level?: QuizLevel;
 }
+
+const MIXED: readonly QuizDifficulty[] = ['easy', 'medium', 'hard', 'professional'];
 
 /**
  * Deterministic quiz from glossary definitions (QuizResultV1): chapter → 5 MCQ + 2 true/false + 1 short;
- * selection → 3 mixed. Real engines write better questions from prompts/quiz.md.
+ * selection → 3 mixed. Every question carries the asked level. Real engines write better questions from
+ * prompts/quiz.md.
  */
 export function mockQuiz(input: QuizInput): QuizResult {
   const s = mockStrings(input.targetLang);
@@ -31,7 +36,10 @@ export function mockQuiz(input: QuizInput): QuizResult {
   const nMcq = input.scope === 'chapter' ? 5 : 1;
   const nTf = input.scope === 'chapter' ? 2 : 1;
   const questions: QuizQuestion[] = [];
-  const difficulties = ['easy', 'medium', 'hard'] as const;
+  const level = input.level ?? 'mixed';
+  /** The asked level for every question, or — mixed — a spread in the order of the questions. */
+  const difficulty = (fallback: QuizDifficulty): QuizDifficulty =>
+    level !== 'mixed' ? level : (MIXED[questions.length % MIXED.length] ?? fallback);
 
   for (const g of terms.slice(0, nMcq)) {
     const distractors = shuffle(
@@ -45,7 +53,7 @@ export function mockQuiz(input: QuizInput): QuizResult {
       options: options.map((o) => o.tgt),
       answer: options.indexOf(g),
       explanation: s.quiz.mcqExplanation(g.tgt),
-      difficulty: difficulties[questions.length % 3] ?? 'medium',
+      difficulty: difficulty('medium'),
       sources: sourceOf(g),
     });
   }
@@ -57,7 +65,7 @@ export function mockQuiz(input: QuizInput): QuizResult {
       question: s.quiz.trueFalse(g.tgt, (truthful ? g.definition : other?.definition) ?? ''),
       answer: truthful,
       explanation: truthful ? s.quiz.tfExplanationTrue(g.tgt) : s.quiz.tfExplanationFalse(g.tgt, other?.tgt ?? ''),
-      difficulty: 'medium',
+      difficulty: difficulty('medium'),
       sources: sourceOf(g),
     });
   }
@@ -70,7 +78,7 @@ export function mockQuiz(input: QuizInput): QuizResult {
       answer: splitSentences(text, first.tgt ? input.targetLang : 'en')[0] ?? text,
       keyPoints: terms.slice(0, 3).map((g) => g.tgt),
       explanation: s.quiz.shortExplanation,
-      difficulty: 'hard',
+      difficulty: level === 'mixed' ? 'hard' : level,
       sources: [first.label],
     });
   }

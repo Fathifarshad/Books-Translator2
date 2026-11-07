@@ -8,7 +8,7 @@
  * The database is created and the sample book seeded automatically on first start.
  * Terminal messages are English: Windows consoles print right-to-left text reversed.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,39 @@ function fail(message) {
 }
 
 say('Dozabaneh - starting');
+
+/** Answers within a second with a status below 400, or not at all. */
+async function answers(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return res.ok ? res : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Already running (the icon double-clicked twice, or `pnpm dev` left open in another window): a second copy would
+ * only fail with "address already in use" on port 8787. Open the running one instead — the dev server's page on
+ * 5173 when that is up, else the app served on 8787.
+ */
+const health = await answers('http://127.0.0.1:8787/api/v1/health');
+if (health && ((await health.json().catch(() => ({})))?.name ?? '') === 'Dozabaneh') {
+  const dev = await answers('http://localhost:5173/');
+  const url = dev ? 'http://localhost:5173' : 'http://localhost:8787';
+  say('');
+  say(`Dozabaneh is already running. Opening ${url}`);
+  say('(To restart it, close the other window that runs it first.)');
+  if (!process.argv.includes('--no-open')) {
+    const child = spawn(isWin ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', [url], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    child.on('error', () => {});
+    child.unref();
+  }
+  process.exit(0);
+}
 
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major < MIN_NODE[0] || (major === MIN_NODE[0] && minor < MIN_NODE[1])) {

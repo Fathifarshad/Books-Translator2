@@ -111,7 +111,7 @@ function envelope(
     schemaVersion: 1,
     batchId,
     task,
-    promptRefs: promptRefsFor(task, lang),
+    promptRefs: promptRefsFor(task, lang, bundle.book.sourceLang),
     sourceLanguage: bundle.book.sourceLang,
     targetLanguage: lang,
     options: { ezafe: settings.ezafe, parenthetical: settings.parenthetical },

@@ -92,3 +92,34 @@ export function dirOf(code: string): TextDirection {
 export function localeOf(code: string): string {
   return getLanguage(code).locale;
 }
+
+/** Language of a new book, and the language it is translated into, unless the user picks others. */
+export const DEFAULT_SOURCE_LANG: KnownLanguage = 'en';
+export const DEFAULT_TARGET_LANG: KnownLanguage = 'fa';
+
+/**
+ * A book whose target language is its own language is *edited*, not translated (ADR-045): the pipeline skips the
+ * brief, glossary and translation stages, the editor works on the original text, and its changes become the
+ * errata list («فایل سوتی»).
+ */
+export function isEditOnly(sourceLang: string, targetLang: string): boolean {
+  return sourceLang === targetLang;
+}
+
+export interface BookKind {
+  sourceLang: KnownLanguage;
+  targetLang: KnownLanguage;
+  editOnly: boolean;
+}
+
+/**
+ * What a new book can be, from the registry: a book in any other language translated into `target`, then a book
+ * written in `target` itself, edited without translation.
+ */
+export function bookKinds(target: KnownLanguage = DEFAULT_TARGET_LANG): BookKind[] {
+  const codes = Object.keys(LANGUAGES) as KnownLanguage[];
+  return [
+    ...codes.filter((c) => c !== target).map((c) => ({ sourceLang: c, targetLang: target, editOnly: false })),
+    { sourceLang: target, targetLang: target, editOnly: true },
+  ];
+}

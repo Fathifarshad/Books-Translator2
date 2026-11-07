@@ -15,6 +15,7 @@ import {
   type TranslationSettings,
   TranslationSettingsSchema,
 } from '@dozabaneh/shared';
+import { isEditOnly } from '@dozabaneh/text';
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getBookRow, getBundle, refreshCounters } from '../db/repo';
 import { agentBatches, books, bookTargets, glossaryTerms, jobs, translations } from '../db/schema';
@@ -59,13 +60,13 @@ export function startPipeline(
   const row = getBookRow(db, bookId);
   if (!row) throw new PipelineError('BOOK_NOT_FOUND', 404);
   if (!STARTABLE.has(row.status)) throw new PipelineError('BOOK_NOT_READY');
-  if (lang === row.sourceLang) throw new PipelineError('SAME_LANGUAGE', 400);
+  // lang === sourceLang is allowed: the book is edited in its own language instead of translated (ADR-045).
   const settings = TranslationSettingsSchema.parse({ ...translationSettings(row, lang), ...input });
   let moved = 0;
-  // A free provider must be connected (key + model) before its jobs are created.
-  const notReady = (ctx.providers?.status(PIPELINE_TASKS.map((t) => settings.engines[t])) ?? []).filter(
-    (p) => !p.ready,
-  );
+  // A free provider must be connected (key + model) before its jobs are created. An edit-only book (ADR-045)
+  // runs nothing but the edit pass, so only its engine counts.
+  const used = isEditOnly(row.sourceLang, lang) ? (['edit'] as const) : PIPELINE_TASKS;
+  const notReady = (ctx.providers?.status(used.map((t) => settings.engines[t])) ?? []).filter((p) => !p.ready);
   if (notReady.length) throw new PipelineError('PROVIDER_NOT_READY', 409, { providers: notReady.map((p) => p.id) });
   // A book whose sections are all skipped (or whose text could not be read) would "finish" at 0%: say why instead.
   const bundle = getBundle(db, bookId);
@@ -332,15 +333,18 @@ export function estimatePipeline(
   const settings = TranslationSettingsSchema.parse({ ...translationSettings(row, lang), ...input });
   const plan = planTranslation(bundle, lang, settings);
   const skipped = new Set(bundle.nodes.filter((n) => n.skip).map((n) => n.id));
-  const candidates = row.brief?.[lang]
-    ? 0
-    : extractCandidates(
-        bundle.segments.filter((s) => needsTranslation(s) && !skipped.has(s.nodeId)).map((s) => s.src),
-        bundle.book.sourceLang,
-        { max: 160 },
-      ).length;
+  // An edit-only book (ADR-045) has no brief and no glossary: only its edit batches cost anything.
+  const editOnly = isEditOnly(row.sourceLang, lang);
+  const candidates =
+    editOnly || row.brief?.[lang]
+      ? 0
+      : extractCandidates(
+          bundle.segments.filter((s) => needsTranslation(s) && !skipped.has(s.nodeId)).map((s) => s.src),
+          bundle.book.sourceLang,
+          { max: 160 },
+        ).length;
   const batches = {
-    brief: row.brief?.[lang] ? 0 : 1,
+    brief: editOnly || row.brief?.[lang] ? 0 : 1,
     glossary: Math.ceil(candidates / 40),
     translate: plan.units.reduce((n, u) => n + u.chunks.length, 0),
     edit: plan.units.reduce((n, u) => n + u.edits.length, 0),
@@ -410,7 +414,8 @@ export function pipelineStatus(ctx: PipelineCtx, bookId: string, lang: string): 
     rejected: batchRows.reduce((n, r) => n + (r.rejected ?? 0), 0),
   };
 
-  const briefDone = Boolean(row.brief?.[lang]);
+  // An edit-only book (ADR-045) has no brief: it goes straight to the edit stage.
+  const briefDone = isEditOnly(row.sourceLang, lang) || Boolean(row.brief?.[lang]);
   const glossary = count('glossary');
   const translate = count('translate');
   const edit = count('edit');

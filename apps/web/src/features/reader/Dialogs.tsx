@@ -2,7 +2,7 @@ import { Dialog } from 'radix-ui';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconButton, Kbd } from '../../components/ui';
-import { languageName } from '../../lib/format';
+import { columnName } from '../../lib/format';
 import { useReaderUi } from '../../stores/reader';
 import { DisplaySettingsForm } from '../settings/DisplaySettingsForm';
 import { useReader } from './context';
@@ -69,8 +69,8 @@ export function ShortcutsDialog() {
       t('shortcuts.search'),
     ],
     [<Kbd key="t">T</Kbd>, t('shortcuts.toggleTutor')],
-    [<Kbd key="1">1</Kbd>, t('shortcuts.toggleColumn', { language: languageName(targetLang) })],
-    [<Kbd key="2">2</Kbd>, t('shortcuts.toggleColumn', { language: languageName(sourceLang) })],
+    [<Kbd key="1">1</Kbd>, t('shortcuts.toggleColumn', { language: columnName('target', sourceLang, targetLang) })],
+    [<Kbd key="2">2</Kbd>, t('shortcuts.toggleColumn', { language: columnName('source', sourceLang, targetLang) })],
     [<Kbd key="e">Esc</Kbd>, t('shortcuts.close')],
     [<Kbd key="q">?</Kbd>, t('shortcuts.title')],
   ];

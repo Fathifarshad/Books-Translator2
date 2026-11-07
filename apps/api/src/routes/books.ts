@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { API_PREFIX } from '@dozabaneh/shared';
+import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG, isKnownLanguage } from '@dozabaneh/text';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -13,6 +14,13 @@ import { getBookRow, getBundle, LOCAL_USER, listBooks, newId, targetsOf, toBookR
 import { books, bookTargets } from '../db/schema';
 import { enqueue, latestJob } from '../jobs/queue';
 import { httpError } from './errors';
+
+const knownLanguage = z.string().refine(isKnownLanguage, 'unknown language');
+/** `POST /books?sourceLang=fa&targetLang=fa`: the same language twice means «edit, don't translate» (ADR-045). */
+const UploadQuery = z.object({
+  sourceLang: knownLanguage.default(DEFAULT_SOURCE_LANG),
+  targetLang: knownLanguage.default(DEFAULT_TARGET_LANG),
+});
 
 const PatchBook = z.object({
   titles: z.record(z.string(), z.string().min(1)).optional(),
@@ -117,6 +125,10 @@ export async function bookRoutes(app: FastifyInstance, { ctx }: { ctx: AppContex
    * computes SHA-256, offers the existing book for a duplicate, then queues ingestion (SPEC §8.1).
    */
   app.post(`${API_PREFIX}/books`, async (req, reply) => {
+    // The book's language and what to make of it: translate into another language, or edit in its own (ADR-045).
+    const langs = UploadQuery.safeParse(req.query ?? {});
+    if (!langs.success) throw httpError(400, 'UNKNOWN_LANGUAGE');
+    const { sourceLang, targetLang } = langs.data;
     const file = await req.file({ limits: { fileSize: config.MAX_UPLOAD_MB * 1024 * 1024, files: 1 } });
     if (!file) throw httpError(400, 'NO_FILE');
     const tmpDir = join(config.dataDir, 'uploads', 'tmp');
@@ -164,8 +176,8 @@ export async function bookRoutes(app: FastifyInstance, { ctx }: { ctx: AppContex
         .values({
           id: bookId,
           ownerId: LOCAL_USER,
-          sourceLang: 'en',
-          titles: { en: title },
+          sourceLang,
+          titles: { [sourceLang]: title },
           authors: [],
           pageLabels: [],
           filePath,
@@ -174,7 +186,7 @@ export async function bookRoutes(app: FastifyInstance, { ctx }: { ctx: AppContex
           status: 'uploaded',
         })
         .run();
-      tx.insert(bookTargets).values({ bookId, lang: 'fa' }).run();
+      tx.insert(bookTargets).values({ bookId, lang: targetLang }).run();
     });
     const jobId = enqueue(db, { bookId, stage: 'ingest', priority: 10 });
     ctx.runner.kick();

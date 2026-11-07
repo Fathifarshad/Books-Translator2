@@ -10,7 +10,7 @@ import {
   QUALITY_PROFILES,
   type TranslationSettings,
 } from '@dozabaneh/shared';
-import { getLanguage, isolate, LANGUAGES } from '@dozabaneh/text';
+import { getLanguage, isEditOnly, isolate, LANGUAGES } from '@dozabaneh/text';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -87,7 +87,9 @@ function SettingsStep({
   const queryClient = useQueryClient();
   const [s, setS] = useState<Settings>({ ...DEFAULTS, ...initial });
   useEffect(() => setS({ ...DEFAULTS, ...initial }), [initial]);
-  const targets = Object.keys(LANGUAGES).filter((code) => code !== book.sourceLang);
+  // A book edited in its own language (ADR-045) has that language as its only target.
+  const editOnly = isEditOnly(book.sourceLang, lang);
+  const targets = editOnly ? [lang] : Object.keys(LANGUAGES).filter((code) => code !== book.sourceLang);
   const chapters = useMemo(() => bundle.nodes.filter((n) => n.kind === 'chapter' && !n.skip), [bundle.nodes]);
   const titleOf = (headingId?: string, fallback?: string) =>
     bundle.segments.find((seg) => seg.id === headingId)?.src ?? fallback ?? '';
@@ -145,7 +147,12 @@ function SettingsStep({
 
   return (
     <section className="mt-8 rounded-2xl border border-border bg-surface p-5" data-testid="translation-settings">
-      <h2 className="text-lg font-bold">{t('setup.translationSettings')}</h2>
+      <h2 className="text-lg font-bold">{editOnly ? t('setup.editOnlyTitle') : t('setup.translationSettings')}</h2>
+      {editOnly ? (
+        <p className="mt-2 rounded-xl bg-accent-soft/70 px-4 py-3 text-sm leading-7" data-testid="edit-only-hint">
+          {t('setup.editOnlyHint')}
+        </p>
+      ) : null}
       <div className="mt-4 grid gap-5 md:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium">{t('setup.targetLanguage')}</span>

@@ -561,3 +561,42 @@ written joined it keeps the natural stress (`ketˈɑbhɑ`). So the joiner is rem
 little slower (`--length_scale 1.08`) with 0.4 s after each sentence (`--sentence_silence`), both adjustable in
 Settings. The voice test now reads a realistic textbook paragraph (plurals, a number with a unit, a foreign term, a
 question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/Farid) is the step up.
+
+## ADR-045 — Persian books edited without translation; the errata file; questions by level (2026-11-07)
+
+- **Context:** the owner asked for three things on a Persian PDF that needs no translation: a careful,
+  professional copy-edit; a «فایل سوتی» (the list of errors and their corrections); and, for teachers, easy /
+  medium / hard / professional questions. Before this, upload always stored `sourceLang: 'en'`, the pipeline refused
+  a target equal to the source (`SAME_LANGUAGE`), ingestion never read right to left (the `rtl` option existed but
+  was never derived from the language), page numbers in Persian digits were not recognised, OCR had English data
+  only, the edit pass kept only the *types* of its changes, and quizzes had a fixed easy/medium/hard mix.
+- **Decision — edit-only is "target = source".** `POST /books?sourceLang=fa&targetLang=fa`; `isEditOnly()` in the
+  language registry. The pipeline marks brief and glossary as done, creates no translate chunks, seeds the original
+  as the `draft` (status `drafted`, engine `source`) and runs the edit pass at every quality profile. The reader,
+  review queue, user edits, exports and tutor work unchanged, because one source segment still maps to one target
+  segment. Column names become «متن اصلی» / «ویراسته» when both are the same language.
+- **Copy-editing prompt** `prompts/copyedit.md` (chosen by `promptRefsFor(task, target, source)` for `edit` only):
+  minimum necessary corrections in a fixed priority (spelling, spacing/ZWNJ, punctuation, grammar, wording,
+  consistency, extraction artefacts), never facts or ideas; doubts go to `flag`. Same `EditResultV1` schema, so
+  every engine and the validation are shared. The `untranslated` QA check is skipped for edit-only books.
+- **Errata («فایل سوتی»).** New column `translations.changes` (migration 0005) keeps the editor's `changes`. The list
+  (`packages/core/src/errata.ts`) is built from a **word diff** of `draft` → current text — the ground truth — and
+  borrows type and reason from the engine change that overlaps each hunk; a change the engine described but did not
+  make is ignored, one it made silently is listed as «سایر». Arabic look-alike letters («ي، ك») are counted in one
+  line instead of hundreds. `GET /books/:id/export/errata?format=word|csv|markdown`: a landscape right-to-left Word
+  table, a CSV with BOM for Excel, or Markdown. It works for translated books too (edits of the translation draft).
+- **Persian PDFs.** The reading direction follows the source language; words of a line are ordered from the right
+  edge, with embedded Latin runs kept left to right (`rtlOrder`); Arabic presentation forms become letters (NFKC on
+  those ranges only); page numbers in Persian/Arabic-Indic digits and «صفحه N» are removed and recorded;
+  `@tesseract.js-data/fas` added for scanned Persian books.
+- **Question levels.** `QUIZ_LEVELS` = mixed + easy/medium/hard/**professional**, `count` 3–20; prompt `quiz.md` v2
+  defines each level (recall → understanding → application/analysis → expert judgement on realistic cases). A
+  single asked level is enforced (`quiz_level` error), a different count only warns. The quiz page has the level and
+  count pickers and downloads a question sheet with the answer key at the end; the tutor has «طرح سؤال» buttons per
+  level, and `tutor.md` v2 says how to write such a set.
+- **Consequences:** the copy-edit's quality depends on the engine (the mock returns the text unchanged). Very
+  unusual PDFs that store Persian text in visual (reversed) order within one item are not repaired. Tests:
+  `packages/pdf/src/rtl.test.ts`, `packages/core/src/errata.test.ts`, `packages/text/src/languages.test.ts`,
+  `packages/ai/src/engine/quiz-levels.test.ts`, `apps/web/src/features/quiz/sheet.test.ts`,
+  `apps/api/src/edit-only.test.ts` (upload → edit with the agent → errata in three formats), e2e
+  `edit-quiz.spec.ts`; screenshots in `docs/screens/edit-quiz/`.

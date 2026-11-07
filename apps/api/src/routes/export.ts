@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
 import { bookDocument } from '../export/document';
+import { bookErrata, errataCsv, errataDocx, errataMarkdown } from '../export/errata';
 import { toMarkdown } from '../export/markdown';
 import { buildOfflineHtml } from '../export/offline';
 import { buildPrintHtml } from '../export/print';
@@ -15,6 +16,8 @@ const Query = z.object({
   /** Which columns the file carries: the translation, both languages, or the original. */
   mode: z.enum(['target', 'bilingual', 'source']).default('target'),
 });
+
+const ErrataQuery = z.object({ format: z.enum(['word', 'csv', 'markdown']).default('word') });
 
 /**
  * A file name that is safe on Windows and Android. Latin letters only: browsers (Chromium) drop non-Latin
@@ -83,6 +86,33 @@ export async function exportRoutes(app: FastifyInstance, { ctx }: { ctx: AppCont
       .header('Content-Disposition', `attachment; filename="${name('docx')}"`)
       .header('Cache-Control', 'no-store')
       .send(file);
+  });
+
+  /** «فایل سوتی» (ADR-045): every correction of the edit pass — Word table, CSV for Excel, or Markdown. */
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/books/:id/export/errata`, async (req, reply) => {
+    const { bundle, lang } = read(req.params.id, req.query);
+    const { format } = ErrataQuery.parse(req.query ?? {});
+    const errata = bookErrata(ctx.db, bundle, lang);
+    const title = bundle.book.titles[lang] ?? bundle.book.titles[bundle.book.sourceLang] ?? '';
+    const base = exportFileName(bundle.book.titles[bundle.book.sourceLang] ?? '', `dozabaneh-${bundle.book.id}`, 'x');
+    const file = (extension: string) => `${base.slice(0, -2)}-errata.${extension}`;
+    reply.header('Cache-Control', 'no-store');
+    if (format === 'csv') {
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${file('csv')}"`)
+        .send(errataCsv(errata, lang));
+    }
+    if (format === 'markdown') {
+      return reply
+        .header('Content-Type', 'text/markdown; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${file('md')}"`)
+        .send(errataMarkdown(errata, title, lang));
+    }
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      .header('Content-Disposition', `attachment; filename="${file('docx')}"`)
+      .send(await errataDocx(errata, title, lang));
   });
 
   /** Opened in a tab, not downloaded: the browser's print dialog saves it as a PDF, with Persian shaped right. */

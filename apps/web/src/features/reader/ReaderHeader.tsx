@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button, IconButton } from '../../components/ui';
-import { languageName, uiDigits } from '../../lib/format';
+import { columnName, uiDigits } from '../../lib/format';
 import { copyText, type Layout } from '../../lib/hooks';
 import { useLibrary } from '../../stores/library';
 import { type MobileMode, useReaderUi } from '../../stores/reader';
@@ -51,8 +51,8 @@ export function ReaderHeader({ layout, twoColumns }: { layout: Layout; twoColumn
         <legend className="sr-only">{t('reader.viewMode')}</legend>
         {(
           [
-            ['target', languageName(targetLang)],
-            ['source', languageName(sourceLang)],
+            ['target', columnName('target', sourceLang, targetLang)],
+            ['source', columnName('source', sourceLang, targetLang)],
             ['both', t('reader.both')],
           ] as [MobileMode, string][]
         ).map(([mode, label]) => (
@@ -78,17 +78,17 @@ export function ReaderHeader({ layout, twoColumns }: { layout: Layout; twoColumn
           variant="pill"
           aria-pressed={ui.showTarget}
           onClick={() => ui.toggleColumn('target')}
-          aria-label={t('reader.columnToggle', { language: languageName(targetLang) })}
+          aria-label={t('reader.columnToggle', { language: columnName('target', sourceLang, targetLang) })}
         >
-          {languageName(targetLang)}
+          {columnName('target', sourceLang, targetLang)}
         </Button>
         <Button
           variant="pill"
           aria-pressed={ui.showSource}
           onClick={() => ui.toggleColumn('source')}
-          aria-label={t('reader.columnToggle', { language: languageName(sourceLang) })}
+          aria-label={t('reader.columnToggle', { language: columnName('source', sourceLang, targetLang) })}
         >
-          {languageName(sourceLang)}
+          {columnName('source', sourceLang, targetLang)}
         </Button>
       </div>
     );

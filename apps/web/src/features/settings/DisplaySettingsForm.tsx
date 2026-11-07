@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui';
-import { languageName } from '../../lib/format';
+import { columnName } from '../../lib/format';
 import {
   FONT_SIZES,
   type LineHeight,
@@ -90,7 +90,9 @@ export function DisplaySettingsForm({
       <Field label={t('settings.tocTitles')}>
         {(['target', 'source', 'both'] as TocTitleMode[]).map((v) => (
           <Choice key={v} value={v} current={s.tocTitles} onChange={(tocTitles) => s.set({ tocTitles })}>
-            {v === 'both' ? t('settings.tocTitleBoth') : languageName(v === 'target' ? targetLang : sourceLang)}
+            {v === 'both'
+              ? t('settings.tocTitleBoth')
+              : columnName(v === 'target' ? 'target' : 'source', sourceLang, targetLang)}
           </Choice>
         ))}
       </Field>

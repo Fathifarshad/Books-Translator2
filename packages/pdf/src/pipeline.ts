@@ -1,4 +1,4 @@
-import { endsWithTerminalPunctuation, stripMarkup } from '@dozabaneh/text';
+import { endsWithTerminalPunctuation, getLanguage, stripMarkup } from '@dozabaneh/text';
 import { docStats, pageBlocks } from './blocks';
 import { inferPageLabels, removeHeadersFooters } from './cleanup';
 import { type ExtractOptions, extractPdf } from './extract';
@@ -20,10 +20,11 @@ export interface Analysis extends BookStructure {
 /** Pure part of ingestion: ExtractedBook → blocks → BookStructure + ExtractionReport (SPEC §8.3–§8.7). */
 export function analyze(ex: ExtractedBook, opts: AnalyzeOptions = {}): Analysis {
   const lang = opts.lang ?? 'en';
+  const rtl = opts.rtl ?? isRtl(lang);
   const cleaned = removeHeadersFooters(ex.pages, ex.outline, undefined, ex.meta.title ? [ex.meta.title] : []);
   const labels = inferPageLabels(ex.pageCount, ex.pageLabels, cleaned.printed);
   const stats = docStats(cleaned.pages, lang);
-  const raw = cleaned.pages.flatMap((p) => pageBlocks(p, orderPage(p, opts.rtl), stats));
+  const raw = cleaned.pages.flatMap((p) => pageBlocks(p, orderPage(p, rtl), stats));
   const blocks = mergeContinuations(raw, stats);
   const { nodes, segments, source } = buildStructure(blocks, ex, labels);
 
@@ -104,8 +105,17 @@ export function analyze(ex: ExtractedBook, opts: AnalyzeOptions = {}): Analysis 
   };
 }
 
-/** Full ingestion of a PDF buffer. Runs pdf.js; call it inside a worker thread in the server. */
+/** Whether a source language is written right to left (language registry). */
+function isRtl(lang: string): boolean {
+  return getLanguage(lang).dir === 'rtl';
+}
+
+/**
+ * Full ingestion of a PDF buffer. Runs pdf.js; call it inside a worker thread in the server. The reading direction
+ * follows the book's source language unless `rtl` says otherwise.
+ */
 export async function ingestPdf(data: Uint8Array, opts: ExtractOptions & AnalyzeOptions = {}): Promise<Analysis> {
-  const ex = await extractPdf(data, opts);
-  return analyze(ex, opts);
+  const rtl = opts.rtl ?? isRtl(opts.lang ?? 'en');
+  const ex = await extractPdf(data, { ...opts, rtl });
+  return analyze(ex, { ...opts, rtl });
 }

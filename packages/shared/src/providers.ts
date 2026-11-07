@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QuizCountSchema, QuizLevelSchema } from './quiz';
 
 /**
  * AI providers that run jobs in-process (Phase 4): Claude Code (the `claude` CLI on this computer, covered by the
@@ -147,5 +148,7 @@ export const QuizRequestSchema = z.object({
   ...assistBase,
   scope: z.enum(['chapter', 'selection']),
   passages: z.array(passage).min(1).max(300),
+  level: QuizLevelSchema.default('mixed'),
+  count: QuizCountSchema.optional(),
 });
 export type QuizRequest = z.input<typeof QuizRequestSchema>;

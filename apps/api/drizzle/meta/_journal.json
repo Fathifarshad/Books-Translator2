@@ -36,6 +36,13 @@
       "when": 1791154620213,
       "tag": "0004_parallel_chunks",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794046219608,
+      "tag": "0005_edit_changes",
+      "breakpoints": true
     }
   ]
 }
