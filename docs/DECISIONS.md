@@ -670,3 +670,37 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   Tests: `packages/text/src/reflow.test.ts` (10), `packages/pdf/src/figures.test.ts` (12, a synthetic flowchart PDF
   drawn and cut out), `apps/api/src/book-pdf.test.ts` (17, including a real print when a browser exists), e2e
   `book-pdf.spec.ts` (2); screenshots in `docs/screens/book-pdf/`.
+- **Amendment (2026-11-08) — figures of the obstetrics chapter.** The owner found the words inside figures disordered
+  and their type large and uneven. Causes and changes: (1) a caption line took in the neighbouring column's text
+  printed on the same baseline, so a table claimed half a page of body text — the rest of a caption's first line is
+  now looked for only after its start in reading order and closer than a column gutter (1.4 em); (2) a body line
+  that opens with a reference («Fig. 58.3 details …») was read as a caption, and a text box and a column of body
+  text became a "figure" — a caption candidate at the body size that goes on in lower case, or continues the
+  paragraph right above it, is running text; (3) labels in capitals or small capitals («UFH SQ LOW DOSE») and short
+  words («No») were kept in English — a phrase in capitals with a word of four letters or more with a vowel, and a
+  capitalised word, are translated; small capitals with larger initials are one label, a heading in capitals and
+  the row under it are two; (4) labels were set in Vazirmatn 500 and each shrank on its own, so boxes of one kind got
+  different sizes — figure words are now set in **Noto Sans Arabic** (OFL, `@fontsource-variable/noto-sans-arabic`)
+  at weight 450 and 87.5% width, a translated label reads right to left even when it opens with a Latin
+  abbreviation, and within a figure the labels of one original size share the smallest size that fits (a label
+  needing to go below 72% keeps its own); (5) a translated caption's own «شکل ۵۸.۵ —», and a panel letter glued in
+  front of it, are dropped since the book sets the label itself; (6) some figures draw part of their words as
+  outlines (Fig. 58.4: a bulleted box whose «Call for skilled» is a drawing and only «help» is text), so a
+  translated «help» landed inside an English line — the drawing without its text is now read for letters (dark,
+  colourless strokes side by side inside a line's height; axes, box sides, dashed rules and coloured chart marks do
+  not count): a label beside such letters goes back into the picture as printed, a label whose own box still shows
+  letters (a scanned figure) gets nothing set over it (`FigureLabel.printed`: still used to find the figure's
+  segments); (7) which text segments a figure replaces was a bag of words over the whole figure, so a table took the
+  page's heading «Physiologic Changes During Pregnancy and Delivery» and the subheading «Intravascular Volume»
+  (words of «Intravascular fluid volume»), and «CARDIOVASCULAR CHANGES» became the table's caption — now a caption
+  piece follows the caption's word order (its lines are read in reading order) and has words of its own, a heading
+  goes only on an exact match, a short segment (up to three words) only when its words stand side by side in one
+  label and some are still unclaimed, in the order of the text; longer segments keep the loose rule; (8) a figure
+  whose first own segment was a section's title row or a piece of a broken chapter title was never set (Table 58.1
+  vanished) — such anchors now keep their place; (9) Table 45.17's bullets come from a symbol font that maps its
+  glyphs to no characters, so they arrived as control codes and printed as empty boxes, the items ran together, and
+  a short cell sat in the middle of a tall one — a run of such codes standing alone is a bullet («•», two in a row
+  are one), a list in a label is set one item per line with a hanging indent, table cells start at the top, and a
+  table heading may use its column's width (the widest cell starting where it starts); blood groups and markers
+  with a sign («O+») are isolated left to right. `FIGURES_VERSION` 7 re-cuts the figures; the label translations
+  already made are kept.

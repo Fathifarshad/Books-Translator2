@@ -18,7 +18,7 @@ import type { Db } from '../../db/client';
  * target language. Cutting is slow and does not depend on the language, so it is kept on disk next to the book's
  * other exports and redone only when the original file or the detector changes.
  */
-export const FIGURES_VERSION = 2;
+export const FIGURES_VERSION = 7;
 
 export interface BookFigureLabel extends FigureLabel {
   /** The label in the target language (absent: kept as printed). */
@@ -84,47 +84,133 @@ export function figurePages(segs: SegmentRow[], lang: string): { pages: number[]
   return { pages: [...pages].sort((a, b) => a - b), images };
 }
 
-class Bag {
-  private readonly counts = new Map<string, number>();
-  constructor(tokens: string[]) {
-    for (const t of tokens) this.counts.set(t, (this.counts.get(t) ?? 0) + 1);
+/**
+ * How close together a segment's words must be printed to be found in a figure: `near`, in any order within a
+ * stretch twice its length and a few words more (a table row or a flowchart box ingestion read in another order);
+ * `exact`, side by side (a segment of up to three words — «Intravascular Volume» is a subheading, not the label
+ * «Intravascular fluid volume»); `ordered`, in the same order with at most a few words between (a piece of a
+ * caption); `anywhere` (numbers and signs only).
+ */
+type Closeness = 'near' | 'exact' | 'ordered' | 'anywhere';
+
+/**
+ * The words a figure prints, in reading order. A segment is found in it when (almost) all its words are there,
+ * close enough together, so a heading of the page whose words also occur here and there in a large table
+ * («CARDIOVASCULAR CHANGES») is not mistaken for part of it. Each printed word accounts for one segment word.
+ */
+class WordStream {
+  private readonly used: Uint8Array;
+  constructor(private readonly tokens: string[]) {
+    this.used = new Uint8Array(tokens.length);
   }
-  /** Share of `tokens` found in the bag; when at least `min`, they are taken out of it. */
-  take(tokens: string[], min: number): boolean {
-    const need = new Map<string, number>();
-    for (const t of tokens) need.set(t, (need.get(t) ?? 0) + 1);
-    let found = 0;
-    for (const [t, n] of need) found += Math.min(n, this.counts.get(t) ?? 0);
-    if (!tokens.length || found / tokens.length < min) return false;
-    for (const [t, n] of need) this.counts.set(t, Math.max(0, (this.counts.get(t) ?? 0) - n));
+  private all = false;
+  private free(i: number, t: string): boolean {
+    return (this.all || !this.used[i]) && this.tokens[i] === t;
+  }
+  /**
+   * Takes the segment's words when enough are found close enough together; `peek` only says whether they are, and
+   * `all` looks at words already taken too.
+   */
+  take(words: string[], min: number, closeness: Closeness, opts: { peek?: boolean; all?: boolean } = {}): boolean {
+    const n = words.length;
+    if (!n) return false;
+    this.all = opts.all ?? false;
+    let best: number[] = [];
+    if (closeness === 'ordered') {
+      for (let start = 0; start < this.tokens.length && best.length < n; start++) {
+        if (!words.slice(0, 2).some((t) => this.free(start, t))) continue;
+        const hit: number[] = [];
+        let p = start;
+        for (const t of words) {
+          for (let q = p; q < Math.min(this.tokens.length, p + 4); q++) {
+            if (this.free(q, t)) {
+              hit.push(q);
+              p = q + 1;
+              break;
+            }
+          }
+        }
+        if (hit.length > best.length) best = hit;
+      }
+    } else {
+      const need = new Map<string, number>();
+      for (const t of words) need.set(t, (need.get(t) ?? 0) + 1);
+      const span = closeness === 'anywhere' ? this.tokens.length : closeness === 'exact' ? n : 2 * n + 8;
+      for (let start = 0; start < this.tokens.length && best.length < n; start++) {
+        if ((this.used[start] && !this.all) || !need.has(this.tokens[start] as string)) continue;
+        const left = new Map(need);
+        const hit: number[] = [];
+        for (let i = start; i < Math.min(this.tokens.length, start + span) && hit.length < n; i++) {
+          const k = this.used[i] && !this.all ? 0 : (left.get(this.tokens[i] as string) ?? 0);
+          if (k > 0) {
+            left.set(this.tokens[i] as string, k - 1);
+            hit.push(i);
+          }
+        }
+        if (hit.length > best.length) best = hit;
+      }
+    }
+    if (best.length / n < min) return false;
+    if (!opts.peek) for (const i of best) this.used[i] = 1;
     return true;
   }
 }
 
 /**
  * Which segments a figure replaces: those whose words are (almost) all printed inside it, and those that are its
- * caption. Checked on the figure's own page only; each printed word can account for one segment word.
+ * caption. Checked on the figure's own page only, in two rounds, the strictest first so a loose match cannot take
+ * the words a strict one needs: first the caption's pieces (in its word order), segments printed word for word side
+ * by side, and short segments (up to three words) whose words stand side by side — their numbers may be near them
+ * («Latent phase» beside the axis's «0»), but «Intravascular Volume» is a subheading, not the label «Intravascular
+ * fluid volume»; then longer segments with (almost) all their words anywhere in the figure (a flowchart box or a
+ * table row ingestion read in another order), and numbers alone. A heading goes only on an exact match (the big
+ * title of a flowchart box ingestion took for a heading). In the first round each printed word accounts for one
+ * segment word, in the order of the text, so a subheading that repeats a table's row label («Cardiac Output») stays
+ * once the row has taken it; the second round looks at all the figure's words, since ingestion sometimes gives the
+ * same words twice («Not adequate», then «Not adequate BMV ± cricoid»).
  */
 export function matchSegments(
   figure: { page: number; kind: FigureKind; box: Box; caption?: string; labels: FigureLabel[] },
   segs: SegmentRow[],
 ): { hidden: string[]; captionIds: string[] } {
-  const labels = new Bag(figure.labels.flatMap((l) => figureTokens(l.text)));
-  const caption = new Bag(figureTokens(figure.caption ?? ''));
-  const hidden: string[] = [];
-  const captionIds: string[] = [];
+  const labels = new WordStream(figure.labels.flatMap((l) => figureTokens(l.text)));
+  // Its words without the numbers between them, where a short segment's phrase is looked for («Low 2,3-DPG»).
+  const phrases = new WordStream(figure.labels.flatMap((l) => figureTokens(l.text).filter((t) => /\p{L}/u.test(t))));
+  const caption = new WordStream(figureTokens(figure.caption ?? ''));
+  const hidden = new Set<string>();
+  const captionIds = new Set<string>();
+  const rest: string[][] = [];
+  const restIds: string[] = [];
   for (const s of segs) {
     if (s.page !== figure.page && s.pageEnd !== figure.page) continue;
     if (s.type === 'figure') {
-      if (s.bbox && overlaps(s.bbox, figure.box)) hidden.push(s.id);
+      if (s.bbox && overlaps(s.bbox, figure.box)) hidden.add(s.id);
       continue;
     }
     const tokens = figureTokens(stripMarkup(s.src));
     if (!tokens.length) continue;
-    if (caption.take(tokens, 0.85)) captionIds.push(s.id);
-    else if (labels.take(tokens, 0.8)) hidden.push(s.id);
+    const words = tokens.filter((t) => /\p{L}/u.test(t));
+    // A piece of the caption has words of its own: a lone number («80») is an axis label, not a caption piece.
+    if (words.length && tokens.length >= 2 && caption.take(tokens, 0.85, 'ordered')) captionIds.add(s.id);
+    else if (labels.take(tokens, 1, 'exact')) hidden.add(s.id);
+    else if (s.type === 'heading') continue;
+    else if (words.length && words.length <= 3) {
+      // The phrase is printed in the figure (side by side), and its words are not all accounted for yet.
+      if (phrases.take(words, 1, 'exact', { peek: true, all: true }) && labels.take(tokens, 0.8, 'anywhere')) {
+        hidden.add(s.id);
+      }
+    } else {
+      rest.push(tokens);
+      restIds.push(s.id);
+    }
   }
-  return { hidden, captionIds };
+  rest.forEach((tokens, i) => {
+    const numbersOnly = !tokens.some((t) => /\p{L}/u.test(t));
+    if (labels.take(tokens, numbersOnly ? 1 : 0.8, 'anywhere', { all: true })) hidden.add(restIds[i] as string);
+  });
+  // In the order of the text.
+  const order = (ids: Set<string>) => segs.filter((s) => ids.has(s.id)).map((s) => s.id);
+  return { hidden: order(hidden), captionIds: order(captionIds) };
 }
 
 function overlaps(a: Box, b: Box): boolean {
@@ -223,14 +309,19 @@ export function figureFile(config: Pick<Config, 'dataDir'>, bookId: string, figu
 }
 
 /**
- * A label made only of numbers, signs and abbreviations («PT, PTT», «HCV», «1:1,000») is not translated — its digits
- * follow the target language. Words are: anything with lower-case letters, and a lone capitalised word with a vowel
- * («YES», «NO», «STOP»).
+ * A label made only of numbers, signs and abbreviations («PT, PTT», «HCV», «1:1,000», «aPTT») is not translated — its
+ * digits follow the target language. Words are: a run of lower-case letters, a capitalised word («No», «Term»), a
+ * word in capitals with a vowel standing alone («YES», «STOP», «NEURAXIAL»), and a phrase in capitals or small
+ * capitals with at least one such word of four letters or more («UFH SQ LOW DOSE», «LIKELY LOW RISK TO»).
  */
 export function needsTranslation(text: string): boolean {
   if (/\p{Ll}{2,}/u.test(text)) return true;
   const words = text.match(/\p{L}+/gu) ?? [];
-  return words.length === 1 && /^\p{Lu}{2,5}$/u.test(words[0] as string) && /[AEIOUY]/.test(words[0] as string);
+  if (words.some((w) => /^\p{Lu}\p{Ll}+$/u.test(w))) return true;
+  const vowel = (w: string) => /[AEIOUY]/.test(w);
+  const caps = words.filter((w) => /^\p{Lu}{2,}$/u.test(w));
+  if (words.length === 1) return caps.length === 1 && vowel(caps[0] as string);
+  return caps.some((w) => w.length >= 4 && vowel(w));
 }
 
 /** Translations of labels, kept per language so a rebuild does not ask again. */
@@ -288,7 +379,7 @@ export async function translateLabels(
   const asked = new Set<string>();
   for (const f of figures) {
     if (!f.textRemoved) continue;
-    const todo = [...new Set(f.labels.map((l) => l.text))].filter(
+    const todo = [...new Set(f.labels.filter((l) => !l.printed).map((l) => l.text))].filter(
       (t) => needsTranslation(t) && opts.cache.get(t) === undefined && !asked.has(t),
     );
     for (const t of todo) asked.add(t);
@@ -339,12 +430,13 @@ export async function translateLabels(
   let failed = 0;
   for (const f of figures) {
     if (!f.textRemoved) continue;
-    for (const l of f.labels) {
+    const set = f.labels.filter((l) => !l.printed);
+    for (const l of set) {
       const tgt = needsTranslation(l.text) ? opts.cache.get(l.text) : localizeDigits(l.text, opts.lang);
       if (tgt !== undefined) l.tgt = tgt;
     }
-    const complete = f.labels.every((l) => l.tgt !== undefined);
-    if (complete && f.labels.some((l) => needsTranslation(l.text))) translated++;
+    const complete = set.every((l) => l.tgt !== undefined);
+    if (complete && set.some((l) => needsTranslation(l.text))) translated++;
     if (!complete) failed++;
   }
   return { translated, failed };

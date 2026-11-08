@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { captionStart } from '@dozabaneh/pdf';
 import { BOOK_PAGE_MM, type BookPdfOptions } from '@dozabaneh/shared';
 import { escapeHtml, getLanguage, localizeDigits, markupToHtml } from '@dozabaneh/text';
 import type { BookDocument } from '../document';
 import { embeddedFonts } from '../offline';
 import { type BookStrings, fill } from '../strings';
 import { backCover, COVER_CSS, type CoverContent, generatedCover, imageCover, THEMES } from './cover';
-import type { BookFigure } from './figures';
+import { type BookFigure, needsTranslation } from './figures';
 import type { Block, BookLayout, PlacedFigure } from './layout';
 
 const require = createRequire(import.meta.url);
@@ -57,6 +58,30 @@ function naskhFonts(): string {
     naskhCss = '';
   }
   return naskhCss;
+}
+
+let figureCss: string | undefined;
+/**
+ * The type of the words set inside figures: Noto Sans Arabic (OFL), a sans with open, even letterforms, at a
+ * semi-condensed width so a Persian label — usually longer than the English it replaces — keeps a readable size in
+ * the original's box. Latin abbreviations («aPTT», «Xa») and signs («≥») come from the same family.
+ */
+function figureFonts(): string {
+  if (figureCss !== undefined) return figureCss;
+  try {
+    const dir = join(dirname(require.resolve('@fontsource-variable/noto-sans-arabic/package.json')), 'files');
+    const face = (subset: string, range: string) =>
+      `@font-face{font-family:"Figure Sans";font-style:normal;font-weight:100 900;font-stretch:62.5% 100%;src:url(data:font/woff2;base64,${readFileSync(
+        join(dir, `noto-sans-arabic-${subset}-standard-normal.woff2`),
+      ).toString('base64')}) format("woff2");unicode-range:${range}}`;
+    figureCss =
+      face('arabic', 'U+0600-06FF,U+0750-077F,U+0870-08FF,U+200C-200E,U+2010-2011,U+FB50-FDFF,U+FE70-FEFC') +
+      face('latin', 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122') +
+      face('math', 'U+2190-21FF,U+2200-22FF');
+  } catch {
+    figureCss = '';
+  }
+  return figureCss;
 }
 
 /** CSS `counter()` style for page numbers in the digits of the language. */
@@ -171,9 +196,11 @@ figure.fig { margin: 4mm auto 5mm; break-inside: avoid; text-align: center; }
 .art { position: relative; container-type: inline-size; margin: 0 auto; }
 .art img { display: block; width: 100%; height: 100%; }
 .lbl { position: absolute; display: flex; align-items: center; justify-content: center; overflow: hidden;
-  font-family: "Vazirmatn Offline", sans-serif; font-weight: 500; line-height: 1.22; color: #111; text-align: center; text-indent: 0; }
-.lbl.start { justify-content: flex-start; text-align: start; }
+  font-family: "Figure Sans", "Vazirmatn Offline", sans-serif; font-weight: 450; font-stretch: 87.5%; line-height: 1.32;
+  color: #1a1a1a; text-align: center; text-indent: 0; letter-spacing: 0; word-spacing: 0.04em; }
+.lbl.start { justify-content: flex-start; align-items: flex-start; text-align: start; }
 .lbl > span { display: block; max-width: 100%; }
+.lbl .li { display: block; padding-inline-start: 0.9em; text-indent: -0.9em; }
 .lbl.rot > span { position: absolute; left: 50%; top: 50%; transform-origin: center; }
 figcaption { margin: 2.2mm auto 0; max-width: 96%; font-size: 0.86em; line-height: 1.75; color: #333; text-align: justify; text-indent: 0; }
 figcaption b { font-family: var(--f-head); color: var(--accent); }
@@ -205,15 +232,21 @@ export function labelBoxes(figure: BookFigure): {
   width: number;
   height: number;
   size: number;
+  /** The original size in points: labels set alike in the original are set alike here. */
+  pt: number;
   start: boolean;
   angle: number;
   text: string;
+  /** Set in the target language (its direction), not kept as printed. */
+  translated: boolean;
 }[] {
   const W = figure.width;
   const H = figure.height;
   const boxes = figure.labels.map((l) => ({ ...l, x: figure.mirrored ? W - l.x - l.width : l.x }));
   const start = figure.kind === 'table';
-  return boxes.map((b, i) => {
+  // Words the picture shows as printed get nothing set over them, but still bound their neighbours.
+  return boxes.flatMap((b, i) => {
+    if (b.printed) return [];
     let leftLimit = 0;
     let rightLimit = W;
     let topLimit = 0;
@@ -241,27 +274,75 @@ export function labelBoxes(figure: BookFigure): {
       bottom = Math.max(b.y + b.height, Math.min(bottomLimit, b.room.y + b.room.height - inset));
     } else {
       const grow = Math.max(b.width * 0.35, b.size * 2);
-      // A right-to-left table cell keeps its right edge and grows to the left; other labels grow both ways.
-      left = Math.max(leftLimit, b.x - grow);
+      // A right-to-left table cell keeps its right edge and grows to the left — as far as its column reaches: the
+      // widest cell that starts where it starts («TACO» heads a column of long cells); other labels grow both ways.
+      const column = start
+        ? Math.min(...boxes.filter((o) => Math.abs(o.x + o.width - (b.x + b.width)) < 2).map((o) => o.x))
+        : b.x;
+      left = Math.min(Math.max(leftLimit, b.x - grow), column);
       right = start ? Math.min(rightLimit, b.x + b.width + 1) : Math.min(rightLimit, b.x + b.width + grow);
       top = Math.max(topLimit, b.y - b.size * 0.25);
       bottom = Math.min(bottomLimit, b.y + b.height + b.size * 0.25);
     }
     const k = 100 / W;
-    return {
-      left: left * k,
-      top: top * k,
-      width: (right - left) * k,
-      height: (bottom - top) * k,
-      size: b.size * k,
-      start,
-      angle: Math.abs(b.angle) >= 45 ? b.angle : 0,
-      text: b.tgt ?? b.text,
-    };
+    return [
+      {
+        left: left * k,
+        top: top * k,
+        width: (right - left) * k,
+        height: (bottom - top) * k,
+        size: b.size * k,
+        pt: Math.round(b.size * 2) / 2,
+        start,
+        angle: Math.abs(b.angle) >= 45 ? b.angle : 0,
+        text: b.tgt ?? b.text,
+        translated: b.tgt !== undefined && needsTranslation(b.text),
+      },
+    ];
   });
 }
 
 const n2 = (v: number) => Number(v.toFixed(3));
+
+/** A bullet between words; also the codes a symbol font leaves when no character was mapped to its bullet. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: those codes are what is looked for
+const BULLET = /\s*(?:[•●▪◦]+|[\u0001-\u0008\u000b\u000c\u000e-\u001f\uf000-\uf8ff]+)\s+/u;
+
+/**
+ * Escaped label text with Latin tokens that end in a sign («O+», «Rh−», «CD4+») kept left to right: in a
+ * right-to-left line the sign would otherwise drift to the token's other side («(+O)»).
+ */
+export function labelHtml(text: string): string {
+  const signed = (t: string) =>
+    escapeHtml(t).replace(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]{0,5}[+\-−](?![A-Za-z0-9])/g, '<bdi dir="ltr">$&</bdi>');
+  // A list inside a cell or a box («… within 6 hours: • Acute respiratory distress • …»): one item per line.
+  const [lead = '', ...items] = text.split(BULLET);
+  if (!items.length) return signed(text);
+  const list = items
+    .filter((i) => i.trim())
+    .map((i) => `<span class="li">• ${signed(i.trim())}</span>`)
+    .join('');
+  return `${signed(lead.trim())}${list}`;
+}
+
+/**
+ * A translated caption without its own «شکل ۵۸.۵ —», which the book sets itself (in its accent colour), and without a
+ * panel letter ingestion glued in front of it («B شکل ۵۸.۵ — (الف) …»).
+ */
+export function captionBody(caption: string, lang: string): string {
+  const text = caption.replace(/\s+/g, ' ').trim();
+  const lead = /^(?:\p{L}\s+){1,3}/u.exec(text)?.[0] ?? '';
+  for (const from of lead ? [lead.length, 0] : [0]) {
+    const rest = text.slice(from);
+    const start = captionStart(rest, lang);
+    if (start)
+      return rest
+        .slice(start.end)
+        .replace(/^\s*[—–:.-]?\s*/u, '')
+        .trim();
+  }
+  return text;
+}
 
 function figureHtml(p: PlacedFigure, input: BookHtmlInput): string {
   const { figure } = p;
@@ -272,12 +353,15 @@ function figureHtml(p: PlacedFigure, input: BookHtmlInput): string {
     ? labelBoxes(figure)
         .map((b) => {
           const style = `left:${n2(b.left)}cqw;top:${n2(b.top)}cqw;width:${n2(b.width)}cqw;height:${n2(b.height)}cqw;font-size:${n2(b.size)}cqw`;
+          // A translated label reads in the target language's direction even when it opens with a Latin
+          // abbreviation («aPTT در محدوده‌ی طبیعی»); numbers and abbreviations kept as printed find their own.
+          const textDir = b.translated ? dir : 'auto';
           if (b.angle) {
             // The text runs along the longer side of its box, turned the way the original was.
             const inner = `width:${n2(b.height)}cqw;margin-left:-${n2(b.height / 2)}cqw;margin-top:-0.7em;transform:rotate(${-b.angle}deg)`;
-            return `<div class="lbl rot" style="${style}"><span dir="auto" style="${inner}">${escapeHtml(b.text)}</span></div>`;
+            return `<div class="lbl rot" data-pt="${b.pt}" style="${style}"><span dir="${textDir}" style="${inner}">${labelHtml(b.text)}</span></div>`;
           }
-          return `<div class="lbl${b.start ? ' start' : ''}" style="${style}"><span dir="auto">${escapeHtml(b.text)}</span></div>`;
+          return `<div class="lbl${b.start ? ' start' : ''}" data-pt="${b.pt}" style="${style}"><span dir="${textDir}">${labelHtml(b.text)}</span></div>`;
         })
         .join('')
     : '';
@@ -287,10 +371,9 @@ function figureHtml(p: PlacedFigure, input: BookHtmlInput): string {
           number: localizeDigits(figure.number, tgt),
         })
       : '';
-  const caption = p.caption.trim();
-  const startsWithLabel = label && caption.replace(/\s+/g, ' ').startsWith(label.split(' ')[0] ?? label);
-  const captionHtml = caption
-    ? `<figcaption dir="${dir}">${label && !startsWithLabel ? `<b>${escapeHtml(label)}</b> — ` : ''}${inline(caption, tgt)}${
+  const caption = label ? captionBody(p.caption, tgt) : p.caption.trim();
+  const captionHtml = p.caption.trim()
+    ? `<figcaption dir="${dir}">${label ? `<b>${escapeHtml(label)}</b>${caption ? ' — ' : ''}` : ''}${inline(caption, tgt)}${
         p.captionSrc
           ? `<span class="src" dir="${input.doc.lang.srcDir}">${inline(p.captionSrc, input.doc.lang.src)}</span>`
           : ''
@@ -407,7 +490,7 @@ export function buildBookHtml(input: BookHtmlInput): string {
       const label = fill(kind === 'table' ? strings.table : strings.figure, {
         number: localizeDigits(p.figure.number ?? '', tgt),
       });
-      const rest = p.caption.replace(/^\S+\s+[\d۰-۹.\-–]+\s*[—–:-]?\s*/u, '');
+      const rest = captionBody(p.caption, tgt);
       return tocItem(input, `a-${p.id}`, 'l2 fig', shorten(`${label} — ${rest || label}`, 110));
     });
     parts.push(
@@ -449,32 +532,52 @@ export function buildBookHtml(input: BookHtmlInput): string {
 <head>
 <meta charset="utf-8">
 <title>${escapeHtml(doc.title)}</title>
-<style>${embeddedFonts()}${options.font === 'naskh' ? naskhFonts() : ''}${pageCss(input)}${bookCss(input)}</style>
+<style>${embeddedFonts()}${options.font === 'naskh' ? naskhFonts() : ''}${figureFonts()}${pageCss(input)}${bookCss(input)}</style>
 </head>
 <body>
 ${parts.join('\n')}
 <script>
 // Labels set back into figures shrink until they fit the space the original words had.
+// Then, within a figure, labels that were one size in the original are one size again: the smallest that fits, so
+// boxes of the same kind do not each get a different size; a label that needs much more shrinking than the rest
+// (below 72% of the original) keeps its own size instead of shrinking them all.
 window.__fitLabels = function () {
-  var els = document.querySelectorAll('.lbl');
-  for (var i = 0; i < els.length; i++) {
-    var el = els[i];
-    var inner = el.firstElementChild;
-    var size = parseFloat(getComputedStyle(el).fontSize);
-    var min = size * 0.5;
-    var guard = 0;
-    var rot = el.classList.contains('rot');
-    var over = function () {
-      return rot
-        ? inner.scrollHeight > el.clientWidth + 0.5
-        : inner.scrollHeight > el.clientHeight + 0.5 || inner.scrollWidth > el.clientWidth + 0.5;
-    };
-    while (over() && size > min && guard++ < 40) {
-      size = size * 0.94;
-      el.style.fontSize = size + 'px';
+  var arts = document.querySelectorAll('.art');
+  var count = 0;
+  for (var a = 0; a < arts.length; a++) {
+    var els = arts[a].querySelectorAll('.lbl');
+    var fits = [];
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var inner = el.firstElementChild;
+      var base = parseFloat(getComputedStyle(el).fontSize);
+      var size = base;
+      var guard = 0;
+      var rot = el.classList.contains('rot');
+      var over = function () {
+        return rot
+          ? inner.scrollHeight > el.clientWidth + 0.5
+          : inner.scrollHeight > el.clientHeight + 0.5 || inner.scrollWidth > el.clientWidth + 0.5;
+      };
+      while (over() && size > base * 0.5 && guard++ < 60) {
+        size = size * 0.96;
+        el.style.fontSize = size + 'px';
+      }
+      fits.push({ el: el, base: base, size: size, key: el.getAttribute('data-pt') || '' });
     }
+    var common = {};
+    for (var j = 0; j < fits.length; j++) {
+      var f = fits[j];
+      var floor = Math.max(f.size, f.base * 0.72);
+      common[f.key] = common[f.key] === undefined ? floor : Math.min(common[f.key], floor);
+    }
+    for (var k = 0; k < fits.length; k++) {
+      var g = fits[k];
+      g.el.style.fontSize = Math.min(g.size, common[g.key]) + 'px';
+    }
+    count += els.length;
   }
-  return els.length;
+  return count;
 };
 </script>
 </body>

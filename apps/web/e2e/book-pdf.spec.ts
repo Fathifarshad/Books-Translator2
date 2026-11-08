@@ -34,6 +34,23 @@ test.describe('book PDF', () => {
     await expect(page.getByTestId('preparer-name')).toHaveValue('دکتر فرشاد فتحی');
   });
 
+  test('a server older than the page says so instead of a dead button', async ({ page }) => {
+    // The app updated while an old server kept running: its router does not know the address.
+    await page.route(/\/api\/v1\/books\/bk_sample\/book-pdf(\?|$)/, (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'NOT_FOUND', message: 'NOT_FOUND', details: {} } }),
+      }),
+    );
+    await page.goto('/books/bk_sample/book-pdf');
+    await expect(page.getByTestId('book-pdf-unavailable')).toContainText('دوباره با آیکون دسکتاپ باز کنید', {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('book-pdf-build')).toBeDisabled();
+    await expect(page.getByTestId('cover-preview')).toHaveCount(0);
+  });
+
   test('an uploaded cover image replaces the made one', async ({ page }) => {
     await page.goto('/books/bk_sample/book-pdf');
     await page.getByTestId('cover-uploaded').click();

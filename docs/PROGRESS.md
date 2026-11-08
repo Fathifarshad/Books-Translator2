@@ -260,6 +260,8 @@ the sandbox has no access to the real services, so the first real connection is 
   figures/algorithms/tables cut from the original PDF with their labels translated in place (tables right to
   left), glossary, back cover. Tests: 3 new unit/API test files (39 tests), 2 e2e; screenshots in
   `docs/screens/book-pdf/`.
+  Amended 2026-11-08: caption detection (neighbouring column, references in running text), labels in capitals
+  translated, figure words in Noto Sans Arabic at one size per figure.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

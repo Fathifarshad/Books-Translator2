@@ -21,6 +21,7 @@
     "@dozabaneh/text": "workspace:*",
     "@fastify/cors": "^11.3.0",
     "@fastify/multipart": "^10.1.2",
+    "@fontsource-variable/noto-sans-arabic": "5.3.0",
     "@fontsource-variable/vazirmatn": "^5.3.0",
     "@fontsource/noto-naskh-arabic": "^5.3.0",
     "better-sqlite3": "^13.0.3",

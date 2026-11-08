@@ -150,6 +150,10 @@ export function layoutBook(doc: BookDocument, figures: BookFigure[], opts: Layou
       pending.push(section);
       return;
     }
+    // Figures anchored in the pieces of a chapter title printed in pieces open the chapter's text.
+    const carried = pending.flatMap((piece) =>
+      piece.rows.flatMap((r) => [...(anchors.get(`at:${r.id}`) ?? []), ...(anchors.get(`after:${r.id}`) ?? [])]),
+    );
     const firstHeading = section.rows[0]?.type === 'heading' ? section.rows[0] : undefined;
     const sectionTitle =
       (firstHeading && norm(firstHeading.src) === norm(section.titleSrc) && firstHeading.tgt) || section.title;
@@ -184,17 +188,17 @@ export function layoutBook(doc: BookDocument, figures: BookFigure[], opts: Layou
       (level === 2 ? toc : level3).push({ id, level, text: sectionTitle });
     }
 
-    // Body rows: the figure's own segments leave the text, the rest is reflowed.
-    let rows = section.rows;
-    if (firstHeading && norm(firstHeading.src) === norm(section.titleSrc)) rows = rows.slice(1);
+    // Body rows: the figure's own segments leave the text, the rest is reflowed. The section's title row is
+    // printed as its heading above, but a figure anchored on it still has its place here.
+    const titleRow = firstHeading && norm(firstHeading.src) === norm(section.titleSrc) ? firstHeading : undefined;
     const flow: FlowRow[] = [];
-    const before = new Map<string | null, PlacedFigure[]>();
+    const before = new Map<string | null, PlacedFigure[]>(carried.length ? [[null, carried]] : []);
     let lastVisible: string | null = null;
-    for (const r of rows) {
+    for (const r of section.rows) {
       const id = r.id ?? '';
       const at = anchors.get(`at:${id}`);
       if (at) before.set(lastVisible, [...(before.get(lastVisible) ?? []), ...at]);
-      if (!taken.has(id) && r.type !== 'figure') {
+      if (r !== titleRow && !taken.has(id) && r.type !== 'figure') {
         flow.push({ type: r.type, src: r.src, tgt: r.tgt, ids: [id] });
         lastVisible = id;
       }

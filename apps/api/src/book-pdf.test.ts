@@ -16,7 +16,7 @@ import {
   type TranslateTexts,
   translateLabels,
 } from './export/book/figures';
-import { buildBookHtml, headingIds, labelBoxes } from './export/book/html';
+import { buildBookHtml, captionBody, headingIds, labelBoxes, labelHtml } from './export/book/html';
 import { brokenTitles, layoutBook } from './export/book/layout';
 import { findBrowser } from './export/book/print';
 import { type BookDocument, bookDocument, type DocSection } from './export/document';
@@ -158,6 +158,15 @@ describe('book PDF: layout (ADR-046)', () => {
     expect(layout.figures[0]?.caption).toBe('شکل ۴۵.۷ — الگوریتم تزریق گسترده.');
   });
 
+  it('keeps a figure whose first own segment is a section title or a piece of a chapter title', () => {
+    // «Complications» opens section n4 (printed as its heading); a piece of the broken chapter title is another.
+    for (const own of ['s5', 'h2']) {
+      const layout = layoutBook(messyBook(), [figure({ hidden: [own], captionIds: [] })], { mode: 'target' });
+      const blocks = layout.chapters.flatMap((c) => c.blocks);
+      expect(blocks.filter((b) => b.kind === 'figure')).toHaveLength(1);
+    }
+  });
+
   it('places a figure no segment matched after the text of its page', () => {
     const layout = layoutBook(messyBook(), [figure({ hidden: [], captionIds: [], page: 1 })], { mode: 'target' });
     const blocks = layout.chapters[0]?.blocks ?? [];
@@ -294,12 +303,112 @@ describe('book PDF: figure labels (ADR-046)', () => {
     });
   });
 
+  it('leaves the page’s own headings and subheadings that only share words with a table', () => {
+    const lbl = (text: string) => ({ text, x: 0, y: 0, width: 50, height: 9, size: 8, angle: 0, lines: 1 });
+    const table = figure({
+      kind: 'table',
+      number: '58.1',
+      caption: 'Table 58.1 Changes in the Cardiovascular System During Pregnancy',
+      labels: [
+        'Cardiovascular Parameter',
+        'Intravascular fluid volume',
+        'Increased 35%–45%',
+        'Cardiac output',
+        'Increased 40%–50%',
+        'Low 2,3-DPG',
+        '80',
+        // Two boxes say the same (panels A and B).
+        'LIKELY LOW RISK TO PROCEED WITH NEURAXIAL',
+        'LIKELY LOW RISK TO PROCEED WITH NEURAXIAL',
+      ].map(lbl),
+    });
+    const seg = (id: string, type: string, src: string) => ({ id, type, src, page: 3, pageEnd: 3, bbox: null });
+    const segs = [
+      seg('h', 'heading', 'Physiologic Changes During Pregnancy and Delivery'),
+      seg('cap', 'paragraph', 'Table 58.1 Changes in the Cardiovascular System During Pregnancy'),
+      seg('sub', 'paragraph', 'CARDIOVASCULAR CHANGES'),
+      seg('iv', 'paragraph', 'Intravascular Volume'),
+      seg('row1', 'paragraph', 'Intravascular fluid volume Increased 35%–45%'),
+      seg('row2', 'paragraph', 'Cardiac output Increased 40%–50%'),
+      seg('co', 'paragraph', 'Cardiac Output'),
+      seg('dpg', 'paragraph', '90 Low 2,3-DPG'),
+      seg('n', 'paragraph', '80'),
+      seg('box', 'heading', 'LIKELY LOW RISK TO PROCEED WITH NEURAXIAL'),
+      seg('part', 'paragraph', 'PROCEED WITH NEURAXIAL'),
+    ];
+    expect(matchSegments({ ...table, box: { x: 0, y: 0, width: 400, height: 200 } }, segs)).toEqual({
+      // The flowchart box ingestion read as a heading goes (every word printed), and so does the other box, read in
+      // a piece. «Cardiac Output» stays: the table's only «Cardiac output» is the row's.
+      hidden: ['row1', 'row2', 'dpg', 'n', 'box', 'part'],
+      // Words of the caption in another order are a heading of the text, not a piece of the caption.
+      captionIds: ['cap'],
+    });
+  });
+
   it('translates words, keeps abbreviations and numbers', () => {
     expect(needsTranslation('Give 2 units PRBC')).toBe(true);
     expect(needsTranslation('YES')).toBe(true);
     expect(needsTranslation('PT, PTT')).toBe(false);
     expect(needsTranslation('1:1,476,000')).toBe(false);
     expect(needsTranslation('HCV')).toBe(false);
+    // Capitals and small capitals are words too; so is a short capitalised word.
+    expect(needsTranslation('UFH SQ LOW DOSE')).toBe(true);
+    expect(needsTranslation('LIKELY LOW RISK TO PROCEED WITH NEURAXIAL')).toBe(true);
+    expect(needsTranslation('NEURAXIAL')).toBe(true);
+    expect(needsTranslation('No')).toBe(true);
+    expect(needsTranslation('aPTT')).toBe(false);
+    expect(needsTranslation('FEV1/FVC')).toBe(false);
+    expect(needsTranslation('GA, SEH')).toBe(false);
+  });
+
+  it('keeps blood groups and markers with a sign left to right inside a Persian label', () => {
+    expect(labelHtml('گلبول قرمز متراکم (O+) و Rh−')).toBe(
+      'گلبول قرمز متراکم (<bdi dir="ltr">O+</bdi>) و <bdi dir="ltr">Rh−</bdi>',
+    );
+    expect(labelHtml('HIV-1 و ۲ < ۵')).toBe('HIV-1 و ۲ &lt; ۵');
+  });
+
+  it('sets a list inside a cell one item per line, also from the codes of a symbol font', () => {
+    expect(labelHtml('موارد زیر: •• دیسترس تنفسی •• افزایش BNP')).toBe(
+      'موارد زیر:<span class="li">•\u00a0دیسترس تنفسی</span><span class="li">•\u00a0افزایش BNP</span>',
+    );
+    expect(labelHtml('موارد زیر: \u0003\u0004 شواهد نارسایی')).toBe(
+      'موارد زیر:<span class="li">•\u00a0شواهد نارسایی</span>',
+    );
+  });
+
+  it('lets a table heading use the width of its column', () => {
+    const lbl = (text: string, x: number, y: number, width: number, height = 9) => ({
+      text,
+      x,
+      y,
+      width,
+      height,
+      size: 8,
+      angle: 0,
+      lines: 1,
+    });
+    const table = figure({
+      kind: 'table',
+      mirrored: true,
+      width: 252,
+      height: 229,
+      labels: [
+        lbl('TACO', 10, 6, 20),
+        lbl('TRALI', 126, 6, 21),
+        lbl('New onset …', 10, 20, 105, 134),
+        lbl('No evidence …', 126, 20, 116, 143),
+      ],
+    });
+    const [taco] = labelBoxes(table);
+    // Mirrored, the column of «TACO» runs from 252 − 10 − 105 = 137 to 242.
+    expect(taco?.left).toBeCloseTo((137 / 252) * 100, 1);
+  });
+
+  it('sets the figure label itself, without the one in the translated caption', () => {
+    expect(captionBody('B شکل ۵۸.۵ — (الف) ابزار تصمیم‌گیری', 'fa')).toBe('(الف) ابزار تصمیم‌گیری');
+    expect(captionBody('جدول ۵۸.۲  تغییرات دستگاه تنفس', 'fa')).toBe('تغییرات دستگاه تنفس');
+    expect(captionBody('فشردگی آئورت و ورید اجوف', 'fa')).toBe('فشردگی آئورت و ورید اجوف');
   });
 
   it('asks once per label, several figures per request, and remembers the answers', async () => {

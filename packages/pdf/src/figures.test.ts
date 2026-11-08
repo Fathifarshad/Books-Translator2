@@ -1,7 +1,8 @@
+import { createCanvas } from '@napi-rs/canvas';
 import PDFDocument from 'pdfkit';
 import { describe, expect, it } from 'vitest';
 import { openPdf } from './extract';
-import { extractFigures, inkOf, renderPage } from './figure-images';
+import { drawnWords, extractFigures, inkOf, renderPage, symbolBullets } from './figure-images';
 import {
   captionStart,
   detectFigures,
@@ -67,10 +68,14 @@ describe('figures: geometry (ADR-046)', () => {
   });
 
   it('reads caption words and numbers from the language registry', () => {
-    expect(captionStart('Fig. 45.7 This algorithm for diagnosing', 'en')).toEqual({ kind: 'figure', number: '45.7' });
-    expect(captionStart('Table 45.1', 'en')).toEqual({ kind: 'table', number: '45.1' });
-    expect(captionStart('Figure 3-2: Flow', 'en')).toEqual({ kind: 'figure', number: '3-2' });
-    expect(captionStart('جدول ۴-۱ مقایسه', 'fa')).toEqual({ kind: 'table', number: '4-1' });
+    expect(captionStart('Fig. 45.7 This algorithm for diagnosing', 'en')).toEqual({
+      kind: 'figure',
+      number: '45.7',
+      end: 9,
+    });
+    expect(captionStart('Table 45.1', 'en')).toEqual({ kind: 'table', number: '45.1', end: 10 });
+    expect(captionStart('Figure 3-2: Flow', 'en')).toEqual({ kind: 'figure', number: '3-2', end: 10 });
+    expect(captionStart('جدول ۴-۱ مقایسه', 'fa')).toEqual({ kind: 'table', number: '4-1', end: 8 });
     expect(captionStart('Tablet computers are common', 'en')).toBeNull();
     expect(captionStart('see Fig. 3', 'en')).toBeNull();
   });
@@ -82,6 +87,10 @@ describe('figures: geometry (ADR-046)', () => {
       piece('1:1,476,000', 120, 100),
     ]);
     expect(joined.map((p) => p.text)).toEqual(['Human immunodeficiency', '1:1,476,000']);
+    // A bullet drawn as two glyphs, each read as a bullet, is one.
+    expect(joinPieces([piece('•', 10, 100), piece('•', 13, 100), piece('Acute distress', 20, 100)])[0]?.text).toBe(
+      '• Acute distress',
+    );
   });
 
   it('groups the stacked lines of one label and positions them in the figure', () => {
@@ -158,6 +167,75 @@ describe('figures: geometry (ADR-046)', () => {
       ink: [],
     };
     expect(detectFigures(page, 'en')).toEqual([]);
+  });
+
+  it('does not take a body line that opens with a figure reference for a caption', () => {
+    // «Fig. 58.3 details …» begins a line of running text right under a shaded box drawn in the other column.
+    const page: FigurePage = {
+      index: 9,
+      width: 595,
+      height: 842,
+      pieces: [
+        ...body(),
+        piece('are defined by gestational age of the fetus.', 320, 300, 10, 240),
+        piece('Fig. 58.3 details FHR tracing deceleration character-', 320, 312, 10, 240),
+        piece('istics. Late decelerations are a result of uteroplacental', 320, 324, 10, 240),
+      ],
+      ink: [ink(60, 60, 240, 420, 1)],
+    };
+    expect(detectFigures(page, 'en')).toEqual([]);
+    // Alone at the head of a column it is still running text: it goes on in lower case.
+    const alone: FigurePage = {
+      ...page,
+      pieces: [...body(), piece('Fig. 58.3 details FHR tracing deceleration character-', 320, 312, 10, 240)],
+    };
+    expect(detectFigures(alone, 'en')).toEqual([]);
+  });
+
+  it('keeps the next column out of a caption printed on the same line', () => {
+    // The left column's body text shares the baseline of the table's title in the right column.
+    const page: FigurePage = {
+      index: 3,
+      width: 595,
+      height: 842,
+      pieces: [
+        ...body(),
+        piece('neuraxial or general anesthetic techniques impairs the', 58, 62, 10, 243),
+        piece('compensatory increase in vascular resistance and exacer-', 58, 74, 10, 243),
+        piece('Table 58.2', 327, 62, 9.5, 46),
+        piece('Changes in the Respiratory System at Term', 377, 62, 9.5, 160),
+        piece('Pulmonary Parameter', 327, 86),
+        piece('Minute ventilation', 327, 102),
+        piece('Increased 45%–50%', 450, 102),
+      ],
+      ink: [ink(320, 58, 245, 70, 1)],
+    };
+    const [region, ...rest] = detectFigures(page, 'en');
+    expect(rest).toHaveLength(0);
+    expect(region?.caption).toBe('Table 58.2 Changes in the Respiratory System at Term');
+    expect(region?.box.x).toBeGreaterThan(300);
+    expect(region?.labels.map((l) => l.text)).toEqual([
+      'Pulmonary Parameter',
+      'Minute ventilation',
+      'Increased 45%–50%',
+    ]);
+  });
+
+  it('joins small capitals with larger initials into one label, but not a heading with the row under it', () => {
+    const labels = groupLabels(
+      [
+        piece('LIKELY LOW RISK TO', 100, 200, 8),
+        piece('PROCEED WITH NEURAXIAL', 96, 209.2, 10.9),
+        piece('LUNG VOLUMES', 300, 200),
+        piece('Inspiratory reserve volume', 300, 209),
+      ],
+      { x: 0, y: 0 },
+    );
+    expect(labels.map((l) => l.text)).toEqual([
+      'LIKELY LOW RISK TO PROCEED WITH NEURAXIAL',
+      'LUNG VOLUMES',
+      'Inspiratory reserve volume',
+    ]);
   });
 
   it('keeps a picture no caption claimed as a figure of its own', () => {
@@ -239,5 +317,65 @@ describe('figures: rendering and cutting out (ADR-046)', () => {
     const { pages, entries } = await outlinePages(await flowchartPdf());
     expect(pages).toBe(1);
     expect(entries).toEqual([{ title: 'Chapter 7', page: 1 }]);
+  });
+});
+
+describe('figures: words still drawn in the picture (ADR-046)', () => {
+  const S = 3;
+  const label = (text: string, x: number, y: number, width: number) => ({
+    text,
+    x,
+    y,
+    width,
+    height: 9,
+    size: 8,
+    angle: 0,
+    lines: 1,
+  });
+
+  it('tells letters drawn as outlines from rules, axes and chart marks', () => {
+    const canvas = createCanvas(200 * S, 100 * S);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 200 * S, 100 * S);
+    const rect = (color: string, x: number, y: number, w: number, h: number) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * S, y * S, w * S, h * S);
+    };
+    // «Call for skilled» drawn as outlines, then the real word «help» (taken out of this drawing).
+    for (const x of [84, 87, 90, 93, 96]) rect('#222222', x, 41.5, 1.5, 6);
+    const help = label('help', 100, 40, 16);
+    // A label beside a box's side and a coloured legend marker.
+    rect('#222222', 95, 50, 0.6, 45);
+    rect('#2a7fd4', 84, 72, 6, 4);
+    const yes = label('Yes', 100, 70, 14);
+    // A label whose words are still in the picture (a scanned figure).
+    for (const x of [31, 34, 37, 40, 43]) rect('#111111', x, 11.5, 1.5, 6);
+    const scanned = label('Aorta', 30, 10, 18);
+    // An axis label beside the axis and a dashed grid line.
+    rect('#222222', 165, 20, 0.6, 70);
+    for (const x of [166, 172, 178]) rect('#222222', x, 44.2, 4, 0.6);
+    const tick = label('100', 150, 40, 12);
+
+    const { drawn, fragments } = drawnWords(canvas as unknown as Parameters<typeof drawnWords>[0], S, {
+      kind: 'figure',
+      page: 0,
+      box: { x: 0, y: 0, width: 200, height: 100 },
+      labels: [help, yes, scanned, tick],
+    });
+    expect([...fragments].map((l) => l.text)).toEqual(['help']);
+    expect([...drawn].map((l) => l.text)).toEqual(['Aorta']);
+  });
+});
+
+describe('figures: bullets of a symbol font (ADR-046)', () => {
+  it('reads a run of unmapped symbol codes standing alone as a bullet', () => {
+    expect(symbolBullets('within 6 hours: \u0003\u0004 Acute distress \u0003\u0004 Elevated BNP')).toBe(
+      'within 6 hours: • Acute distress • Elevated BNP',
+    );
+    expect(symbolBullets('\u0003\u0004')).toBe('•');
+    expect(symbolBullets('\uf0b7 Item')).toBe('• Item');
+    // Inside a word it is not a bullet.
+    expect(symbolBullets('ab\u0003\u0004cd')).toBe('ab\u0003\u0004cd');
   });
 });

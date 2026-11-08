@@ -50,6 +50,11 @@ export interface FigureLabel {
    * relative to the figure: the translated label may use all of it. Measured on the drawn page; absent for tables.
    */
   room?: Box;
+  /**
+   * The picture shows these words as printed (they are part of a line drawn as outlines, or the picture still
+   * carries them): nothing is set over them, but they still tell which text segments the figure replaces.
+   */
+  printed?: boolean;
 }
 
 export interface FigureRegion {
@@ -128,8 +133,14 @@ export function inkComponents(mask: Uint8Array, cols: number, rows: number, cell
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** «Fig. 45.7 …» → kind and number, or null when the text does not open a caption in this language. */
-export function captionStart(text: string, lang: string): { kind: 'figure' | 'table'; number: string } | null {
+/**
+ * «Fig. 45.7 …» → kind and number, and where the caption's own words begin (`end`), or null when the text does not
+ * open a caption in this language.
+ */
+export function captionStart(
+  text: string,
+  lang: string,
+): { kind: 'figure' | 'table'; number: string; end: number } | null {
   const words = getLanguage(lang).captionWords;
   for (const kind of ['tab', 'fig'] as const) {
     const alternatives = [...words[kind]]
@@ -140,9 +151,34 @@ export function captionStart(text: string, lang: string): { kind: 'figure' | 'ta
       `^\\s*(?:${alternatives})\\s*([0-9۰-۹٠-٩IVX]+(?:[.\\-–:][0-9۰-۹٠-٩]+)*[A-Za-z]?)(?=[\\s.:–—-]|$)`,
       'u',
     ).exec(text);
-    if (m?.[1]) return { kind: kind === 'tab' ? 'table' : 'figure', number: toLatinDigits(m[1]).replace(/[.:]$/, '') };
+    if (m?.[1]) {
+      return {
+        kind: kind === 'tab' ? 'table' : 'figure',
+        number: toLatinDigits(m[1]).replace(/[.:]$/, ''),
+        end: m[0].length,
+      };
+    }
   }
   return null;
+}
+
+/**
+ * A line of running text that merely opens with a reference («Fig. 58.3 details the …»), not a caption: it is set
+ * at the body size and either goes on in lower case or continues the paragraph printed right above it.
+ */
+function isReference(p: TextPiece, end: number, pieces: TextPiece[], body: number): boolean {
+  const atBody = (q: TextPiece) => Math.abs(q.size - body) <= body * 0.06;
+  if (!atBody(p)) return false;
+  const next = /\p{L}/u.exec(p.text.slice(end))?.[0];
+  if (next && next !== next.toUpperCase() && next === next.toLowerCase()) return true;
+  return pieces.some(
+    (q) =>
+      q !== p &&
+      atBody(q) &&
+      bottom(q) <= p.y + p.size * 0.3 &&
+      p.y - bottom(q) < p.size * 0.8 &&
+      hOverlap(q, p) > Math.min(q.width, p.width) * 0.5,
+  );
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────────────────────────────────────────────────
@@ -255,11 +291,22 @@ export function joinPieces(pieces: TextPiece[]): TextPiece[] {
     }
     if (cur) out.push(cur);
   }
-  return [...out, ...rotated].map((p) => ({ ...p, text: p.text.replace(/\s+/g, ' ').trim() }));
+  // A bullet a symbol font drew as two glyphs («••») is one bullet.
+  return [...out, ...rotated].map((p) => ({
+    ...p,
+    text: p.text
+      .replace(/\s+/g, ' ')
+      .replace(/•(?:\s*•)+/gu, '•')
+      .trim(),
+  }));
 }
 
-/** Lines of a caption block: the caption line and the lines set right under it, in the same column. */
-function captionBlock(start: TextPiece, pieces: TextPiece[]): { box: Box; members: TextPiece[] } {
+/**
+ * Lines of a caption block: the caption line and the lines set right under it, in the same column. The rest of the
+ * caption's first line comes after its start in reading order and closer than a column gutter, so the neighbouring
+ * column's text printed on the same baseline stays out.
+ */
+function captionBlock(start: TextPiece, pieces: TextPiece[], rtl: boolean): { box: Box; members: TextPiece[] } {
   const members = [start];
   let box: Box = start;
   let grew = true;
@@ -269,11 +316,11 @@ function captionBlock(start: TextPiece, pieces: TextPiece[]): { box: Box; member
       if (members.includes(p) || p.y < box.y - p.size * 0.5) continue;
       if (Math.abs(p.size - start.size) > start.size * 0.25) continue;
       // The rest of the caption's own line, set apart by a wider space («Table 45.1   Percentage Risk …»).
-      const sameLine = members.some(
-        (m) =>
-          Math.abs(bottom(m) - bottom(p)) < m.size * 0.35 &&
-          Math.min(Math.abs(p.x - right(m)), Math.abs(m.x - right(p))) < m.size * 3,
-      );
+      const sameLine = members.some((m) => {
+        if (Math.abs(bottom(m) - bottom(p)) >= m.size * 0.35) return false;
+        const gap = rtl ? m.x - right(p) : p.x - right(m);
+        return gap > -m.size * 0.3 && gap < m.size * 1.4;
+      });
       const gap = p.y - bottom(box);
       const below = gap >= -p.size * 0.3 && gap < p.size * 0.6 && hOverlap(p, box) > Math.min(p.width, box.width) * 0.5;
       if (sameLine || below) {
@@ -345,6 +392,9 @@ function grow(
   return { box, grew: grewAny };
 }
 
+/** Words in capitals only (at least two letters, none in lower case). */
+const inCapitals = (text: string) => /\p{Lu}{2}/u.test(text) && !/\p{Ll}/u.test(text);
+
 /**
  * Labels of a region: the pieces printed inside it, stacked lines of one label joined into a block (a box of a
  * flowchart, a cell of a table). Positions are relative to the region's top-left corner.
@@ -359,10 +409,16 @@ export function groupLabels(pieces: TextPiece[], origin: { x: number; y: number 
             const last = b.parts[b.parts.length - 1] as TextPiece;
             if (Math.abs(last.angle) >= 2) return false;
             const gap = p.y - bottom(last);
+            // Lines set tight together are one label even when their sizes differ, as small capitals with
+            // larger initials do («LIKELY LOW RISK TO» over «PROCEED WITH NEURAXIAL»).
+            const sizeTolerance = gap < Math.min(p.size, last.size) * 0.25 ? 0.45 : 0.2;
+            // A heading in capitals over a line in lower case is a title and its first row, two labels
+            // («LUNG VOLUMES» over «Inspiratory reserve volume»).
+            if (inCapitals(last.text) && /\p{Ll}/u.test(p.text)) return false;
             return (
               gap > -p.size * 0.3 &&
               gap < p.size * 0.5 &&
-              Math.abs(p.size - last.size) < last.size * 0.2 &&
+              Math.abs(p.size - last.size) < Math.max(p.size, last.size) * sizeTolerance &&
               hOverlap(p, last) > Math.min(p.width, last.width) * 0.4
             );
           })
@@ -407,11 +463,13 @@ export function detectFigures(page: FigurePage, lang: string): FigureRegion[] {
   const pieces = joinPieces(page.pieces);
   const body = bodySize(pieces);
   const ink = page.ink.filter((c) => inBody(c, page) && (c.width >= 4 || c.height >= 4));
+  const rtl = getLanguage(lang).dir === 'rtl';
   const captions: { kind: 'figure' | 'table'; number: string; box: Box; members: TextPiece[] }[] = [];
   for (const p of pieces) {
     const start = captionStart(p.text, lang);
     if (!start || captions.some((c) => c.members.includes(p))) continue;
-    captions.push({ ...start, ...captionBlock(p, pieces) });
+    if (isReference(p, start.end, pieces, body)) continue;
+    captions.push({ kind: start.kind, number: start.number, ...captionBlock(p, pieces, rtl) });
   }
 
   const regions: FigureRegion[] = [];
@@ -455,7 +513,14 @@ export function detectFigures(page: FigurePage, lang: string): FigureRegion[] {
       kind: cap.kind,
       page: page.index,
       number: cap.number,
-      caption: cap.members.map((m) => m.text).join(' '),
+      // Its lines in reading order: line by line, and along each line in the direction of the language.
+      caption: [...cap.members]
+        .sort((m, o) => {
+          const line = bottom(m) - bottom(o);
+          return Math.abs(line) >= Math.min(m.size, o.size) * 0.35 ? line : rtl ? o.x - m.x : m.x - o.x;
+        })
+        .map((m) => m.text)
+        .join(' '),
       captionBox: cap.box,
       box,
       labels: groupLabels(inside, box),

@@ -1,7 +1,14 @@
 import { createRequire } from 'node:module';
 import { OPS, Util } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { openPdf } from './extract';
-import { detectFigures, type FigureRegion, type InkComponent, inkComponents, type TextPiece } from './figures';
+import {
+  detectFigures,
+  type FigureLabel,
+  type FigureRegion,
+  type InkComponent,
+  inkComponents,
+  type TextPiece,
+} from './figures';
 import { normalizeRunText } from './normalize';
 import type { Box } from './types';
 
@@ -109,6 +116,16 @@ export async function renderPage(
   return { canvas, stripped };
 }
 
+/**
+ * A list bullet drawn from a symbol font that maps its glyphs to no characters comes out of the text as control or
+ * private-use codes («\u0003\u0004 Acute respiratory distress»), which no font can show. Standing alone as a word,
+ * such a run is that bullet: «•».
+ */
+export function symbolBullets(text: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: those codes are what is looked for
+  return text.replace(/(^|\s)[\u0001-\u0008\u000b\u000c\u000e-\u001f\uf000-\uf8ff]+(?=\s|$)/gu, '$1•');
+}
+
 /** Words of a page with their boxes, in page points from the top-left corner. */
 export async function textPieces(page: PdfPage): Promise<TextPiece[]> {
   const viewport = page.getViewport({ scale: 1 });
@@ -116,7 +133,7 @@ export async function textPieces(page: PdfPage): Promise<TextPiece[]> {
   const out: TextPiece[] = [];
   for (const it of content.items) {
     if (!('str' in it)) continue;
-    const text = normalizeRunText(it.str);
+    const text = symbolBullets(normalizeRunText(it.str));
     if (!text.trim()) continue;
     const [a, b, c, d, e, f] = Util.transform(viewport.transform, it.transform) as number[] as [
       number,
@@ -190,7 +207,7 @@ export function measureRoom(canvas: Canvas, scale: number, region: FigureRegion)
   const { data } = canvas.getContext('2d').getImageData(x0, y0, w, h);
   const at = (x: number, y: number) => (y * w + x) * 4;
   for (const label of region.labels) {
-    if (Math.abs(label.angle) >= 2) continue;
+    if (Math.abs(label.angle) >= 2 || label.printed) continue;
     let left = Math.max(0, Math.round(label.x * scale));
     let top = Math.max(0, Math.round(label.y * scale));
     let right = Math.min(w - 1, Math.round((label.x + label.width) * scale));
@@ -259,6 +276,131 @@ export function measureRoom(canvas: Canvas, scale: number, region: FigureRegion)
   }
 }
 
+/**
+ * Ink that reads as letters inside a window of the drawing (rows `y0`–`y1`, the middle of a line of text): dark,
+ * colourless strokes, set off from the background colour `bg`, several of them side by side (three or more runs of
+ * inked columns), covering most of the window's height and staying inside the line (`above` and `below` are rows
+ * just outside it, which no stroke of a letter reaches without a break) — not a box's border, an arrow, a dashed
+ * rule, a chart's coloured line or marker, or a drawing that runs on past the line.
+ */
+function lettersIn(
+  data: Uint8ClampedArray,
+  w: number,
+  bg: [number, number, number],
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  above: number,
+  below: number,
+): boolean {
+  if (x1 - x0 < 3 || y1 - y0 < 2) return false;
+  const dark = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    return (
+      Math.abs((data[i] as number) - bg[0]) +
+        Math.abs((data[i + 1] as number) - bg[1]) +
+        Math.abs((data[i + 2] as number) - bg[2]) >
+      160
+    );
+  };
+  const letter = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    const r = data[i] as number;
+    const g = data[i + 1] as number;
+    const b = data[i + 2] as number;
+    return dark(x, y) && Math.max(r, g, b) < 130 && Math.max(r, g, b) - Math.min(r, g, b) < 60;
+  };
+  // A stroke that runs on without a break from the line to a row outside it: a drawing, not a letter (letters end
+  // at the white between lines, however tightly the lines are set).
+  const solid = (x: number, a: number, b: number) => {
+    for (let y = Math.min(a, b); y <= Math.max(a, b); y++) if (!dark(x, y)) return false;
+    return true;
+  };
+  const rows = new Uint8Array(y1 - y0 + 1);
+  let runs = 0;
+  let cols = 0;
+  let through = 0;
+  let prev = false;
+  for (let x = x0; x <= x1; x++) {
+    let any = false;
+    for (let y = y0; y <= y1 && !any; y++) any = letter(x, y);
+    // A column a stroke runs through (an axis, a box's side) is drawing: it neither counts as a letter nor fills
+    // the line's height for the letters beside it.
+    if (any && (solid(x, above, y0) || solid(x, y1, below))) {
+      through++;
+      any = false;
+    }
+    if (any) {
+      cols++;
+      if (!prev) runs++;
+      for (let y = y0; y <= y1; y++) if (letter(x, y)) rows[y - y0] = 1;
+    }
+    prev = any;
+  }
+  if (!cols) return false;
+  const rowShare = rows.reduce((s, r) => s + r, 0) / rows.length;
+  return runs >= 3 && cols / (x1 - x0 + 1) > 0.2 && rowShare > 0.5 && through / (cols + through) < 0.3;
+}
+
+/**
+ * Words a figure's drawing still shows once its text is taken out — letters drawn as outlines, or inside a picture
+ * — and the labels they concern: `drawn`, a label whose own box still shows letters (the words are printed twice;
+ * nothing is set over them), and `fragments`, a label beside such letters on its own line («help» after an outlined
+ * «Call for skilled»): its line cannot be translated, so its own words go back into the image as printed rather
+ * than a translation mixed into a line of the original language.
+ */
+export function drawnWords(
+  canvas: Canvas,
+  scale: number,
+  region: FigureRegion,
+): { drawn: Set<FigureLabel>; fragments: Set<FigureLabel> } {
+  const drawn = new Set<FigureLabel>();
+  const fragments = new Set<FigureLabel>();
+  const x0 = Math.max(0, Math.floor(region.box.x * scale));
+  const y0 = Math.max(0, Math.floor(region.box.y * scale));
+  const w = Math.min(canvas.width - x0, Math.ceil(region.box.width * scale));
+  const h = Math.min(canvas.height - y0, Math.ceil(region.box.height * scale));
+  if (w <= 0 || h <= 0) return { drawn, fragments };
+  const { data } = canvas.getContext('2d').getImageData(x0, y0, w, h);
+  for (const label of region.labels) {
+    if (Math.abs(label.angle) >= 2) continue;
+    const left = Math.max(0, Math.round(label.x * scale));
+    const right = Math.min(w - 1, Math.round((label.x + label.width) * scale));
+    // The middle of the line: where letters are, above descenders and below ascenders.
+    const top = Math.max(0, Math.round((label.y + label.height * 0.3) * scale));
+    const bottom = Math.min(h - 1, Math.round((label.y + label.height * 0.7) * scale));
+    if (right <= left || bottom <= top) continue;
+    const counts = new Map<number, number>();
+    for (let y = top; y <= bottom; y += 2) {
+      for (let x = left; x <= right; x += 2) {
+        const i = (y * w + x) * 4;
+        const c =
+          ((data[i] as number) >> 4) * 256 + ((data[i + 1] as number) >> 4) * 16 + ((data[i + 2] as number) >> 4);
+        counts.set(c, (counts.get(c) ?? 0) + 1);
+      }
+    }
+    const q = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0xfff;
+    const bg: [number, number, number] = [((q >> 8) & 15) * 16 + 8, ((q >> 4) & 15) * 16 + 8, (q & 15) * 16 + 8];
+    // Rows just outside the line: letters end before them, drawings go on through them.
+    const above = Math.max(0, Math.round((label.y - label.size * 0.25) * scale));
+    const below = Math.min(h - 1, Math.round((label.y + label.height + label.size * 0.25) * scale));
+    if (lettersIn(data, w, bg, left, right, top, bottom, above, below)) {
+      drawn.add(label);
+      continue;
+    }
+    const reach = Math.round(label.size * 2.4 * scale);
+    const gap = Math.round(label.size * 0.08 * scale);
+    if (
+      lettersIn(data, w, bg, Math.max(0, left - reach), Math.max(0, left - gap), top, bottom, above, below) ||
+      lettersIn(data, w, bg, Math.min(w - 1, right + gap), Math.min(w - 1, right + reach), top, bottom, above, below)
+    ) {
+      fragments.add(label);
+    }
+  }
+  return { drawn, fragments };
+}
+
 function cut(source: Canvas, box: Box, scale: number, mirror: boolean): Canvas {
   const w = Math.max(1, Math.round(box.width * scale));
   const h = Math.max(1, Math.round(box.height * scale));
@@ -298,6 +440,26 @@ export async function extractFigures(data: Uint8Array, opts: FigureOptions): Pro
         opts.lang,
       );
       const withText = opts.keepText && regions.length ? (await renderPage(page, scale, false)).canvas : undefined;
+      if (!withText && drawing.stripped) {
+        // Words still drawn in the picture are left as they are; a label in a line of them goes back as printed.
+        let printed: Canvas | undefined;
+        for (const region of regions) {
+          const { drawn, fragments } = drawnWords(drawing.canvas, scale, region);
+          if (fragments.size) {
+            printed ??= (await renderPage(page, scale, false)).canvas;
+            const ctx = drawing.canvas.getContext('2d');
+            for (const l of fragments) {
+              const pad = l.size * 0.12;
+              const sx = Math.max(0, (region.box.x + l.x - pad) * scale);
+              const sy = Math.max(0, (region.box.y + l.y - pad) * scale);
+              const sw = (l.width + 2 * pad) * scale;
+              const sh = (l.height + 2 * pad) * scale;
+              ctx.drawImage(printed, sx, sy, sw, sh, sx, sy, sw, sh);
+            }
+          }
+          for (const l of [...drawn, ...fragments]) l.printed = true;
+        }
+      }
       for (const region of regions) {
         // A table's cells are bounded by their neighbours, not by drawn boxes.
         if (!withText && region.kind !== 'table') measureRoom(drawing.canvas, scale, region);

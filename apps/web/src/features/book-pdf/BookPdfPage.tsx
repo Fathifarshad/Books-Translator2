@@ -15,7 +15,7 @@ import { LangText } from '../../components/Bdi';
 import { Icon } from '../../components/Icon';
 import { Button } from '../../components/ui';
 import { uiLocale } from '../../i18n';
-import { api, bookPdfFileUrl, coverImageUrl, coverPreviewUrl, exportUrl } from '../../lib/api';
+import { ApiError, api, bookPdfFileUrl, coverImageUrl, coverPreviewUrl, exportUrl } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { targetOf, useBookLiveUpdates } from '../pipeline/live';
 
@@ -27,6 +27,17 @@ const SWATCH: Record<(typeof COVER_THEMES)[number], string> = {
   burgundy: 'linear-gradient(135deg,#5a1628,#310a15)',
   ivory: 'linear-gradient(135deg,#f3ecdc,#e2d6bb)',
 };
+
+/**
+ * Why the server could not answer. A plain «NOT_FOUND» is the router's own answer for an unknown address: the page is
+ * newer than the server still running (the app was updated while open), which only a restart fixes.
+ */
+function failureKey(err: unknown): string {
+  if (err instanceof ApiError && err.status === 404 && err.code === 'NOT_FOUND')
+    return 'bookPdf.errors.SERVER_OUTDATED';
+  if (err instanceof ApiError) return `bookPdf.errors.${err.code}`;
+  return 'bookPdf.errors.NETWORK';
+}
 
 /** Delays a value so the cover preview is not reloaded on every keystroke. */
 function useDebounced<T>(value: T, ms: number): T {
@@ -123,6 +134,10 @@ export function BookPdfPage() {
       : t(`bookPdf.errors.${data.error}`, { defaultValue: t('bookPdf.errors.generic') })
     : '';
   const sizeMb = data?.file ? fmtNum(Math.round((data.file.bytes / 1024 / 1024) * 10) / 10) : '';
+  // Without the status there are no options to build from, so the button stays off — say why instead of nothing.
+  const failure = status.isError ? status.error : start.isError ? start.error : null;
+  const failureText = failure ? t(failureKey(failure), { defaultValue: t('bookPdf.errors.generic') }) : '';
+  const outdated = status.isError && failureKey(status.error) === 'bookPdf.errors.SERVER_OUTDATED';
 
   return (
     <main id="main" className="mx-auto min-h-dvh max-w-5xl px-5 py-8">
@@ -137,6 +152,16 @@ export function BookPdfPage() {
         </p>
       ) : null}
       <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">{t('bookPdf.intro')}</p>
+
+      {failureText ? (
+        <p
+          role="alert"
+          className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger"
+          data-testid="book-pdf-unavailable"
+        >
+          {failureText}
+        </p>
+      ) : null}
 
       {data && !data.browser ? (
         <p role="alert" className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">
@@ -349,7 +374,7 @@ export function BookPdfPage() {
 
         {/* Preview and build */}
         <aside className="flex flex-col gap-4 md:sticky md:top-6 md:self-start">
-          {o.cover !== 'none' ? (
+          {o.cover !== 'none' && !outdated ? (
             <figure className="m-0">
               <iframe
                 title={t('bookPdf.preview')}
