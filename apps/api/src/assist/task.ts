@@ -21,7 +21,7 @@ export interface AssistTaskBody {
   book: { title: string; authors: string[] };
 }
 
-export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech' | 'translate'>(
+export async function runAssistTask<T extends 'summary' | 'quiz' | 'speech' | 'translate' | 'cover_design'>(
   providers: ProviderService,
   engine: ProviderId,
   task: T,

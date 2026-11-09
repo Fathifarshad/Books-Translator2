@@ -6,6 +6,8 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import { AccessControl, accessHook } from './access';
 import { type Config, repoRoot } from './config';
+import { CoverAiService } from './cover-ai/designer';
+import { PainterService } from './cover-ai/painter';
 import { type Db, openDb } from './db/client';
 import { ensureLocalUser, seedBundle } from './db/repo';
 import { EventBus } from './events';
@@ -18,6 +20,7 @@ import { audioRoutes } from './routes/audio';
 import { authRoutes } from './routes/auth';
 import { bookPdfRoutes } from './routes/book-pdf';
 import { bookRoutes } from './routes/books';
+import { coverAiRoutes } from './routes/cover-ai';
 import { coverStudioRoutes } from './routes/cover-studio';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
@@ -44,6 +47,9 @@ export interface AppContext {
   access: AccessControl;
   /** Typefaces for covers: shipped with the app and installed on this computer (ADR-048). */
   fonts: FontRegistry;
+  /** The cover's illustrator and its AI design rounds (ADR-048, stage 2). */
+  painter: PainterService;
+  coverAi: CoverAiService;
 }
 
 export interface BuildOptions {
@@ -51,6 +57,8 @@ export interface BuildOptions {
   startRunner?: boolean;
   /** Folders searched for installed fonts (tests pass none; default: the operating system's). */
   fontDirs?: string[];
+  /** HTTP for the cover illustrator (tests stand in for Cloudflare and ComfyUI). */
+  fetch?: ((url: string, init?: RequestInit) => Promise<Response>) | undefined;
   /** Database file name inside DATA_DIR (':memory:' for tests). */
   dbFile?: string;
 }
@@ -73,7 +81,20 @@ export async function buildApp(
   const tts = new TtsService(db, config, secrets);
   const access = new AccessControl(db);
   const fonts = new FontRegistry(() => opts.fontDirs ?? systemFontDirs());
-  const ctx: AppContext = { config, db, bus, providers, tts, access, fonts, runner: undefined as unknown as JobRunner };
+  const painter = new PainterService(db, secrets, opts.fetch);
+  const coverAi = new CoverAiService({ db, config, fonts, painter, providers });
+  const ctx: AppContext = {
+    config,
+    db,
+    bus,
+    providers,
+    tts,
+    access,
+    fonts,
+    painter,
+    coverAi,
+    runner: undefined as unknown as JobRunner,
+  };
   ctx.runner = new JobRunner({ db, bus, config, providers, tts, fonts, log: app.log });
 
   // CORS only for configured web origins (SPEC §16); the mobile app will use bearer tokens later.
@@ -123,6 +144,7 @@ export async function buildApp(
   await app.register(audioRoutes, { ctx });
   await app.register(bookPdfRoutes, { ctx });
   await app.register(coverStudioRoutes, { ctx });
+  await app.register(coverAiRoutes, { ctx });
 
   if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
     app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');

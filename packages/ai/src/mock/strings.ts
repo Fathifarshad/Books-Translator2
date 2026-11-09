@@ -29,6 +29,9 @@ export interface MockStrings {
   };
   listSeparator: string;
   quote: (s: string) => string;
+  /** The mock art director's concept name and reason (ADR-048). */
+  conceptName: string;
+  conceptWhy: string;
 }
 
 const fa: MockStrings = {
@@ -70,6 +73,8 @@ const fa: MockStrings = {
   },
   listSeparator: '، ',
   quote: (s) => `«${s}»`,
+  conceptName: 'طرح آزمایشی',
+  conceptWhy: 'طرحی آرام و خوانا که با موضوع کتاب هماهنگ است.',
 };
 
 const en: MockStrings = {
@@ -107,6 +112,8 @@ const en: MockStrings = {
   },
   listSeparator: ', ',
   quote: (s) => `“${s}”`,
+  conceptName: 'Test concept',
+  conceptWhy: 'A calm, readable design that suits the subject of the book.',
 };
 
 const TABLE: Record<string, MockStrings> = { fa, en };

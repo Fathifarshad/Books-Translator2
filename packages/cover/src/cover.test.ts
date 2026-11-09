@@ -304,3 +304,98 @@ describe('palette', () => {
     expect(next.layers.at(-1)).toEqual(badge);
   });
 });
+
+describe('concepts to designs', () => {
+  const concept = {
+    name: 'آبی آرام',
+    rationale: 'آرام و دقیق.',
+    layout: 'classic' as const,
+    palette: { ground: '#16264a', ground2: '#0b1530', ink: '#f6f1e3', accent: '#c9a54a' },
+    ground: 'gradient' as const,
+    pattern: 'stars' as const,
+    frame: 'double' as const,
+    titleFont: 'lalezar',
+    bodyFont: 'vazirmatn',
+    titleWeight: 800,
+    titleScale: 1,
+    imagePrompt: '',
+  };
+
+  it('places every layout inside the cover with the concept’s faces and colours', async () => {
+    const { LAYOUTS, conceptToDesign } = await import('./presets');
+    for (const layout of LAYOUTS) {
+      const d = conceptToDesign({ ...concept, layout: layout.id }, texts);
+      expect(CoverDesignSchema.safeParse(d).success, layout.id).toBe(true);
+      const title = textLayer(d, 'title');
+      expect(title, layout.id).toMatchObject({ font: 'lalezar', weight: 800, color: '#f6f1e3' });
+      expect(textLayer(d, 'authors')?.font).toBe('vazirmatn');
+      expect(textLayer(d, 'original')?.color).toBe('#c9a54a');
+      for (const l of d.layers) {
+        const box = { x: l.x, y: l.y, w: l.w, h: 4 };
+        expect(outsideSafe({ ...box, w: Math.min(box.w, 89) }, A4), `${layout.id}/${l.id}`).toBeNull();
+      }
+    }
+  });
+
+  it('keeps a picture only when one was drawn, darkened where the type sits', async () => {
+    const { conceptToDesign } = await import('./presets');
+    const pictured = {
+      ...concept,
+      layout: 'bottom-title' as const,
+      ground: 'image' as const,
+      imagePrompt: 'a quiet sea',
+    };
+    const withImage = conceptToDesign(pictured, texts, 'img-1');
+    expect(withImage.background).toMatchObject({
+      kind: 'image',
+      image: 'img-1',
+      pattern: 'none',
+      dimMode: 'bottom',
+      dimColor: '#16264a',
+    });
+    expect(withImage.background.dim).toBeGreaterThan(0.5);
+    expect(withImage.layers.find((l) => l.id === 'medallion')).toBeUndefined();
+    const without = conceptToDesign(pictured, texts);
+    expect(without.background).toMatchObject({ kind: 'gradient', image: null, dim: 0 });
+  });
+
+  it('gives unreadable ink a readable colour', async () => {
+    const { conceptToDesign, readablePalette } = await import('./presets');
+    const grey = { ground: '#777777', ground2: '#707070', ink: '#888888', accent: '#7a7a7a' };
+    const fixed = readablePalette(grey);
+    expect(contrastRatio(parseHex(fixed.ink), parseHex(fixed.ground))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(parseHex(fixed.ink), parseHex(fixed.ground2))).toBeGreaterThanOrEqual(4.5);
+    expect(textLayer(conceptToDesign({ ...concept, palette: grey }, texts), 'title')?.color).toBe(fixed.ink);
+    // A readable palette stays as the art director chose it.
+    expect(readablePalette(concept.palette)).toEqual(concept.palette);
+  });
+
+  it('scales the title with the concept and keeps it within bounds', async () => {
+    const { conceptToDesign } = await import('./presets');
+    const big = textLayer(conceptToDesign({ ...concept, layout: 'big-type', titleScale: 1.6 }, texts), 'title');
+    const small = textLayer(conceptToDesign({ ...concept, titleScale: 0.6 }, texts), 'title');
+    expect(big?.size).toBeLessThanOrEqual(12);
+    expect(small?.size).toBeGreaterThanOrEqual(2.2);
+    expect(big?.size ?? 0).toBeGreaterThan(small?.size ?? 0);
+  });
+
+  it('asks the illustrator for a picture without lettering, calm where the type goes', async () => {
+    const { paintPrompt } = await import('./presets');
+    const p = paintPrompt({ ...concept, layout: 'top-title', imagePrompt: 'Soft watercolour of a heart rhythm line' });
+    expect(p.startsWith('Soft watercolour')).toBe(true);
+    expect(p).toContain('upper third calm');
+    expect(p).toContain('no text');
+    expect(p.length).toBeLessThanOrEqual(2000);
+  });
+
+  it('designs on its own when no AI engine is connected, different each round', async () => {
+    const { basicConcepts } = await import('./presets');
+    const words = [1, 2, 3, 4, 5].map((n) => ({ name: `طرح ${n}`, why: 'چرا' }));
+    const first = basicConcepts(words, { title: ['lalezar', 'estedad'], body: 'vazirmatn' }, 3);
+    const second = basicConcepts(words, { title: ['lalezar', 'estedad'], body: 'vazirmatn' }, 3, 1);
+    expect(first.map((c) => c.layout)).toEqual(['classic', 'side', 'big-type']);
+    expect(new Set(first.map((c) => c.name)).size).toBe(3);
+    expect(second[0]?.layout).toBe('top-title');
+    expect(first.every((c) => c.ground !== 'image' && c.bodyFont === 'vazirmatn')).toBe(true);
+  });
+});

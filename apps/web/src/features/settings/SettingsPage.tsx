@@ -10,6 +10,7 @@ import { AccessSection } from './AccessSection';
 import { BudgetSection } from './BudgetSection';
 import { DisplaySettingsForm } from './DisplaySettingsForm';
 import { EnginesSection } from './EnginesSection';
+import { PainterSection } from './PainterSection';
 import { VoiceSection } from './VoiceSection';
 
 /** Settings «تنظیمات» (SPEC §13.7): display, AI engines (free providers, keys stay on the server), languages. */
@@ -35,6 +36,7 @@ export function SettingsPage() {
           <EnginesSection />
           <BudgetSection />
           <VoiceSection />
+          <PainterSection />
           <AccessSection />
         </>
       ) : (

@@ -4,6 +4,7 @@ export * from './chat';
 export * from './constants';
 export * from './cost';
 export * from './cover';
+export * from './cover-ai';
 export * from './domain';
 export * from './pipeline';
 export * from './providers';

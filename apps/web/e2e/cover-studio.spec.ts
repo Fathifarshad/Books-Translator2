@@ -131,6 +131,50 @@ test.describe('cover studio', () => {
     await saved(page);
   });
 
+  test('AI designs: three different covers, one chosen into the editor and undone', async ({ page }) => {
+    await openStudio(page);
+    await page.getByTestId('tab-ai').click();
+    // No illustrator in the test server: the panel says so and links to the settings.
+    await expect(page.getByTestId('ai-connect-painter')).toBeVisible();
+    await page.getByTestId('ai-request').fill('آرام و خوانا');
+    await page.getByTestId('ai-start').click();
+    const cards = page.getByTestId('ai-results').locator('li');
+    await expect(cards).toHaveCount(3, { timeout: 20_000 });
+    await expect(page.getByTestId('ai-start')).toBeEnabled();
+
+    // The second design (the modern one, title set to the right) into the editor.
+    await cards.nth(1).getByTestId('ai-choose').click();
+    await expect.poll(() => layerStyle(page, 'title', 'text-align')).toBe('right');
+    await saved(page);
+    await page.getByTestId('undo').click();
+    await expect.poll(() => layerStyle(page, 'title', 'text-align')).toBe('center');
+    await expectNoSeriousA11yViolations(page);
+
+    // Another round brings other designs.
+    const names = await cards.locator('h3').allTextContents();
+    await page.getByTestId('ai-start').click();
+    await expect
+      .poll(async () => (await cards.locator('h3').allTextContents()).join('|'), { timeout: 20_000 })
+      .not.toBe(names.join('|'));
+  });
+
+  test('settings: the illustrator section explains how to connect Cloudflare and checks the account id', async ({
+    page,
+  }) => {
+    await page.goto('/settings#painter');
+    const section = page.getByTestId('painter-section');
+    await expect(section).toBeVisible();
+    await expect(section.getByRole('link', { name: 'dash.cloudflare.com/sign-up' })).toHaveAttribute(
+      'href',
+      /cloudflare\.com\/sign-up/,
+    );
+    await page.getByTestId('cf-account').fill('not-an-id');
+    await expect(page.getByTestId('cf-save')).toBeDisabled();
+    await page.getByTestId('cf-account').fill('0123456789abcdef0123456789abcdef');
+    await expect(page.getByTestId('cf-save')).toBeEnabled();
+    await expect(page.getByTestId('painter-comfy')).toBeVisible();
+  });
+
   test('layers: add a badge, hide one, keep a template and apply it after a reset', async ({ page }) => {
     await openStudio(page);
     await page.getByTestId('add-text').click();

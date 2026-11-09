@@ -782,3 +782,40 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   `cover=designed`. Tests: `packages/cover/src/cover.test.ts` (25), `apps/api/src/cover-studio.test.ts` (10, one a
   real print), `apps/web/src/features/cover-studio/history.test.ts` (3), e2e `cover-studio.spec.ts` (3);
   screenshots `docs/screens/cover-studio/`.
+
+### ADR-048 amendment — stage 2: AI designs (2026-11-09)
+
+- **Art director = a task like every other (`cover_design`, `prompts/cover.md` v1):** input = title, original title,
+  authors, subject (the book's brief, else its chapter titles), the owner's wishes for the round, how many, the
+  layouts and fonts on offer, names already shown, and whether a picture can be drawn. Output = concepts: name and
+  reason in the book's language, layout, a four-colour palette, ground (image/gradient/solid), pattern, frame, title
+  and body faces, weight, title scale, and a picture described in English with no lettering. The spec refuses
+  missing concepts, unknown faces and layouts, twins, a missing or non-English picture prompt; warns on a repeated
+  name, names not in the book's language, one layout for all. Runs on the assistant engine when it is a connected
+  provider, else the book's translation engine (Claude Code on the owner's subscription: 3 concepts in ≈ 19 s on
+  the sample book). Task schemas go to the engines as JSON Schema, so they carry no zod transform (one did, and the
+  live run caught it; now tested).
+- **The app owns the geometry (`packages/cover/src/presets.ts`):** six layouts — classic, top-title, bottom-title,
+  side, big-type, band — place the layers; a concept only chooses among them, so every design is in the safe area
+  and editable at once. Ink is replaced when it does not reach 4.5:1 on the ground, and a mid-tone ground that
+  neither black nor white reaches is moved away from the ink. On a picture the darkening goes where the type sits,
+  in the ground's colour.
+- **No engine, or a failed answer → the app's own designer:** five curated pairings of layout, palette and faces
+  (names and reasons from `fa.json` → `coverStudio.ai.basic`), a different set each round, colour grounds only.
+- **Illustrator (`apps/api/src/cover-ai/painter.ts`):** Cloudflare Workers AI — FLUX.2 klein 4B (form fields,
+  768×1088 portrait, ≈ 60 covers a day in the free 10,000 neurons) or FLUX.1 schnell (JSON, square, no seed or size
+  allowed, ≈ 500 a day); account id and token in `app_settings` (`cover:painter`), the token AES-GCM encrypted,
+  checked at `…/tokens/verify` without drawing. ComfyUI on this computer: a checkpoint → prompts → latent → KSampler
+  → decode → save graph (FLUX schnell: 4 steps, cfg 1; others SDXL-like: 28 steps, cfg 6), polled through
+  `/history`. The chosen engine draws, the other set-up one is tried when it fails; refusals are named (AUTH,
+  QUOTA, NETWORK, TIMEOUT …). Every prompt ends with «no text, no letters …» and says where to keep calm.
+- **A round** runs in the server (the owner waits on the page; not a queued job): concepts → designs at once →
+  pictures one by one (each design takes its picture when drawn; a failed picture leaves the colour ground and says
+  why) → kept in `data/book-pdf/<book>/cover-ai-<lang>.json`; «تصویر دیگر» redraws one. Pictures join the book's
+  cover images (`source: 'ai'`).
+- **UI:** studio tab «هوش مصنوعی» (wishes, how many, start / more), the designs as large cards under the cover
+  («انتخاب این طرح» puts one in the editor, undoable); Settings → «تصویرسازی جلد با هوش مصنوعی» with step-by-step
+  Cloudflare and ComfyUI setup, save-and-check. Also fixed: the voice-source list overflowed a phone screen.
+- **Tests:** `apps/api/src/cover-ai.test.ts` (15: stand-in Cloudflare/ComfyUI servers, the spec, rounds, fallback,
+  settings), 6 more in `packages/cover/src/cover.test.ts`; e2e 2 more in `cover-studio.spec.ts`; screenshots
+  `docs/screens/cover-studio/*-cover-ai.png`, `*-settings-painter.png`.

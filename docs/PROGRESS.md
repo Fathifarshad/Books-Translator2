@@ -271,9 +271,12 @@ the sandbox has no access to the real services, so the first real connection is 
   of the cover editable, in eleven free Persian faces or any Persian font installed on the computer, placed by
   dragging (snapping, guides, safe area) or on a nine-position grid; outline, shadow, band; ground of colour,
   gradient or image (focus, zoom, blur, darkening), star field and frames; contrast and safe-area checks; shop-size
-  thumbnail; undo/redo; templates; the book PDF prints the design. Next: stage 2 — three AI designs (Claude Code as
-  art director, Cloudflare FLUX / local GPU as illustrator); stage 3 — full wrap with spine and back cover (blurb,
-  ISBN barcode); stage 4 — PNG/JPG exports and a 3D mockup.
+  thumbnail; undo/redo; templates; the book PDF prints the design.
+- [x] Cover studio, stage 2 of 4 (2026-11-09) — ADR-048 amendment: tab «هوش مصنوعی» → three (or more) AI designs:
+  the book's engine as art director (`cover_design` task, `prompts/cover.md`), six app-made layouts, Cloudflare
+  FLUX (free daily allowance) or ComfyUI on this computer as illustrator, the app's own designer when no engine is
+  connected; Settings → «تصویرسازی جلد» with step-by-step setup. Next: stage 3 — full wrap with spine and back cover
+  (blurb, ISBN barcode); stage 4 — PNG/JPG exports and a 3D mockup.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

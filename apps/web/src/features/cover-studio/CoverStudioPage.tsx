@@ -11,6 +11,7 @@ import { uiLocale } from '../../i18n';
 import { ApiError, api } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { targetOf } from '../pipeline/live';
+import { AiPanel, AiResults } from './AiDesigns';
 import { BackgroundPanel } from './BackgroundPanel';
 import { CoverCanvas, type DesignUpdate } from './CoverCanvas';
 import { CoverView, type LayerBoxes } from './CoverView';
@@ -20,7 +21,7 @@ import { useHistory } from './history';
 import { LayerInspector } from './LayerInspector';
 import { LayersPanel, layerName } from './LayersPanel';
 
-type Tab = 'layers' | 'background' | 'templates';
+type Tab = 'layers' | 'ai' | 'background' | 'templates';
 type SaveState = 'saved' | 'pending' | 'saving' | 'failed';
 
 const viewKey = (bookId: string, lang: string) => ['cover-design', bookId, lang] as const;
@@ -278,6 +279,16 @@ export function CoverStudioPage() {
             </div>
             <p className="text-xs leading-6 text-muted">{t('coverStudio.canvasHint')}</p>
 
+            <AiResults
+              bookId={bookId}
+              lang={lang}
+              aspect={aspect}
+              onChoose={(d) => {
+                update(() => d);
+                setSelected(null);
+              }}
+            />
+
             <div className="flex flex-wrap items-start gap-5">
               <figure className="m-0 flex flex-col items-center gap-1.5">
                 <div className="w-[5.5rem] overflow-hidden rounded-[2px] shadow-md">
@@ -294,7 +305,7 @@ export function CoverStudioPage() {
           {/* Panels */}
           <aside className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
             <div role="tablist" aria-label={t('coverStudio.panels')} className="flex gap-1 border-b border-border">
-              {(['layers', 'background', 'templates'] as const).map((id) => (
+              {(['layers', 'ai', 'background', 'templates'] as const).map((id) => (
                 <button
                   key={id}
                   type="button"
@@ -339,6 +350,8 @@ export function CoverStudioPage() {
                 )}
               </>
             ) : null}
+
+            {tab === 'ai' ? <AiPanel bookId={bookId} lang={lang} onDesigned={() => setSelected(null)} /> : null}
 
             {tab === 'background' ? (
               <BackgroundPanel

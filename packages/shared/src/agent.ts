@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CoverDesignTaskInputSchema, CoverDesignTaskResultSchema } from './cover-ai';
 import { QuizCountSchema, QuizDifficultySchema, QuizLevelSchema } from './quiz';
 
 /**
@@ -16,6 +17,8 @@ export const AGENT_TASKS = [
   'summary',
   'quiz',
   'tutor_answer',
+  /** The cover's art director (ADR-048): concepts the app turns into designs. */
+  'cover_design',
 ] as const;
 export const AgentTaskSchema = z.enum(AGENT_TASKS);
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
@@ -247,6 +250,7 @@ export const TASK_INPUT_SCHEMAS = {
   summary: SummaryInputSchema,
   quiz: QuizInputSchema,
   tutor_answer: TutorAnswerInputSchema,
+  cover_design: CoverDesignTaskInputSchema,
 } as const satisfies Record<AgentTask, z.ZodType>;
 
 export const TASK_RESULT_SCHEMAS = {
@@ -258,6 +262,7 @@ export const TASK_RESULT_SCHEMAS = {
   summary: SummaryResultSchema,
   quiz: QuizTaskResultSchema,
   tutor_answer: TutorAnswerResultSchema,
+  cover_design: CoverDesignTaskResultSchema,
 } as const satisfies Record<AgentTask, z.ZodType>;
 
 export type TaskInput<T extends AgentTask> = z.infer<(typeof TASK_INPUT_SCHEMAS)[T]>;

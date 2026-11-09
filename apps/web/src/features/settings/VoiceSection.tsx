@@ -60,12 +60,12 @@ export function VoiceSection({ lang = UI_LANG }: { lang?: string }) {
       <p className="text-sm leading-7 text-muted">{t('voice.intro')}</p>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{t('voice.source')}</span>
           <select
             value={source}
             onChange={(e) => save.mutate({ source: e.target.value as TtsSource })}
-            className={`${field} min-w-0 max-w-full`}
+            className={`${field} w-full min-w-0 max-w-full sm:w-auto`}
             data-testid="voice-source"
           >
             {TTS_SOURCES.map((id) => (

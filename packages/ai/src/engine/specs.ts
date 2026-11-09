@@ -384,6 +384,83 @@ const tutorAnswer: TaskSpec<'tutor_answer'> = {
     ),
 };
 
+/**
+ * The cover's art director (ADR-048): as many concepts as asked, each with a layout and faces from the lists it was
+ * given, distinct names, words for the owner in the book's language, and a picture described in English — image
+ * models read English, and lettering is set by the app, never drawn.
+ */
+const coverDesign: TaskSpec<'cover_design'> = {
+  task: 'cover_design',
+  input: TASK_INPUT_SCHEMAS.cover_design,
+  output: TASK_RESULT_SCHEMAS.cover_design,
+  check(input, output, ctx) {
+    const issues: ValidationIssue[] = [];
+    const error = (rule: string, message: string, fix: string, key?: string) =>
+      issues.push({ level: 'error', rule, message, fix, ...(key ? { key } : {}) });
+    if (output.concepts.length < input.count) {
+      error(
+        'concept_count',
+        `${output.concepts.length} concepts for ${input.count} asked.`,
+        `Return exactly ${input.count} concepts.`,
+      );
+    }
+    const fonts = new Set(input.fonts.map((f) => f.id));
+    const layouts = new Set(input.layouts.map((l) => l.id));
+    const names = new Set<string>();
+    const script = getLanguage(ctx.targetLang).script;
+    output.concepts.forEach((c, i) => {
+      const key = String(i + 1);
+      for (const font of [c.titleFont, c.bodyFont]) {
+        if (!fonts.has(font))
+          error('unknown_font', `Font "${font}" is not in input.fonts.`, 'Use only the ids of input.fonts.', key);
+      }
+      if (!layouts.has(c.layout))
+        error('unknown_layout', `Layout "${c.layout}" was not offered.`, 'Use only the ids of input.layouts.', key);
+      if (names.has(c.name))
+        error('duplicate_name', `Two concepts are called "${c.name}".`, 'Give each concept its own name.', key);
+      names.add(c.name);
+      if (c.ground === 'image' && !c.imagePrompt.trim()) {
+        error(
+          'missing_prompt',
+          'An image ground needs an imagePrompt.',
+          'Describe the picture, or use a gradient ground.',
+          key,
+        );
+      }
+      if (/[\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Hebrew}]/u.test(c.imagePrompt)) {
+        error('prompt_language', 'The imagePrompt is not in English.', 'Write imagePrompt in English only.', key);
+      }
+      if (script !== 'Latn' && !/\p{Script=Arabic}|\p{Script=Cyrillic}|\p{Script=Hebrew}/u.test(c.name)) {
+        issues.push({
+          level: 'warning',
+          rule: 'target_script',
+          key,
+          message: "The concept name is not in the book's language.",
+          fix: 'Write name and rationale in the target language.',
+        });
+      }
+      if (input.avoid.includes(c.name)) {
+        issues.push({
+          level: 'warning',
+          rule: 'repeated',
+          key,
+          message: `"${c.name}" was already shown.`,
+          fix: 'Propose new concepts.',
+        });
+      }
+    });
+    if (output.concepts.length > 1 && new Set(output.concepts.map((c) => c.layout)).size === 1) {
+      issues.push({
+        level: 'warning',
+        rule: 'same_layout',
+        message: 'Every concept uses the same layout.',
+        fix: 'Vary the layouts so the owner has a real choice.',
+      });
+    }
+    return issues;
+  },
+};
+
 export const TASK_SPECS: { [T in AgentTask]: TaskSpec<T> } = {
   brief,
   glossary,
@@ -393,6 +470,7 @@ export const TASK_SPECS: { [T in AgentTask]: TaskSpec<T> } = {
   summary,
   quiz,
   tutor_answer: tutorAnswer,
+  cover_design: coverDesign,
 };
 
 /** Input keys of a batch (for mapping schema errors on `items[i]` back to their key). */

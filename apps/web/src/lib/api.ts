@@ -13,12 +13,17 @@ import {
   type BudgetStatus,
   type ChatEvent,
   ChatEventSchema,
+  type CoverAiStatus,
   type CoverDesign,
   type CoverDesignView,
   type CoverFont,
   type CoverImage,
   type CoverTemplate,
   type GlossaryKind,
+  type PainterEngine,
+  type PainterTestResult,
+  type PainterUpdate,
+  type PainterView,
   type ParentheticalPolicy,
   type PipelineEstimate,
   type PipelineStatus,
@@ -356,6 +361,21 @@ export const api = {
   addCoverTemplate: (name: string, design: CoverDesign) =>
     request<CoverTemplate[]>('/cover-templates', { method: 'POST', body: JSON.stringify({ name, design }) }),
   removeCoverTemplate: (id: string) => request<CoverTemplate[]>(`/cover-templates/${id}`, { method: 'DELETE' }),
+  // «طراحی خودکار جلد» (ADR-048, stage 2): rounds of AI designs and the illustrator that draws their pictures
+  coverAi: (bookId: string, lang?: string) =>
+    request<CoverAiStatus>(`/books/${bookId}/cover-ai${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
+  startCoverAi: (bookId: string, body: { request: string; count?: number; lang?: string }) =>
+    request<CoverAiStatus>(`/books/${bookId}/cover-ai`, { method: 'POST', body: JSON.stringify(body) }),
+  repaintCoverAi: (bookId: string, optionId: string, lang?: string) =>
+    request<CoverAiStatus>(
+      `/books/${bookId}/cover-ai/${optionId}/repaint${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`,
+      { method: 'POST' },
+    ),
+  painter: () => request<PainterView>('/settings/painter'),
+  updatePainter: (patch: PainterUpdate) =>
+    request<PainterView>('/settings/painter', { method: 'PUT', body: JSON.stringify(patch) }),
+  testPainter: (engine: Exclude<PainterEngine, 'none'>) =>
+    request<PainterTestResult>('/settings/painter/test', { method: 'POST', body: JSON.stringify({ engine }) }),
   controlAudio: (bookId: string, action: 'pause' | 'resume' | 'cancel', kind: AudioKind, lang?: string) =>
     request<AudioStatus>(`/books/${bookId}/audio/control`, {
       method: 'POST',

@@ -30,6 +30,16 @@ test('cover studio screens', async ({ page }) => {
     await page.getByTestId('tab-background').click();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-background.png`, fullPage: true });
+    // A round of designs (the app's own designer in the test server).
+    await page.getByTestId('tab-ai').click();
+    if (v.device === 'desktop' && v.theme === 'light') await page.getByTestId('ai-start').click();
+    await expect(page.getByTestId('ai-results').locator('li')).toHaveCount(3, { timeout: 20_000 });
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-ai.png`, fullPage: true });
+    await page.goto('/settings#painter');
+    await expect(page.getByTestId('painter-section')).toBeVisible();
+    await page.getByTestId('painter-section').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-settings-painter.png`, fullPage: false });
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

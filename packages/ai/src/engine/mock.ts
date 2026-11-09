@@ -2,6 +2,8 @@ import type {
   AgentBatch,
   AgentTask,
   BriefInput,
+  CoverDesignTaskInput,
+  CoverDesignTaskResult,
   EditInput,
   GlossaryEntry,
   GlossaryInput,
@@ -189,6 +191,40 @@ function mockSpeech(batch: AgentBatch<SpeechInput>): SpeechResult {
   return { items: batch.input.items.map((i) => ({ key: i.key, tgt: i.src })) };
 }
 
+/**
+ * The mock art director: as many concepts as asked, cycling through the offered layouts, faces and four fixed
+ * palettes; a picture only when one can be drawn.
+ */
+const MOCK_PALETTES = [
+  { ground: '#16264a', ground2: '#0b1530', ink: '#f6f1e3', accent: '#c9a54a' },
+  { ground: '#0d4a45', ground2: '#062b28', ink: '#f3efe2', accent: '#d2b25c' },
+  { ground: '#f3ecdc', ground2: '#e2d6bb', ink: '#1d2740', accent: '#9b2c2c' },
+  { ground: '#5a1628', ground2: '#310a15', ink: '#f7efe4', accent: '#d4a95a' },
+];
+function mockCoverDesign(batch: AgentBatch<CoverDesignTaskInput>): CoverDesignTaskResult {
+  const { count, layouts, fonts, canPaint, title } = batch.input;
+  return {
+    concepts: Array.from({ length: count }, (_, i) => {
+      const font = fonts[i % fonts.length]?.id ?? 'vazirmatn';
+      const image = canPaint && i % 2 === 0;
+      return {
+        name: `${mockStrings(batch.targetLanguage).conceptName} ${i + 1}`,
+        rationale: mockStrings(batch.targetLanguage).conceptWhy,
+        layout: layouts[i % layouts.length]?.id ?? 'classic',
+        palette: MOCK_PALETTES[i % MOCK_PALETTES.length] as CoverDesignTaskResult['concepts'][number]['palette'],
+        ground: image ? 'image' : 'gradient',
+        pattern: image ? 'none' : 'stars',
+        frame: i % 2 ? 'corners' : 'double',
+        titleFont: font,
+        bodyFont: fonts[0]?.id ?? font,
+        titleWeight: 800,
+        titleScale: 1,
+        imagePrompt: image ? `Quiet abstract artwork evoking the book "${title}", soft light, no text` : '',
+      };
+    }),
+  };
+}
+
 export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T> {
   switch (batch.task) {
     case 'translate':
@@ -201,6 +237,8 @@ export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T
       return mockBrief(batch as AgentBatch<BriefInput>) as TaskResult<T>;
     case 'speech':
       return mockSpeech(batch as AgentBatch<SpeechInput>) as TaskResult<T>;
+    case 'cover_design':
+      return mockCoverDesign(batch as AgentBatch<CoverDesignTaskInput>) as TaskResult<T>;
     default:
       throw new Error(`The mock engine does not run "${batch.task}" batches in the pipeline.`);
   }
