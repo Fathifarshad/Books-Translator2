@@ -143,6 +143,79 @@ describe('the services', () => {
     await expect(noRegion.speak('سلام.')).rejects.toThrow(/region/iu);
   });
 
+  it('asks VoiceStudio on this computer for a saved voice, with no key', async () => {
+    calls.length = 0;
+    const engine = createSpeechEngine('voicestudio', {
+      url: 'http://127.0.0.1:3900/',
+      voice: 'fe388ede',
+      lang: 'fa',
+      fetch: fakeFetch(new Uint8Array([0xff, 0xf3, 1])),
+    });
+    const out = await engine.speak('سلام دنیا.');
+    expect(out.format).toBe('mp3');
+    expect(out.audio.length).toBe(3);
+    expect(calls[0]?.url).toBe('http://127.0.0.1:3900/v1/audio/speech');
+    const headers = (calls[0]?.init.headers ?? {}) as Record<string, string>;
+    expect(Object.keys(headers).some((h) => /authorization/iu.test(h))).toBe(false);
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      model: 'tts-1',
+      voice: 'fe388ede',
+      input: 'سلام دنیا.',
+      language: 'fa',
+      response_format: 'mp3',
+    });
+  });
+
+  it('cuts a long text into short pieces for VoiceStudio, so a cloned voice keeps its tone', async () => {
+    calls.length = 0;
+    const engine = createSpeechEngine('voicestudio', {
+      voice: 'v1',
+      lang: 'fa',
+      fetch: fakeFetch(new Uint8Array([1])),
+    });
+    await engine.speak(`${'این یک جمله‌ی آزمایشی است. '.repeat(120)}`);
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls[0]?.url).toBe('http://127.0.0.1:3900/v1/audio/speech');
+    for (const call of calls) expect(JSON.parse(String(call.init.body)).input.length).toBeLessThanOrEqual(1_200);
+  });
+
+  it("lists VoiceStudio's saved voices, the book's language first, and not the OpenAI aliases", async () => {
+    const engine = createSpeechEngine('voicestudio', {
+      voice: '',
+      lang: 'fa',
+      fetch: fakeFetch(
+        JSON.stringify({
+          voices: [
+            { id: 'alloy', name: 'Alloy', type: 'openai_alias' },
+            { id: 'demo0001', name: 'Demo Voice', type: 'profile', language: 'English' },
+            { id: 'fe388ede', name: 'My Voice (BLS)', type: 'profile', language: 'Persian' },
+          ],
+        }),
+      ),
+    });
+    expect(await engine.voices()).toEqual([
+      { id: 'fe388ede', label: 'My Voice (BLS) (Persian)', lang: 'fa' },
+      { id: 'demo0001', label: 'Demo Voice (English)' },
+    ]);
+  });
+
+  it('says plainly when VoiceStudio is not open', async () => {
+    const engine = createSpeechEngine('voicestudio', {
+      voice: 'v1',
+      lang: 'fa',
+      fetch: (async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch,
+    });
+    await expect(engine.speak('سلام.')).rejects.toThrow(/VoiceStudio is not running at http:\/\/127\.0\.0\.1:3900/u);
+    const missing = createSpeechEngine('voicestudio', {
+      voice: 'gone',
+      lang: 'fa',
+      fetch: (async () => new Response('{"error":{"message":"voice"}}', { status: 404 })) as unknown as typeof fetch,
+    });
+    await expect(missing.speak('سلام.')).rejects.toMatchObject({ code: 'NOT_FOUND', blocking: true });
+  });
+
   it('runs a script stand-in for Piper with this Node', () => {
     expect(resolveProgram('C:/fake/piper.mjs')).toEqual({ file: process.execPath, prefix: ['C:/fake/piper.mjs'] });
     expect(resolveProgram('piper')).toEqual({ file: 'piper', prefix: [] });
@@ -247,6 +320,30 @@ describe('the audio routes', () => {
     expect(file.rawPayload.subarray(0, 4).toString('latin1')).toBe('RIFF');
 
     expect((await app.inject({ url: '/api/v1/books/bk_sample/audio/999?kind=full&lang=fa' })).statusCode).toBe(404);
+  });
+
+  it('is ready with VoiceStudio once a voice is chosen, keeps its address, and reads in MP3', async () => {
+    const app = await appPromise;
+    await app.inject({ method: 'PUT', url: '/api/v1/settings/tts', payload: { source: 'voicestudio' } });
+    expect(await settings()).toMatchObject({
+      source: 'voicestudio',
+      needsKey: false,
+      ready: false,
+      url: 'http://127.0.0.1:3900',
+      format: 'mp3',
+      // A free voice on this computer: the model pass would only make a long book wait.
+      polish: false,
+    });
+    const bad = await app.inject({ method: 'PUT', url: '/api/v1/settings/tts', payload: { url: 'not an address' } });
+    expect(bad.statusCode).toBe(400);
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/tts',
+      payload: { voice: 'fe388ede', url: 'http://localhost:3901/' },
+    });
+    expect(await settings()).toMatchObject({ ready: true, voice: 'fe388ede', url: 'http://localhost:3901' });
+    await app.inject({ method: 'PUT', url: '/api/v1/settings/tts', payload: { url: '' } });
+    expect((await settings()).url).toBe('http://127.0.0.1:3900');
   });
 
   it('lists the formats a recording can be saved as, its own format first', async () => {

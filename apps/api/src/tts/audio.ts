@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AudioFormat, AudioKind, AudioStatus, AudioTrack, TtsSource } from '@dozabaneh/shared';
 import { getLanguage, speechText, stripMarkup } from '@dozabaneh/text';
 import { runAssistTask } from '../assist/task';
@@ -45,6 +46,12 @@ const SUMMARY_PASSAGES = 120;
 const SEGMENT_CHARS = 2_500;
 /** Lines sent to the speech pass at a time: enough context to judge a word, small enough to come back whole. */
 const SPEECH_BATCH_LINES = 40;
+/**
+ * Share of a summary recording's progress taken by writing the summaries. The assistant engine needs about a minute
+ * a chapter; the voice reads a 200-word summary in seconds.
+ */
+const SUMMARY_SHARE = 0.7;
+const SUMMARIES = 'summaries.json';
 
 export function audioDir(config: Config, bookId: string, lang: string, kind: AudioKind): string {
   return join(config.dataDir, 'audio', bookId, lang, kind);
@@ -104,11 +111,53 @@ export function splitLongTracks(plan: AudioTrackPlan[], max = MAX_TRACK_CHARS): 
   return out;
 }
 
+/** Sentence ends a voice pauses at; a line without one runs into the next when the text is read as one. */
+const SENTENCE_END = /[.!?؟:;؛…。]$/u;
+
+/**
+ * A summary as the assistant writes it (Markdown: labels in bold, bullets) turned into lines a voice can read:
+ * no heading or bullet marks, and every line closed with a full stop, so a bullet is a sentence of its own instead
+ * of running into the next one. Bold and the rest of the inline markup are left to `speechText`.
+ */
+export function summaryForSpeech(markdown: string): string {
+  return markdown
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+•]\s+|\d{1,3}[.)]\s+)/u, '')
+        .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/u, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .map((line) => (SENTENCE_END.test(line.replace(/[*_]+$/u, '')) ? line : `${line}.`))
+    .join('\n');
+}
+
+export interface SummaryPlanOptions {
+  /**
+   * Where the summaries already written are kept, by chapter content: a retry, a second recording or a recording in
+   * another format reads them back instead of asking the assistant again — a minute per chapter.
+   */
+  cacheFile?: string;
+  /** Called before each chapter (chapters done, chapters in all), and once at the end; may wait (a pause). */
+  onChapter?: (done: number, total: number) => void | Promise<void>;
+}
+
+const readSummaries = (file: string | undefined): Record<string, string> => {
+  if (!file || !existsSync(file)) return {};
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+  } catch {
+    return {};
+  }
+};
+
 /** Chapter summaries, written by the assistant engine, as the script of the short recording. */
 export async function planSummaryAudio(
   doc: BookDocument,
   providers: ProviderService,
   engine: Parameters<typeof runAssistTask>[1],
+  opts: SummaryPlanOptions = {},
 ): Promise<AudioTrackPlan[]> {
   const chapters = new Map<string, { title: string; passages: { label: string; src: string; tgt: string }[] }>();
   for (const section of doc.sections) {
@@ -123,24 +172,43 @@ export async function planSummaryAudio(
     chapters.set(key, entry);
   }
 
+  const todo = [...chapters.values()].filter((c) => c.passages.length > 0);
+  const cache = readSummaries(opts.cacheFile);
   const plan: AudioTrackPlan[] = [];
-  for (const [, chapter] of chapters) {
-    if (chapter.passages.length === 0) continue;
-    const result = (await runAssistTask(
-      providers,
-      engine,
-      'summary',
-      {
-        sourceLang: doc.lang.src,
-        targetLang: doc.lang.tgt,
-        book: { title: doc.title, authors: doc.authors },
-      },
-      { kind: 'chapter', passages: chapter.passages, glossary: [] },
-      60_000,
-    )) as { summary?: string; bullets?: string[] } & Record<string, unknown>;
-    const body = [result.summary ?? '', ...(result.bullets ?? [])].filter(Boolean).join('\n');
-    if (body.trim()) plan.push({ index: plan.length + 1, title: chapter.title, text: `${chapter.title}\n${body}` });
+  for (const [n, chapter] of todo.entries()) {
+    await opts.onChapter?.(n, todo.length);
+    // By what the chapter says, so an edited translation gets a new summary and an unchanged one keeps its own.
+    const id = createHash('sha256')
+      .update(JSON.stringify([doc.lang.tgt, chapter.title, chapter.passages.map((p) => p.tgt)]))
+      .digest('hex')
+      .slice(0, 32);
+    let markdown = cache[id] ?? '';
+    if (!markdown) {
+      const result = await runAssistTask(
+        providers,
+        engine,
+        'summary',
+        {
+          sourceLang: doc.lang.src,
+          targetLang: doc.lang.tgt,
+          book: { title: doc.title, authors: doc.authors },
+        },
+        { kind: 'chapter', passages: chapter.passages, glossary: [] },
+        60_000,
+      );
+      markdown = (result.markdown ?? '').trim();
+      if (markdown && opts.cacheFile) {
+        cache[id] = markdown;
+        mkdirSync(dirname(opts.cacheFile), { recursive: true });
+        writeFileSync(opts.cacheFile, `${JSON.stringify(cache, null, 1)}\n`, 'utf8');
+      }
+    }
+    const body = summaryForSpeech(markdown);
+    if (body) {
+      plan.push({ index: plan.length + 1, title: chapter.title, text: summaryForSpeech(`${chapter.title}\n${body}`) });
+    }
   }
+  await opts.onChapter?.(todo.length, todo.length);
   return plan;
 }
 
@@ -211,12 +279,17 @@ export interface AudioDeps {
   providers: ProviderService;
 }
 
+export type AudioStep = 'summary' | 'record';
+
 export interface BuildAudioOptions {
   bookId: string;
   lang: string;
   kind: AudioKind;
-  /** Chapters done of all, and how far through the whole recording (0–1). */
-  onProgress?: (done: number, total: number, fraction: number) => void;
+  /**
+   * Chapters done of all, how far through the whole recording (0–1), and what is being done: the summaries being
+   * written (`summary`, chapters counted as summaries) or the voice reading (`record`).
+   */
+  onProgress?: (done: number, total: number, fraction: number, step: AudioStep) => void;
   /** Saved as this; omitted, the source's own format with no conversion. */
   format?: AudioFormat;
   signal?: AbortSignal;
@@ -232,36 +305,55 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   // The source language's locale, so a run still written in it is spoken in it rather than spelled out.
   const engine = tts.engine(opts.lang, source, getLanguage(doc.lang.src).locale);
 
-  let plan: AudioTrackPlan[];
-  if (opts.kind === 'summary') {
-    const assistant = providers.assistant();
-    if (!assistant.ready || assistant.engine === 'mock') {
-      throw new SpeechError('NOT_FOUND', 'A summary needs a connected assistant engine.', true);
-    }
-    plan = await planSummaryAudio(doc, providers, assistant.engine as Parameters<typeof runAssistTask>[1]);
-  } else {
-    plan = planFullAudio(doc);
-  }
-  if (plan.length === 0) throw new SpeechError('NOT_FOUND', 'This book has nothing to read aloud yet.', true);
-
-  const dir = audioDir(config, opts.bookId, opts.lang, opts.kind);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-
+  // Before anything else, so «لغو» pressed while the summaries are being written is not forgotten later.
   const key = audioKey(opts.bookId, opts.lang, opts.kind);
   audioControl.uncancel(key);
   const checkCancelled = () => {
     if (audioControl.isCancelled(key)) throw new SpeechError('OTHER', CANCELLED);
   };
-  const weights = plan.map((p) => Math.max(1, p.text.length));
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  let doneWeight = 0;
-  const report = (i: number, within: number) =>
-    opts.onProgress?.(i, plan.length, Math.min(1, (doneWeight + (weights[i] ?? 0) * within) / totalWeight));
-  const beat = () => report(Math.min(tracks.length, plan.length - 1), 0);
 
+  const dir = audioDir(config, opts.bookId, opts.lang, opts.kind);
   const tracks: AudioTrack[] = [];
+  let plan: AudioTrackPlan[] = [];
   try {
+    // Writing the summaries takes most of a summary recording, so it has its own share of the progress.
+    const share = opts.kind === 'summary' ? SUMMARY_SHARE : 0;
+    if (opts.kind === 'summary') {
+      const assistant = providers.assistant();
+      if (!assistant.ready || assistant.engine === 'mock') {
+        throw new SpeechError('NOT_FOUND', 'A summary needs a connected assistant engine.', true);
+      }
+      plan = await planSummaryAudio(doc, providers, assistant.engine as Parameters<typeof runAssistTask>[1], {
+        cacheFile: join(config.dataDir, 'audio', opts.bookId, opts.lang, SUMMARIES),
+        onChapter: async (done, total) => {
+          const tell = () => opts.onProgress?.(done, total, total ? (share * done) / total : 0, 'summary');
+          tell();
+          if (done < total) {
+            await audioControl.whilePaused(key, tell, opts.signal);
+            checkCancelled();
+          }
+        },
+      });
+    } else {
+      plan = planFullAudio(doc);
+    }
+    if (plan.length === 0) throw new SpeechError('NOT_FOUND', 'This book has nothing to read aloud yet.', true);
+
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const weights = plan.map((p) => Math.max(1, p.text.length));
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let doneWeight = 0;
+    const report = (i: number, within: number) =>
+      opts.onProgress?.(
+        i,
+        plan.length,
+        share + (1 - share) * Math.min(1, (doneWeight + (weights[i] ?? 0) * within) / totalWeight),
+        'record',
+      );
+    const beat = () => report(Math.min(tracks.length, plan.length - 1), 0);
+
     for (const [i, item] of plan.entries()) {
       report(i, 0);
       await audioControl.whilePaused(key, beat, opts.signal);
@@ -302,7 +394,7 @@ export async function buildAudio(deps: AudioDeps, opts: BuildAudioOptions): Prom
   } finally {
     audioControl.clear(key);
   }
-  opts.onProgress?.(plan.length, plan.length, 1);
+  opts.onProgress?.(plan.length, plan.length, 1, 'record');
 
   const manifest: Manifest = {
     kind: opts.kind,
@@ -338,7 +430,7 @@ export function audioStatus(deps: AudioDeps, bookId: string, lang: string, kind:
     )
     .get(bookId, lang, kind) as { status?: string; error?: string; progress?: string } | undefined;
   const progress = row?.progress
-    ? (JSON.parse(row.progress) as { done: number; total: number; fraction?: number })
+    ? (JSON.parse(row.progress) as { done: number; total: number; fraction?: number; step?: AudioStep })
     : undefined;
   const running = row?.status === 'queued' || row?.status === 'running';
   return {
@@ -358,6 +450,7 @@ export function audioStatus(deps: AudioDeps, bookId: string, lang: string, kind:
     done: progress?.done ?? manifest?.tracks.length ?? 0,
     total: progress?.total ?? manifest?.tracks.length ?? 0,
     fraction: running ? (progress?.fraction ?? 0) : manifest ? 1 : 0,
+    step: running ? (progress?.step ?? null) : null,
     error: row?.status === 'failed' && row.error !== CANCELLED ? (row.error ?? null) : null,
     tracks: manifest?.tracks ?? [],
   };

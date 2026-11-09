@@ -146,7 +146,12 @@ export function AudioPage() {
             <span role="status" className="text-sm">
               {data.state === 'paused'
                 ? t('audio.paused', { percent: fmtNum(percent) })
-                : t('audio.building', { done: fmtNum(Math.min(data.done + 1, data.total)), total: fmtNum(data.total) })}
+                : data.total === 0
+                  ? t('audio.starting')
+                  : t(data.step === 'summary' ? 'audio.summarizing' : 'audio.building', {
+                      done: fmtNum(Math.min(data.done + 1, data.total)),
+                      total: fmtNum(data.total),
+                    })}
             </span>
             <span className="text-sm text-muted">{t('audio.percent', { percent: fmtNum(percent) })}</span>
             <Button

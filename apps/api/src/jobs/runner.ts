@@ -34,6 +34,7 @@ import { promptVersionOf } from '../pipeline/prompts';
 import { logPipeline, type PipelineCtx } from '../pipeline/state';
 import type { ProviderService } from '../settings/providers';
 import { buildAudio } from '../tts/audio';
+import { SpeechError } from '../tts/engines';
 import type { TtsService } from '../tts/service';
 import { addUsage, claimNext, fail, heartbeat, type JobRow, requeue, succeed } from './queue';
 
@@ -140,8 +141,8 @@ async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
       lang,
       kind,
       ...(scope?.format ? { format: scope.format } : {}),
-      onProgress: (done, total, fraction) => {
-        heartbeat(db, job.id, { done, total, fraction });
+      onProgress: (done, total, fraction, step) => {
+        heartbeat(db, job.id, { done, total, fraction, step });
         bus.publish(job.bookId, { type: 'progress', stage: 'audio', done, total });
       },
     },
@@ -305,7 +306,11 @@ export class JobRunner {
       }
       // A broken or oversized PDF will not get better on retry.
       // A book PDF is asked for and waited on: a failure is shown at once rather than tried again behind the page.
-      const retryable = job.stage !== 'book_pdf' && !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
+      // A voice that cannot work until its settings change, or a book with nothing to read, fails the same way again.
+      const retryable =
+        job.stage !== 'book_pdf' &&
+        !(err instanceof SpeechError && err.blocking) &&
+        !/Invalid PDF|too many pages|not a PDF|^cancelled$/i.test(message);
       const outcome = fail(db, job, message, retryable);
       log.warn({ jobId: job.id, stage: job.stage, outcome }, 'job failed');
       if (outcome === 'failed' && job.stage === 'ingest') {

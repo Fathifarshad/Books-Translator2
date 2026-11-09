@@ -262,6 +262,11 @@ the sandbox has no access to the real services, so the first real connection is 
   `docs/screens/book-pdf/`.
   Amended 2026-11-08: caption detection (neighbouring column, references in running text), labels in capitals
   translated, figure words in Noto Sans Arabic at one size per figure.
+- [x] Summary audio fixed and VoiceStudio voices (owner's request, 2026-11-08) — ADR-047: the summary recording read
+  a field the summary task never returns, so it wrote every summary and then failed; it now reads the summaries,
+  keeps them for the next time, shows «در حال نوشتن خلاصه‌ی فصل N از M», and does not retry what cannot work.
+  Settings → «صدا و پادکست» → «VoiceStudio» reads with a voice saved in VoiceStudio on this computer (the owner's
+  cloned voice). Tests: `apps/api/src/audio-summary.test.ts` (5), 5 more in `tts.test.ts`, e2e in `providers.spec.ts`.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

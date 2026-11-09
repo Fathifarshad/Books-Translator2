@@ -68,7 +68,11 @@ export function claimNext(db: Db, stages?: Stage[], excludeEngines: string[] = [
   return row ? db.select().from(jobs).where(eq(jobs.id, row.id)).get() : undefined;
 }
 
-export function heartbeat(db: Db, jobId: string, progress?: { done: number; total: number; fraction?: number }): void {
+export function heartbeat(
+  db: Db,
+  jobId: string,
+  progress?: { done: number; total: number; fraction?: number; step?: string },
+): void {
   db.update(jobs)
     .set({ leaseUntil: iso(Date.now() + LEASE_MS), ...(progress ? { progress } : {}) })
     .where(and(eq(jobs.id, jobId), eq(jobs.status, 'running')))

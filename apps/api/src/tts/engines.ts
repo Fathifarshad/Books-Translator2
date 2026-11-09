@@ -8,8 +8,8 @@ import { toSsml } from '@dozabaneh/text';
 
 /**
  * Voices that write a file (SPEC §13.9). Claude has no voice, so every one of these is somewhere else: a small
- * program on this computer (Piper — free, offline) or a service over the internet (Azure, Google, OpenAI — a key,
- * paid per character). The browser's own voice reads in the reader and writes nothing, so it is not here.
+ * program on this computer (Piper — free, offline), a voice studio on this computer (VoiceStudio — cloned voices,
+ * free, offline) or a service over the internet (Azure, Google, OpenAI — a key, paid per character). The browser's own voice reads in the reader and writes nothing, so it is not here.
  *
  * Each service has its own limit on how much text one request may carry, so long text is split at sentence
  * boundaries and the pieces are joined back together — MP3 frames end to end, WAV with one header over the sum.
@@ -40,6 +40,8 @@ export interface SpeechConfig {
   apiKey?: string;
   /** Azure: the region its key belongs to (e.g. `westeurope`). */
   region?: string;
+  /** VoiceStudio: the address of its local server. */
+  url?: string;
   voice: string;
   /** Piper: the program and the `.onnx` voice file. */
   binPath?: string;
@@ -62,9 +64,22 @@ export interface SpeechConfig {
   spawn?: typeof spawn;
 }
 
-/** Characters one request may carry. Google counts bytes (5,000) and OpenAI characters (4,096). */
-const CHUNK_CHARS: Record<FileTtsSource, number> = { piper: 20_000, azure: 4_000, google: 1_600, openai: 3_500 };
+/**
+ * Characters one request may carry. Google counts bytes (5,000) and OpenAI characters (4,096). VoiceStudio takes
+ * 4,096 too, but a cloned voice keeps its tone better over shorter pieces, and each one is back in seconds.
+ */
+const CHUNK_CHARS: Record<FileTtsSource, number> = {
+  piper: 20_000,
+  voicestudio: 1_200,
+  azure: 4_000,
+  google: 1_600,
+  openai: 3_500,
+};
 const REQUEST_TIMEOUT_MS = 120_000;
+/** VoiceStudio unloads its model when idle; loading it again on the first request can take minutes. */
+const LOCAL_MODEL_TIMEOUT_MS = 600_000;
+/** Where VoiceStudio's server answers when nothing else is set. */
+export const VOICESTUDIO_URL = 'http://127.0.0.1:3900';
 
 /** Splits text at sentence ends, then at spaces, so no piece is longer than `max`. */
 export function splitForSpeech(text: string, max: number): string[] {
@@ -109,8 +124,9 @@ async function post(
   doFetch: typeof fetch,
   signal: AbortSignal | undefined,
   what: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(timeoutMs);
   let res: Response;
   try {
     res = await doFetch(url, { ...init, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
@@ -290,6 +306,88 @@ function openaiEngine(config: SpeechConfig): SpeechEngine {
   };
 }
 
+/** English name of a language tag («fa» → «Persian»), which is how VoiceStudio labels its voices. */
+const englishName = (tag: string): string => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(tag.split('-')[0] ?? tag) ?? tag;
+  } catch {
+    return tag;
+  }
+};
+
+/**
+ * VoiceStudio (github.com/debpalash/VoiceStudio): a studio on this computer that clones a voice from a short clip
+ * or designs one from a description. Its server speaks OpenAI's protocol on a local address with no key; `voice`
+ * is the id of a saved voice profile, and `tts-1` stands for whichever engine is active in the studio.
+ */
+function voicestudioEngine(config: SpeechConfig): SpeechEngine {
+  const doFetch = config.fetch ?? fetch;
+  const base = (config.url?.trim() || VOICESTUDIO_URL).replace(/\/+$/u, '');
+  const what = `VoiceStudio (${base})`;
+  /** A studio that is closed is the usual problem: say so in words the owner can act on. */
+  const reach = async (url: string, init: RequestInit, signal?: AbortSignal, timeoutMs?: number) => {
+    try {
+      return await post(url, init, doFetch, signal, what, timeoutMs);
+    } catch (err) {
+      if (err instanceof SpeechError && err.code === 'NETWORK' && /Cannot reach/u.test(err.message)) {
+        throw new SpeechError('NETWORK', `VoiceStudio is not running at ${base}; open it and try again.`);
+      }
+      throw err;
+    }
+  };
+  return {
+    id: 'voicestudio',
+    format: 'mp3',
+    async speak(text, signal) {
+      const parts: Buffer[] = [];
+      for (const piece of splitForSpeech(text, CHUNK_CHARS.voicestudio)) {
+        const res = await reach(
+          `${base}/v1/audio/speech`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'tts-1',
+              voice: config.voice || 'default',
+              input: piece,
+              language: config.lang.split('-')[0],
+              response_format: 'mp3',
+            }),
+          },
+          signal,
+          LOCAL_MODEL_TIMEOUT_MS,
+        );
+        const audio = Buffer.from(await res.arrayBuffer());
+        if (audio.length === 0) throw new SpeechError('OTHER', `${what} sent no audio.`);
+        parts.push(audio);
+      }
+      return { audio: join_(parts, 'mp3'), format: 'mp3' };
+    },
+    async voices() {
+      const res = await reach(`${base}/v1/audio/voices`, { method: 'GET' });
+      const data = (await res.json()) as {
+        voices?: { id?: string; name?: string; type?: string; language?: string }[];
+      };
+      const wanted = englishName(config.lang).toLowerCase();
+      // Saved profiles only (cloned and designed voices); the OpenAI names all map to one default voice.
+      const profiles = (data.voices ?? [])
+        .filter((v) => v.type === 'profile' && typeof v.id === 'string')
+        .map((v) => {
+          const speaks = (v.language ?? '').trim();
+          const label = speaks ? `${v.name ?? v.id} (${speaks})` : (v.name ?? (v.id as string));
+          return {
+            id: v.id as string,
+            label,
+            // Only a profile that speaks the book's language is tagged with it; nothing is assumed for the rest.
+            ...(speaks.toLowerCase() === wanted ? { lang: config.lang } : {}),
+          };
+        });
+      // The book's language first, so the first choice is one that can read it.
+      return [...profiles.filter((v) => v.lang), ...profiles.filter((v) => !v.lang)];
+    },
+  };
+}
+
 /**
  * What to spawn for a configured program. A path ending in `.js`/`.mjs`/`.cjs` is run with this Node — which is
  * how the tests put a stand-in in place of Piper, and how anyone can wrap it in a script of their own.
@@ -417,6 +515,8 @@ export function createSpeechEngine(source: FileTtsSource, config: SpeechConfig):
       return googleEngine(config);
     case 'openai':
       return openaiEngine(config);
+    case 'voicestudio':
+      return voicestudioEngine(config);
     default:
       return piperEngine(config);
   }

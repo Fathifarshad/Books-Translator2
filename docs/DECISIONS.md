@@ -704,3 +704,34 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   table heading may use its column's width (the widest cell starting where it starts); blood groups and markers
   with a sign («O+») are isolated left to right. `FIGURES_VERSION` 7 re-cuts the figures; the label translations
   already made are kept.
+
+## ADR-047 — VoiceStudio as a voice source; the summary recording that never finished (2026-11-08)
+
+- **Context:** the owner reported that «فایل صوتی ← خلاصه» sat at «فصل ۰ از ۰ … ۰٪» for hours, and asked to read
+  books with their own cloned voice (or another voice that reads well) from VoiceStudio, an open-source studio
+  (AGPL-3.0, github.com/debpalash/VoiceStudio) running on this computer.
+- **The summary bug.** The summary task answers `{ markdown }` (`SummaryResultSchema`), but `planSummaryAudio` read
+  `summary` / `bullets`, which never exist. Every chapter was summarised (~1 min each on the owner's engine), every
+  summary was dropped as empty, and the job failed with «nothing to read aloud», then was tried twice more.
+  Nothing was reported while the summaries were written, hence «۰ از ۰». Four of the jobs in the owner's database
+  show exactly this: three attempts of ~15 min each, then failure. Fixed by:
+  - reading `markdown` and turning it into spoken lines (`summaryForSpeech`: no heading or bullet marks, every line
+    ending in a full stop so a bullet does not run into the next);
+  - keeping each chapter's summary in `data/audio/<book>/<lang>/summaries.json`, keyed by what the chapter says, so a
+    retry, a second recording or another format does not ask the assistant again;
+  - progress while summaries are written: `AudioStatus.step` (`summary` | `record`), 70% of the bar for the
+    summaries; the page says «در حال نوشتن خلاصه‌ی فصل N از M» and «در حال آماده‌سازی…» before the first report;
+  - pause and «لغو ساخت» now work during the summaries (cancel used to be cleared *after* them, so a cancelled
+    summary recording went on recording);
+  - a `SpeechError` marked blocking (no assistant engine, nothing to read, voice not found, no key) is not retried.
+- **VoiceStudio source (`voicestudio`).** Its server answers on `http://127.0.0.1:3900` with OpenAI's
+  `/v1/audio/speech` and no key from this computer. `voice` is the id of a profile saved in the studio;
+  `model: 'tts-1'` means whichever engine is active there; `language` is the book's; MP3 comes back. Voices come from
+  `/v1/audio/voices` (saved profiles only; those whose language is the book's first). Pieces of 1,200 characters,
+  600 s per request (the studio unloads its model when idle). The address is a setting (`TtsUpdate.url`). Like
+  Piper, «ویرایش متن برای خوانش» is off by default for it. Measured against the owner's studio (OmniVoice, Quadro
+  RTX 5000): 819 characters → 77 s of speech in 18.5 s; a sentence in 3 s once warm.
+- **Consequences:** VoiceStudio must be open while a recording is made; a closed studio says so
+  («VoiceStudio is not running at …») and the job is retried. Tests: `apps/api/src/audio-summary.test.ts` (5),
+  4 engine tests and 1 settings test in `apps/api/src/tts.test.ts`, e2e in `providers.spec.ts`; screenshots
+  `docs/screens/phase-4/*-settings-voicestudio.png`.

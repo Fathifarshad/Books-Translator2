@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 
 const PIPER_HELP = 'https://github.com/OHF-Voice/piper1-gpl';
+const VOICESTUDIO_HELP = 'https://github.com/debpalash/VoiceStudio';
 const field = 'rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent/60';
 
 export const voiceKey = ['tts'] as const;
@@ -207,6 +208,32 @@ export function VoiceSection({ lang = UI_LANG }: { lang?: string }) {
         </div>
       ) : null}
 
+      {source === 'voicestudio' ? (
+        <div className="mt-3 flex flex-col gap-2 text-sm">
+          <a
+            href={VOICESTUDIO_HELP}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-fit items-center gap-1 text-accent underline decoration-accent/40 underline-offset-4"
+          >
+            {t('voice.voicestudioHelp')}
+            <Icon name="link" size={14} />
+          </a>
+          <label className="flex flex-col gap-1">
+            <span>{t('voice.voicestudioUrl')}</span>
+            <input
+              key={data.url}
+              defaultValue={data.url}
+              onBlur={(e) => e.target.value.trim() !== data.url && save.mutate({ url: e.target.value.trim() })}
+              className={`${field} w-72 max-w-full font-mono`}
+              dir="ltr"
+              data-testid="voice-voicestudio-url"
+            />
+          </label>
+          <p className="text-xs leading-6 text-muted">{t('voice.voicestudioVoices')}</p>
+        </div>
+      ) : null}
+
       {source !== 'browser' && source !== 'piper' ? (
         <div className="mt-3 flex flex-wrap items-end gap-2 text-sm">
           <label className="flex flex-col gap-1">
@@ -232,7 +259,11 @@ export function VoiceSection({ lang = UI_LANG }: { lang?: string }) {
           <Button icon="history" onClick={() => voices.mutate()} disabled={voices.isPending}>
             {t('voice.loadVoices')}
           </Button>
-          {voices.data && list.length === 0 ? <span className="text-xs text-danger">{t('voice.noVoices')}</span> : null}
+          {voices.data && list.length === 0 ? (
+            <span className="text-xs text-danger" data-testid="voice-no-voices">
+              {voices.data.error ?? t(source === 'voicestudio' ? 'voice.noVoicesVoicestudio' : 'voice.noVoices')}
+            </span>
+          ) : null}
         </div>
       ) : null}
 

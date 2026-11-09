@@ -13,7 +13,14 @@ import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { keyHint, type SecretBox } from '../settings/secrets';
 import { getSetting, setSetting } from '../settings/store';
-import { createSpeechEngine, onPath, type SpeechConfig, type SpeechEngine, SpeechError } from './engines';
+import {
+  createSpeechEngine,
+  onPath,
+  type SpeechConfig,
+  type SpeechEngine,
+  SpeechError,
+  VOICESTUDIO_URL,
+} from './engines';
 
 /**
  * The voice the app reads with (SPEC §13.9). One choice for the whole app, like the assistant engine: which
@@ -25,6 +32,8 @@ interface StoredTts {
   keyEnc?: Partial<Record<TtsSource, string>>;
   keyHint?: Partial<Record<TtsSource, string>>;
   region?: string;
+  /** VoiceStudio's address, when it is not the default. */
+  url?: string;
   /** The chosen voice per source, so switching back does not lose it. */
   voice?: Partial<Record<TtsSource, string>>;
   binPath?: string;
@@ -76,10 +85,12 @@ export class TtsService {
 
   /**
    * Whether the assistant engine prepares each line before it is read (ADR-042). On unless turned off — except for
-   * Piper, whose voice does not use the vowel marks and where the model pass only made a long book wait for hours.
+   * the voices on this computer (Piper, VoiceStudio): they are free and fast, and the model pass only made a long
+   * book wait for hours.
    */
   polish(): boolean {
-    return this.stored().polish ?? this.source() !== 'piper';
+    const source = this.source();
+    return this.stored().polish ?? (source !== 'piper' && source !== 'voicestudio');
   }
 
   /** The decrypted key of a source; null when none is stored, undefined when it cannot be read. */
@@ -121,7 +132,9 @@ export class TtsService {
         ? true
         : source === 'piper'
           ? Boolean((s.voicePath ?? '').trim())
-          : hasKey && voice !== '' && (source !== 'azure' || Boolean((s.region ?? '').trim()));
+          : source === 'voicestudio'
+            ? voice !== ''
+            : hasKey && voice !== '' && (source !== 'azure' || Boolean((s.region ?? '').trim()));
     return {
       source,
       needsKey,
@@ -129,6 +142,7 @@ export class TtsService {
       hasKey,
       keyHint: hasKey ? (s.keyHint?.[source] ?? null) : null,
       region: s.region ?? '',
+      url: s.url || VOICESTUDIO_URL,
       voice,
       voices,
       binPath: s.binPath ?? '',
@@ -162,6 +176,7 @@ export class TtsService {
       next.keyHint = hints;
     }
     if (patch.region !== undefined) next.region = patch.region;
+    if (patch.url !== undefined) next.url = patch.url.replace(/\/+$/u, '');
     if (patch.voice !== undefined) next.voice = { ...(next.voice ?? {}), [source]: patch.voice };
     if (patch.binPath !== undefined) next.binPath = patch.binPath;
     if (patch.voicePath !== undefined) next.voicePath = patch.voicePath;
@@ -184,6 +199,7 @@ export class TtsService {
     return createSpeechEngine(source, {
       ...(key ? { apiKey: key } : {}),
       ...(s.region ? { region: s.region } : {}),
+      ...(s.url ? { url: s.url } : {}),
       voice: this.voiceOf(source),
       ...(s.binPath ? { binPath: s.binPath } : {}),
       ...(s.voicePath ? { voicePath: s.voicePath } : {}),

@@ -8,14 +8,16 @@ import { z } from 'zod';
  * - `browser`  the voice Windows (or the phone) already has. Free, nothing to install, reads in the reader —
  *              but it speaks, it does not write a file, so there is nothing to put on a phone or send.
  * - `piper`    a small program on this computer with a Persian voice. Free, offline, writes a file.
+ * - `voicestudio`  VoiceStudio (an open-source studio on this computer): cloned and designed voices, free and
+ *              offline, reached over its local OpenAI-compatible address.
  * - `azure` / `google` / `openai`  natural voices over the internet; a key, and paid per character.
  */
-export const TTS_SOURCES = ['browser', 'piper', 'azure', 'google', 'openai'] as const;
+export const TTS_SOURCES = ['browser', 'piper', 'voicestudio', 'azure', 'google', 'openai'] as const;
 export type TtsSource = (typeof TTS_SOURCES)[number];
 export const TtsSourceSchema = z.enum(TTS_SOURCES);
 
 /** Sources that produce an audio file on the server (everything except the browser's own voice). */
-export const FILE_TTS_SOURCES = ['piper', 'azure', 'google', 'openai'] as const;
+export const FILE_TTS_SOURCES = ['piper', 'voicestudio', 'azure', 'google', 'openai'] as const;
 export type FileTtsSource = (typeof FILE_TTS_SOURCES)[number];
 export const isFileTtsSource = (id: string): id is FileTtsSource =>
   (FILE_TTS_SOURCES as readonly string[]).includes(id);
@@ -52,6 +54,8 @@ export interface TtsView {
   region: string;
   voice: string;
   voices: TtsVoice[];
+  /** VoiceStudio: the address its local server answers on. */
+  url: string;
   /** Piper: where the program and the voice file are. */
   binPath: string;
   voicePath: string;
@@ -78,6 +82,12 @@ export const TtsUpdateSchema = z.object({
   source: TtsSourceSchema.optional(),
   apiKey: z.string().trim().min(8).max(500).nullable().optional(),
   region: z.string().trim().max(60).optional(),
+  url: z
+    .string()
+    .trim()
+    .max(200)
+    .regex(/^(?:https?:\/\/[^\s/]+\/?)?$/u)
+    .optional(),
   voice: z.string().trim().max(200).optional(),
   binPath: z.string().trim().max(500).optional(),
   voicePath: z.string().trim().max(500).optional(),
@@ -140,6 +150,11 @@ export interface AudioStatus {
   total: number;
   /** 0–1 over the whole recording, finer than chapters: a long chapter takes minutes. */
   fraction: number;
+  /**
+   * What a running recording is doing: `summary` while the assistant writes the chapter summaries (before anything
+   * is spoken), `record` while the voice reads. Null when nothing runs.
+   */
+  step: 'summary' | 'record' | null;
   error: string | null;
   tracks: AudioTrack[];
 }
