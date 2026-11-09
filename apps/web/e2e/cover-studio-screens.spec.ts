@@ -37,11 +37,16 @@ test('cover studio screens', async ({ page }) => {
     await page.getByTestId('print-price').fill('۱۲۰٬۰۰۰ تومان');
     await page
       .getByTestId('print-blurb')
-      .fill('این کتاب شما را گام‌به‌گام با شیوه‌ی اندیشیدن منظم آشنا می‌کند؛ از پرسیدن پرسش درست تا رسیدن به نتیجه‌ای که بتوان از آن دفاع کرد.\n\nمناسب دانشجویان و پژوهشگران.');
+      .fill(
+        'این کتاب شما را گام‌به‌گام با شیوه‌ی اندیشیدن منظم آشنا می‌کند؛ از پرسیدن پرسش درست تا رسیدن به نتیجه‌ای که بتوان از آن دفاع کرد.\n\nمناسب دانشجویان و پژوهشگران.',
+      );
     await expect(page.getByTestId('print-preview')).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(1800);
     await page.getByTestId('print-sheet').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-print.png`, fullPage: true });
+    await page.getByTestId('tab-export').click();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-export.png`, fullPage: true });
     await page.getByTestId('side-back').click();
     await page.waitForTimeout(700);
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-back.png`, fullPage: true });

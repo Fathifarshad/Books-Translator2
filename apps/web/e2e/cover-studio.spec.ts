@@ -250,4 +250,21 @@ test.describe('cover studio', () => {
     await expect(page.getByTestId('print-blurb-note')).toBeVisible({ timeout: 20_000 });
     await expectNoSeriousA11yViolations(page);
   });
+
+  test('picture export: the shop, square and print downloads are real PNG and JPG files', async ({ page }) => {
+    await openStudio(page);
+    await page.getByTestId('tab-export').click();
+    await expect(page.getByTestId('export-panel')).toBeVisible();
+    await expect(page.getByTestId('export-shop-download')).toHaveAttribute('href', /preset=shop&format=png/);
+    await page.getByTestId('export-format').locator('[data-value="jpg"]').click();
+    await expect(page.getByTestId('export-square-download')).toHaveAttribute('href', /preset=square&format=jpg/);
+
+    const href = await page.getByTestId('export-square-download').getAttribute('href');
+    const res = await page.request.get(href ?? '');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toBe('image/jpeg');
+    expect(res.headers()['x-image-size']).toBe('1080x1080');
+    expect((await res.body()).subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    await expectNoSeriousA11yViolations(page);
+  });
 });

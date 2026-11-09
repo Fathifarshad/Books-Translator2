@@ -172,3 +172,21 @@ describe.skipIf(!findBrowser())('cover print: a real print', () => {
     }
   }, 120_000);
 });
+
+describe.skipIf(!findBrowser())('cover pictures: a real shot', () => {
+  const size = (b: Buffer) => ({ w: b.readUInt32BE(16), h: b.readUInt32BE(20) });
+  it('takes the front as PNG and JPG at the preset sizes', async () => {
+    const app = await appPromise;
+    const shop = await app.inject({ url: '/api/v1/books/bk_sample/cover-image?lang=fa&preset=shop&format=png' });
+    expect(shop.statusCode).toBe(200);
+    expect(shop.headers['content-type']).toBe('image/png');
+    const [sw, sh] = String(shop.headers['x-image-size']).split('x').map(Number);
+    expect(size(shop.rawPayload)).toEqual({ w: sw, h: sh });
+    expect(sh).toBe(2400);
+    const sq = await app.inject({ url: '/api/v1/books/bk_sample/cover-image?lang=fa&preset=square&format=jpg' });
+    expect(sq.headers['content-type']).toBe('image/jpeg');
+    expect(sq.rawPayload.subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    const bad = await app.inject({ url: '/api/v1/books/bk_sample/cover-image?preset=huge' });
+    expect(bad.statusCode).toBe(400);
+  }, 120_000);
+});

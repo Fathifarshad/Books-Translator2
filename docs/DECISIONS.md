@@ -861,3 +861,20 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
 - **Still to do (stage 4):** PNG/JPG export of the front (shop and social-square sizes) and a 3D mockup; the barcode and
   logo are not yet draggable on the back canvas.
 
+
+### ADR-048 amendment — stage 4a: pictures of the front (2026-11-09)
+
+- **Presets (`packages/cover/src/image.ts`, pure):** `shop` — 2400 px high, width from the page (A5 «رقعی» 1657, A4 1697);
+  `square` — 1080² for Instagram/Telegram, the book 84 % of the side with a soft shadow on the cover's own ground
+  (`spineDesign`: its colours, a picture becomes its first colour); `print` — 300 dpi at the page's real size.
+  PNG or JPG (quality 92).
+- **How:** the design is laid out in a page whose body is exactly the picture's size (every length is `cqw`, so size is the
+  only input) and `takePicture` (`export/book/print.ts`) photographs it with the same Edge/Chrome as the printer —
+  Persian shaped the same way on paper and in the picture. `GET /books/:id/cover-image?preset=&format=&lang=`,
+  header `X-Image-Size`; 400 on a bad preset, 503 `BROWSER_NOT_FOUND`. Taken from the saved design (autosave is 0.8 s).
+- **UI:** tab «خروجی تصویر» (`ExportPanel`); the tab bar now wraps (six tabs overflowed the panel — seen on the screenshot).
+- **Tests:** `packages/cover/src/image.test.ts` (2), a real shot in `apps/api/src/cover-print.test.ts` (PNG/JPG sizes from
+  the file's own header), e2e `cover-studio.spec.ts` +1. Debug: `data/dbg/cover-image.ts`.
+- **Still to do:** the 3D mockup (4b); dragging barcode, price and logo on the back canvas (4c).
+- **Note:** on this computer port 4173 is in Windows' reserved range — run e2e with `PW_WEB_PORT=4273`.
+  `large-book.test.ts` failed once under full-suite load and passed alone (timing), not related.

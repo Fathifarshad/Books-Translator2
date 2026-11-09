@@ -23,12 +23,13 @@ import { CoverCanvas, type DesignUpdate } from './CoverCanvas';
 import { CoverView, type LayerBoxes } from './CoverView';
 import { type CoverIssue, useCoverIssues } from './checks';
 import { fieldClass } from './controls';
+import { ExportPanel } from './ExportPanel';
 import { useHistory } from './history';
 import { LayerInspector } from './LayerInspector';
 import { LayersPanel, layerName } from './LayersPanel';
 import { PrintPanel } from './PrintPanel';
 
-type Tab = 'layers' | 'ai' | 'background' | 'templates' | 'print';
+type Tab = 'layers' | 'ai' | 'background' | 'templates' | 'print' | 'export';
 type SaveState = 'saved' | 'pending' | 'saving' | 'failed';
 
 const viewKey = (bookId: string, lang: string) => ['cover-design', bookId, lang] as const;
@@ -416,8 +417,8 @@ export function CoverStudioPage() {
 
           {/* Panels */}
           <aside className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
-            <div role="tablist" aria-label={t('coverStudio.panels')} className="flex gap-1 border-b border-border">
-              {(['layers', 'ai', 'background', 'templates', 'print'] as const).map((id) => (
+            <div role="tablist" aria-label={t('coverStudio.panels')} className="flex flex-wrap gap-x-1 border-b border-border">
+              {(['layers', 'ai', 'background', 'templates', 'print', 'export'] as const).map((id) => (
                 <button
                   key={id}
                   type="button"
@@ -480,6 +481,8 @@ export function CoverStudioPage() {
                 onImage={(img) => setImages([img, ...(view.data?.images ?? [])])}
               />
             ) : null}
+
+            {tab === 'export' ? <ExportPanel bookId={bookId} lang={lang} /> : null}
 
             {tab === 'ai' ? <AiPanel bookId={bookId} lang={lang} onDesigned={() => setSelected(null)} /> : null}
 

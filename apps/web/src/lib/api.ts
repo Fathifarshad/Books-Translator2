@@ -450,6 +450,18 @@ export function coverPrintPdfUrl(bookId: string, lang?: string): string {
   return apiUrl(`/books/${bookId}/cover-print/pdf${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
 }
 
+/** The front cover as a picture (shop size, social square, print resolution), PNG or JPG. */
+export function coverImageDownloadUrl(
+  bookId: string,
+  lang: string | undefined,
+  preset: 'shop' | 'square' | 'print',
+  format: 'png' | 'jpg',
+): string {
+  return apiUrl(
+    `/books/${bookId}/cover-image?${lang ? `lang=${encodeURIComponent(lang)}&` : ''}preset=${preset}&format=${format}`,
+  );
+}
+
 /** `@font-face` rules of every cover font (the browser loads a file only when a face is used). */
 export const fontsCssUrl = () => apiUrl('/fonts.css');
 

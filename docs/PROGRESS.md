@@ -282,6 +282,8 @@ the sandbox has no access to the real services, so the first real connection is 
   AI blurb (`cover_blurb` task, `prompts/cover-blurb.md`; falls back to the book's brief), ISBN → EAN-13 barcode,
   price and publisher logo; one-sheet PDF back + spine + front with bleed, optional crop and fold marks, spine
   lettering from 6 mm. Screens `docs/screens/cover-studio/*-cover-print.png`, `*-cover-back.png`. Next: stage 4.
+- [x] Cover studio, stage 4a of 4 (2026-11-09) — ADR-048 amendment: tab «خروجی تصویر»: the front as PNG/JPG — shop (2400 px high), social
+  square (1080², book standing on the cover's colours), print (300 dpi). Screens `*-cover-export.png`. Next: 3D mockup.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

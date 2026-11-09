@@ -90,3 +90,35 @@ export async function withPrinter<T>(
     await browser.close();
   }
 }
+
+/**
+ * Photographs an HTML file at exactly `width` × `height` pixels (stage 4 of the cover studio): the same browser as
+ * the printer, so Persian is shaped the same way on paper and in the picture.
+ */
+export async function takePicture(
+  htmlFile: string,
+  size: { width: number; height: number },
+  format: 'png' | 'jpg',
+  quality = 92,
+): Promise<Uint8Array> {
+  const executablePath = findBrowser();
+  if (!executablePath) throw new BrowserNotFoundError();
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+    args: ['--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions'],
+  });
+  try {
+    const context = await browser.newContext({ viewport: size, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    page.setDefaultTimeout(120_000);
+    await page.goto(pathToFileURL(htmlFile).href, { waitUntil: 'load' });
+    await page.evaluate('document.fonts.ready.then(() => 0)');
+    const clip = { x: 0, y: 0, ...size };
+    return format === 'png'
+      ? await page.screenshot({ type: 'png', clip })
+      : await page.screenshot({ type: 'jpeg', quality, clip });
+  } finally {
+    await browser.close();
+  }
+}
