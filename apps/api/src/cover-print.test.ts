@@ -186,6 +186,9 @@ describe.skipIf(!findBrowser())('cover pictures: a real shot', () => {
     const sq = await app.inject({ url: '/api/v1/books/bk_sample/cover-image?lang=fa&preset=square&format=jpg' });
     expect(sq.headers['content-type']).toBe('image/jpeg');
     expect(sq.rawPayload.subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    const mock = await app.inject({ url: '/api/v1/books/bk_sample/cover-mockup?lang=fa&format=png' });
+    expect(mock.statusCode).toBe(200);
+    expect(size(mock.rawPayload)).toEqual({ w: 1600, h: 1200 });
     const bad = await app.inject({ url: '/api/v1/books/bk_sample/cover-image?preset=huge' });
     expect(bad.statusCode).toBe(400);
   }, 120_000);

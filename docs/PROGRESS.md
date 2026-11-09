@@ -283,7 +283,9 @@ the sandbox has no access to the real services, so the first real connection is 
   price and publisher logo; one-sheet PDF back + spine + front with bleed, optional crop and fold marks, spine
   lettering from 6 mm. Screens `docs/screens/cover-studio/*-cover-print.png`, `*-cover-back.png`. Next: stage 4.
 - [x] Cover studio, stage 4a of 4 (2026-11-09) — ADR-048 amendment: tab «خروجی تصویر»: the front as PNG/JPG — shop (2400 px high), social
-  square (1080², book standing on the cover's colours), print (300 dpi). Screens `*-cover-export.png`. Next: 3D mockup.
+  square (1080², book standing on the cover's colours), print (300 dpi). Screens `*-cover-export.png`. 
+- [x] Cover studio, stage 4b of 4 (2026-11-09) — ADR-048 amendment: 3D mockup of the book (front, spine, page block) as PNG/JPG 1600×1200,
+  in the same tab. Sample `docs/screens/cover-studio/sample-mockup.png`. Next: dragging barcode/price/logo on the back canvas.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

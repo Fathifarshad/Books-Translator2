@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icon } from '../../components/Icon';
-import { coverImageDownloadUrl } from '../../lib/api';
+import { coverImageDownloadUrl, coverMockupDownloadUrl } from '../../lib/api';
 import { Group, Segmented } from './controls';
 
-const PRESETS = ['shop', 'square', 'print'] as const;
+const PRESETS = ['shop', 'square', 'print', 'mockup'] as const;
 
 /**
  * «خروجی تصویر» (ADR-048, stage 4): the front cover as a PNG or JPG — the shop size, a square for social media and
@@ -38,7 +38,11 @@ export function ExportPanel(props: { bookId: string; lang: string }) {
                 <div className="text-xs leading-6 text-muted">{t(`coverStudio.export.${preset}.hint`)}</div>
               </div>
               <a
-                href={coverImageDownloadUrl(props.bookId, props.lang || undefined, preset, format)}
+                href={
+                  preset === 'mockup'
+                    ? coverMockupDownloadUrl(props.bookId, props.lang || undefined, format)
+                    : coverImageDownloadUrl(props.bookId, props.lang || undefined, preset, format)
+                }
                 download
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90"
                 data-testid={`export-${preset}-download`}

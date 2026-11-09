@@ -268,6 +268,26 @@ export type SheetMode =
   /** For the studio's preview: fonts and images fetched from this server. */
   | { kind: 'preview'; apiPrefix: string };
 
+/** The spine's lettering from the front's title face and credit colour; null when the setting is off. */
+export function spineTextFor(
+  front: CoverDesign,
+  print: Pick<CoverPrint, 'spineText'>,
+  title: string,
+  authors: string[],
+): SpineText | null {
+  const titleLayer = front.layers.find((l) => l.kind === 'text' && l.role === 'title');
+  const credit = front.layers.find((l) => l.kind === 'text' && l.role === 'preparer');
+  if (!print.spineText || titleLayer?.kind !== 'text') return null;
+  return {
+    title,
+    author: authors.join('، '),
+    font: titleLayer.font,
+    weight: titleLayer.weight,
+    color: titleLayer.color,
+    accent: credit?.kind === 'text' ? credit.accent : '#c9a54a',
+  };
+}
+
 export function buildSheet(deps: Deps, fonts: FontRegistry, bookId: string, lang: string, mode: SheetMode): Sheet {
   const bundle = getBundle(deps.db, bookId);
   if (!bundle) throw new Error('BOOK_NOT_FOUND');
@@ -288,18 +308,7 @@ export function buildSheet(deps: Deps, fonts: FontRegistry, bookId: string, lang
   };
   const body = view.back.layers.find((l) => l.kind === 'text' && l.visible && l.id !== 'blurb');
   const titleLayer = front.layers.find((l) => l.kind === 'text' && l.role === 'title');
-  const credit = front.layers.find((l) => l.kind === 'text' && l.role === 'preparer');
-  const spine: SpineText | null =
-    view.print.spineText && titleLayer?.kind === 'text'
-      ? {
-          title: texts.title ?? '',
-          author: bundle.book.authors.join('، '),
-          font: titleLayer.font,
-          weight: titleLayer.weight,
-          color: titleLayer.color,
-          accent: credit?.kind === 'text' ? credit.accent : '#c9a54a',
-        }
-      : null;
+  const spine = spineTextFor(front, view.print, texts.title ?? '', bundle.book.authors);
   const ink = titleLayer?.kind === 'text' ? titleLayer.color : '#ffffff';
   const family = coverFontFamily(body?.kind === 'text' ? body.font : 'vazirmatn');
   const extras = backExtrasMarkup(view.print, page.width, env, ink, family);

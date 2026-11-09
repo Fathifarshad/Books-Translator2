@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
-import { renderCoverImage } from '../export/book/cover-image';
+import { renderCoverImage, renderMockup } from '../export/book/cover-image';
 import {
   buildSheet,
   coverPrintView,
@@ -108,6 +108,29 @@ export async function coverPrintRoutes(app: FastifyInstance, { ctx }: { ctx: App
       const name = exportFileName(
         `${bundle.book.titles[bundle.book.sourceLang] ?? ''}-${q.preset}`,
         `dozabaneh-${bundle.book.id}-${q.preset}`,
+        q.format,
+      );
+      return reply
+        .header('Content-Type', pic.mime)
+        .header('Content-Disposition', `attachment; filename="${name}"`)
+        .header('X-Image-Size', `${pic.width}x${pic.height}`)
+        .header('Cache-Control', 'no-store')
+        .send(Buffer.from(pic.bytes));
+    } catch (err) {
+      if (err instanceof BrowserNotFoundError) throw httpError(503, 'BROWSER_NOT_FOUND');
+      throw err;
+    }
+  });
+
+  /** The book standing in 3D (front, spine, pages) as a picture. */
+  app.get<{ Params: { id: string } }>(`${API_PREFIX}/books/:id/cover-mockup`, async (req, reply) => {
+    const q = LangQuery.extend({ format: z.enum(IMAGE_FORMATS).default('png') }).parse(req.query ?? {});
+    const { bundle, lang } = book(req.params.id, q.lang);
+    try {
+      const pic = await renderMockup(deps(), ctx.fonts, req.params.id, lang, q.format);
+      const name = exportFileName(
+        `${bundle.book.titles[bundle.book.sourceLang] ?? ''}-mockup`,
+        `dozabaneh-${bundle.book.id}-mockup`,
         q.format,
       );
       return reply

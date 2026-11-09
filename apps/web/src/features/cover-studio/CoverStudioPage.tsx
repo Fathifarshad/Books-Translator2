@@ -417,7 +417,11 @@ export function CoverStudioPage() {
 
           {/* Panels */}
           <aside className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
-            <div role="tablist" aria-label={t('coverStudio.panels')} className="flex flex-wrap gap-x-1 border-b border-border">
+            <div
+              role="tablist"
+              aria-label={t('coverStudio.panels')}
+              className="flex flex-wrap gap-x-1 border-b border-border"
+            >
               {(['layers', 'ai', 'background', 'templates', 'print', 'export'] as const).map((id) => (
                 <button
                   key={id}

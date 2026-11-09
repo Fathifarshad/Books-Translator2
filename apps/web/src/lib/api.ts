@@ -462,6 +462,11 @@ export function coverImageDownloadUrl(
   );
 }
 
+/** The book standing in 3D (front, spine, pages) as a picture. */
+export function coverMockupDownloadUrl(bookId: string, lang: string | undefined, format: 'png' | 'jpg'): string {
+  return apiUrl(`/books/${bookId}/cover-mockup?${lang ? `lang=${encodeURIComponent(lang)}&` : ''}format=${format}`);
+}
+
 /** `@font-face` rules of every cover font (the browser loads a file only when a face is used). */
 export const fontsCssUrl = () => apiUrl('/fonts.css');
 

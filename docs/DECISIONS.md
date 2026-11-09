@@ -878,3 +878,16 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
 - **Still to do:** the 3D mockup (4b); dragging barcode, price and logo on the back canvas (4c).
 - **Note:** on this computer port 4173 is in Windows' reserved range — run e2e with `PW_WEB_PORT=4273`.
   `large-book.test.ts` failed once under full-suite load and passed alone (timing), not related.
+
+### ADR-048 amendment — stage 4b: the 3D mockup (2026-11-09)
+
+- **A box in CSS 3D (`packages/cover/src/mockup.ts`, pure):** front, back, spine, page block (fine paper stripes), top and
+  bottom, all in millimetres like the real book (so the spine's lettering is the printer's); turned 32° with a 7° tilt so
+  the spine edge faces the viewer — the right edge for right-to-left books, the left for others; sheen on the front,
+  shading on the spine, a soft floor shadow, a warm studio ground. 1600 × 1200, the book 74 % of the height.
+- **Spine depth** = the printer cover's spine (pages × paper); 14 mm when the pages are unknown; at least 6 mm so a thin
+  book still reads as a book. The spine lettering is the printer cover's (`spineTextFor`, now shared with the sheet).
+- **Output:** `GET /books/:id/cover-mockup?format=png|jpg&lang=` (`X-Image-Size`), the fourth row of tab «خروجی تصویر».
+- **Tests:** a unit test of the markup (spine side, minimum depth), the real shot in `cover-print.test.ts`, the export e2e.
+  743 unit, 56 e2e green. Debug: `data/dbg/cover-mockup.ts`.
+- **Still to do:** stage 4c — barcode, price and logo are still fixed on the back's foot.

@@ -265,6 +265,10 @@ test.describe('cover studio', () => {
     expect(res.headers()['content-type']).toBe('image/jpeg');
     expect(res.headers()['x-image-size']).toBe('1080x1080');
     expect((await res.body()).subarray(0, 3).toString('hex')).toBe('ffd8ff');
+    await expect(page.getByTestId('export-mockup-download')).toHaveAttribute('href', /cover-mockup\?.*format=jpg/);
+    const mock = await page.request.get((await page.getByTestId('export-mockup-download').getAttribute('href')) ?? '');
+    expect(mock.status()).toBe(200);
+    expect(mock.headers()['x-image-size']).toBe('1600x1200');
     await expectNoSeriousA11yViolations(page);
   });
 });
