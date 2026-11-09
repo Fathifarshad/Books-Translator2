@@ -819,3 +819,16 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
 - **Tests:** `apps/api/src/cover-ai.test.ts` (15: stand-in Cloudflare/ComfyUI servers, the spec, rounds, fallback,
   settings), 6 more in `packages/cover/src/cover.test.ts`; e2e 2 more in `cover-studio.spec.ts`; screenshots
   `docs/screens/cover-studio/*-cover-ai.png`, `*-settings-painter.png`.
+
+### ADR-048 amendment — stage 3 started: wrap maths and EAN-13 (2026-11-09)
+
+- Done (`packages/cover/src/wrap.ts`, 3 tests): spine width = ⌈pages/2⌉ × leaf thickness + 1 mm (papers: تحریر 70 g
+  0.09 mm, بالک 80 g 0.12 mm, گلاسه 115 g 0.10 mm — estimates, editable); wrap layout (front, spine, back, bleed;
+  front on the right for right-to-left books); EAN-13 check digit, validation, modules and an SVG barcode.
+  Defaults chosen because the owner did not know: تحریر 70 g, bleed 3 mm.
+- **Still to do (stage 3):** (1) options `paper`, `leafMm`, `bleedMm` in `BookPdfOptions`/design view and a «جلد چاپخانه»
+  tab (spine, back-cover layers: AI blurb through a new `cover_blurb` task or the book's brief, ISBN barcode, price,
+  publisher logo upload); (2) a back-cover design of its own (today `backDesign()` derives it from the front);
+  (3) a one-sheet print PDF through the existing Edge printer (`print.ts`), size = `wrapLayout`, with optional crop
+  marks, spine title rotated 90° (only when the spine ≥ 6 mm); (4) tests + e2e + screenshots.
+  Stage 4: PNG/JPG export of the front (shop and social-square sizes) and a 3D mockup.
