@@ -267,6 +267,13 @@ the sandbox has no access to the real services, so the first real connection is 
   keeps them for the next time, shows «در حال نوشتن خلاصه‌ی فصل N از M», and does not retry what cannot work.
   Settings → «صدا و پادکست» → «VoiceStudio» reads with a voice saved in VoiceStudio on this computer (the owner's
   cloned voice). Tests: `apps/api/src/audio-summary.test.ts` (5), 5 more in `tts.test.ts`, e2e in `providers.spec.ts`.
+- [x] Cover studio, stage 1 of 4 (owner's request, 2026-11-09) — ADR-048: library menu → «استودیوی جلد»: every text
+  of the cover editable, in eleven free Persian faces or any Persian font installed on the computer, placed by
+  dragging (snapping, guides, safe area) or on a nine-position grid; outline, shadow, band; ground of colour,
+  gradient or image (focus, zoom, blur, darkening), star field and frames; contrast and safe-area checks; shop-size
+  thumbnail; undo/redo; templates; the book PDF prints the design. Next: stage 2 — three AI designs (Claude Code as
+  art director, Cloudflare FLUX / local GPU as illustrator); stage 3 — full wrap with spine and back cover (blurb,
+  ISBN barcode); stage 4 — PNG/JPG exports and a 3D mockup.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

@@ -17,12 +17,14 @@ import { runAssistTask } from '../../assist/task';
 import type { Config } from '../../config';
 import type { Db } from '../../db/client';
 import { getBookRow, getBundle } from '../../db/repo';
+import { FontRegistry } from '../../fonts/registry';
 import { approvedTerms, glossarySubset, toEntry } from '../../pipeline/batches';
 import { bookSettings, translationSettings, updateSettings } from '../../pipeline/state';
 import type { ProviderService } from '../../settings/providers';
 import { getSetting, setSetting } from '../../settings/store';
 import { bookDocument } from '../document';
 import { bookStrings } from '../strings';
+import { printedCover } from './cover-design';
 import { type BookFigure, bookFigures, bookPdfDir, LabelCache, type TranslateTexts, translateLabels } from './figures';
 import { buildBookHtml, headingIds } from './html';
 import { brokenTitles, layoutBook } from './layout';
@@ -39,6 +41,8 @@ export interface BookPdfDeps {
   providers?: ProviderService | undefined;
   /** Tests inject the translator; otherwise the book's translation engine is asked. */
   translate?: TranslateTexts | undefined;
+  /** Typefaces of a designed cover (ADR-048); the app's shelf and this computer's fonts when absent. */
+  fonts?: FontRegistry | undefined;
 }
 
 export type ProgressFn = (step: BookPdfStep, done: number, total: number, fraction: number) => void;
@@ -257,6 +261,12 @@ export async function buildBookPdf(
   const layout = layoutBook(doc, figures, { mode: options.mode, titles });
   const strings = bookStrings();
   const cover = options.cover === 'uploaded' ? coverFile(config, bookId) : undefined;
+  const beside = (file: string) => file.slice(dir.length + 1).replace(/\\/g, '/');
+  // The cover designed in «استودیوی جلد» (ADR-048): its images are files beside the page, its fonts embedded.
+  const designed =
+    options.cover === 'designed'
+      ? printedCover({ db, config }, deps.fonts ?? new FontRegistry(), bookId, lang, beside)
+      : undefined;
   const html = (pages?: Map<string, number>) =>
     buildBookHtml({
       doc,
@@ -265,7 +275,8 @@ export async function buildBookPdf(
       options: cover || options.cover !== 'uploaded' ? options : { ...options, cover: 'generated' },
       strings,
       figureSrc: (f) => `figures/${f.file}`,
-      coverImage: cover ? cover.slice(dir.length + 1).replace(/\\/g, '/') : undefined,
+      coverImage: cover ? beside(cover) : undefined,
+      designedCover: designed,
       editOnly,
       pages,
     });

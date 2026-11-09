@@ -19,7 +19,8 @@ export const BOOK_PAGE_MM: Record<BookPageSize, { width: number; height: number 
 export const BOOK_FONTS = ['naskh', 'vazir'] as const;
 export type BookFont = (typeof BOOK_FONTS)[number];
 
-export const COVER_SOURCES = ['generated', 'uploaded', 'none'] as const;
+/** «designed»: the cover made in «استودیوی جلد» (ADR-048). */
+export const COVER_SOURCES = ['designed', 'generated', 'uploaded', 'none'] as const;
 export type CoverSource = (typeof COVER_SOURCES)[number];
 
 export const COVER_THEMES = ['navy', 'emerald', 'burgundy', 'ivory'] as const;

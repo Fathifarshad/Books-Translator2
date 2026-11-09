@@ -1,4 +1,5 @@
-import type { CoverTheme, Preparer } from '@dozabaneh/shared';
+import type { ThemeColors } from '@dozabaneh/cover';
+import type { Preparer } from '@dozabaneh/shared';
 import { escapeHtml } from '@dozabaneh/text';
 
 /**
@@ -7,23 +8,7 @@ import { escapeHtml } from '@dozabaneh/text';
  * the owner's own image, optionally with the title and the preparer on a band at its foot. The same theme colours
  * the headings and rules inside the book, so cover and pages read as one object.
  */
-export interface ThemeColors {
-  /** Cover background, its deeper edge, the ink on it, the ornament colour, and the accent used inside the book. */
-  bg: string;
-  edge: string;
-  ink: string;
-  ornament: string;
-  accent: string;
-  /** Tint of chapter openings and table headers inside the book. */
-  tint: string;
-}
-
-export const THEMES: Record<CoverTheme, ThemeColors> = {
-  navy: { bg: '#16264a', edge: '#0b1530', ink: '#f6f1e3', ornament: '#c9a54a', accent: '#1f3a6b', tint: '#eef2f8' },
-  emerald: { bg: '#0d4a45', edge: '#062b28', ink: '#f3efe2', ornament: '#d2b25c', accent: '#0f5c55', tint: '#ecf5f3' },
-  burgundy: { bg: '#5a1628', edge: '#310a15', ink: '#f7efe4', ornament: '#d4a95a', accent: '#7a1f35', tint: '#f8eef0' },
-  ivory: { bg: '#f3ecdc', edge: '#e2d6bb', ink: '#1d2740', ornament: '#9b2c2c', accent: '#8a2b22', tint: '#f7f1e6' },
-};
+export { THEMES, type ThemeColors } from '@dozabaneh/cover';
 
 export interface CoverContent {
   title: string;

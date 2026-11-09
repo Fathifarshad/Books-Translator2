@@ -13,6 +13,11 @@ import {
   type BudgetStatus,
   type ChatEvent,
   ChatEventSchema,
+  type CoverDesign,
+  type CoverDesignView,
+  type CoverFont,
+  type CoverImage,
+  type CoverTemplate,
   type GlossaryKind,
   type ParentheticalPolicy,
   type PipelineEstimate,
@@ -327,6 +332,30 @@ export const api = {
     return request<BookPdfStatus>(`/books/${bookId}/cover`, { method: 'POST', body: form });
   },
   removeCover: (bookId: string) => request<BookPdfStatus>(`/books/${bookId}/cover`, { method: 'DELETE' }),
+  // «استودیوی جلد» (ADR-048): the design, its images, fonts and templates
+  coverDesign: (bookId: string, lang?: string) =>
+    request<CoverDesignView>(`/books/${bookId}/cover-design${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
+  saveCoverDesign: (bookId: string, design: CoverDesign, lang?: string) =>
+    request<CoverDesignView>(`/books/${bookId}/cover-design`, {
+      method: 'PUT',
+      body: JSON.stringify({ design, ...(lang ? { lang } : {}) }),
+    }),
+  resetCoverDesign: (bookId: string, lang?: string) =>
+    request<CoverDesignView>(`/books/${bookId}/cover-design${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`, {
+      method: 'DELETE',
+    }),
+  uploadCoverImage: (bookId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<CoverImage>(`/books/${bookId}/cover-images`, { method: 'POST', body: form });
+  },
+  removeCoverImage: (bookId: string, imageId: string) =>
+    request<CoverImage[]>(`/books/${bookId}/cover-images/${imageId}`, { method: 'DELETE' }),
+  fonts: (refresh = false) => request<CoverFont[]>(`/fonts${refresh ? '?refresh=1' : ''}`),
+  coverTemplates: () => request<CoverTemplate[]>('/cover-templates'),
+  addCoverTemplate: (name: string, design: CoverDesign) =>
+    request<CoverTemplate[]>('/cover-templates', { method: 'POST', body: JSON.stringify({ name, design }) }),
+  removeCoverTemplate: (id: string) => request<CoverTemplate[]>(`/cover-templates/${id}`, { method: 'DELETE' }),
   controlAudio: (bookId: string, action: 'pause' | 'resume' | 'cancel', kind: AudioKind, lang?: string) =>
     request<AudioStatus>(`/books/${bookId}/audio/control`, {
       method: 'POST',
@@ -372,6 +401,14 @@ export function bookPdfFileUrl(bookId: string, lang?: string): string {
 export function coverImageUrl(bookId: string, v: number): string {
   return apiUrl(`/books/${bookId}/cover?v=${v}`);
 }
+
+/** A cover image of the book (uploaded, or drawn by AI). */
+export function coverImageFileUrl(bookId: string, imageId: string): string {
+  return apiUrl(`/books/${bookId}/cover-images/${imageId}`);
+}
+
+/** `@font-face` rules of every cover font (the browser loads a file only when a face is used). */
+export const fontsCssUrl = () => apiUrl('/fonts.css');
 
 /** The cover as it will be printed, for the live preview. */
 export function coverPreviewUrl(

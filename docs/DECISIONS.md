@@ -735,3 +735,50 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   («VoiceStudio is not running at …») and the job is retried. Tests: `apps/api/src/audio-summary.test.ts` (5),
   4 engine tests and 1 settings test in `apps/api/src/tts.test.ts`, e2e in `providers.spec.ts`; screenshots
   `docs/screens/phase-4/*-settings-voicestudio.png`.
+
+## ADR-048 — «استودیوی جلد»: the cover as editable layers (stage 1 of 4) (2026-11-09)
+
+- **Context:** the owner asked for a professional cover maker: edit every text of the cover and choose its font,
+  move the title, three AI designs to choose from (free AI), and whatever else a book designer would add. Agreed
+  plan in four stages: (1) the editor, (2) AI designs — an «art director» on the book's own engine (Claude Code on
+  the owner's subscription) and an illustrator, Cloudflare Workers AI FLUX (free daily allowance) with the owner's
+  Quadro RTX 5000 as a local fallback once disk space allows (Pollinations' free allowance ended in 2026 and the
+  Gemini API's free tier has no image models), (3) the printer's full wrap — front, spine sized from pages and paper,
+  back with blurb, EAN-13 ISBN barcode, logo and price — with bleed, (4) PNG/JPG for shops and social media and a 3D
+  mockup. AI models draw no Persian letters reliably, so pictures are drawn without text and the type is always set
+  by the app.
+- **Decision — a cover is data (`packages/shared/src/cover.ts`):** a background (solid, linear/radial gradient, or one
+  of the book's images with focus, zoom, blur and a flat/top/bottom darkening; a pattern — the eight-pointed star
+  field, grid, dots, diagonals — and a frame) and up to 40 layers, text or ornament (medallion, star, rule, ring,
+  diamond). Places are % of the cover (x, y = centre; width), type sizes % of its width, effects (outline, shadow,
+  band) in em, so one design fits A4, «وزیری» and «رقعی». A «credit» line style keeps the preparer's three lines
+  (role in the accent colour, name, titles) one layer. Saved per book and language in `books.settings.coverDesign`.
+- **One renderer (`packages/cover`)** used by the editor and the book: the cover element is a CSS size container and
+  every length is `cqw`, so a preview 300 px wide and the printed page are the same picture. The editor draws it in
+  a shadow root (the app's CSS cannot touch it), repaints the ground only when it changes, and measures each layer
+  for its handles. All text is escaped, and so is every style attribute (a font name in double quotes once ended the
+  attribute and dropped colour and size — caught on the screenshots, now tested); colours, ids and numbers are
+  checked again in the renderer.
+- **Fonts (`apps/api/src/fonts/registry.ts`):** eleven free (OFL) faces shipped with the app — Vazirmatn, Estedad,
+  Noto Kufi, Noto Naskh, Markazi, Amiri, Noto Nastaliq, Lalezar, Reem Kufi, El Messiri, Aref Ruqaa, each tested for
+  پ چ ژ گ and Persian digits — read from fontsource's own CSS (files and unicode ranges); and the Persian faces
+  installed on this computer (Windows, macOS and Linux font folders, the user's own included), read with `fontkit`
+  (MIT): a face counts when it has پ چ ژ گ and a yeh; italics, collections and families the app ships are left out
+  (≈ 110 families on the owner's computer — B Titr, IranNastaliq, Yekan Bakh, …; 2 s once per server). Files are
+  served only by registry id and name. The printed book embeds only the fonts its cover uses.
+- **Editor (`/books/:id/cover-studio`; library menu «استودیوی جلد», and «طراحی در استودیوی جلد» on the «کتاب PDF»
+  page):** drag with snapping to the centre, thirds, safe area and other layers (Alt: free), width handles, arrow
+  keys, nine-position grid, numeric x/y; layer list with hide/lock/raise/lower, add text of a role (subtitle,
+  series, publisher, badge, free) or an ornament; font picker that writes the layer's own text in each face; undo and
+  redo (a gesture is one step); palettes applied to ground, ornaments and type at once; quality checks — WCAG
+  contrast of each text on the painted ground, judged by its worst cell (a band or a visible outline counts), and
+  the safe area (5 % ≈ 10 mm); a thumbnail at shop size; templates kept for the next book (texts refilled by role,
+  the book's picture not kept); reset to the default. Every change is saved 0.8 s later and when the page is left;
+  saving sets the book's «کتاب PDF» cover to «designed». The first design is the ADR-046 cover as layers (with an
+  uploaded cover image imported once).
+- **Back cover** until stage 3: the front's ground with a smaller medallion, title, original title and credit.
+- **Consequences:** `POST/GET/DELETE /books/:id/cover-images`, `GET/PUT/DELETE /books/:id/cover-design`,
+  `GET /fonts`, `/fonts.css`, `/fonts/:id/:file`, `GET/POST/DELETE /cover-templates`; the cover preview accepts
+  `cover=designed`. Tests: `packages/cover/src/cover.test.ts` (25), `apps/api/src/cover-studio.test.ts` (10, one a
+  real print), `apps/web/src/features/cover-studio/history.test.ts` (3), e2e `cover-studio.spec.ts` (3);
+  screenshots `docs/screens/cover-studio/`.

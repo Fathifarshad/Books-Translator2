@@ -27,6 +27,7 @@ import type { EventBus } from '../events';
 import { buildBookPdf } from '../export/book/build';
 import { BrowserNotFoundError } from '../export/book/print';
 import { clearProgress, reportProgress } from '../export/book/status';
+import type { FontRegistry } from '../fonts/registry';
 import { advancePipeline } from '../pipeline/advance';
 import { applyMemory, importResult } from '../pipeline/apply';
 import { approvedTerms, planBatch } from '../pipeline/batches';
@@ -44,6 +45,7 @@ export interface RunnerDeps {
   config: Config;
   providers: ProviderService;
   tts: TtsService;
+  fonts?: FontRegistry | undefined;
   log: FastifyBaseLogger;
 }
 
@@ -152,12 +154,12 @@ async function runAudioJob(job: JobRow, deps: RunnerDeps): Promise<void> {
 
 /** «کتاب PDF» (ADR-046): figures, labels, layout and two prints, with the progress the page follows. */
 async function runBookPdfJob(job: JobRow, deps: RunnerDeps): Promise<void> {
-  const { db, bus, config, providers } = deps;
+  const { db, bus, config, providers, fonts } = deps;
   const lang = job.targetLang as string;
   const options = BookPdfOptionsSchema.parse((job.scope as { options?: unknown } | null)?.options ?? {});
   try {
     await buildBookPdf(
-      { db, config, providers },
+      { db, config, providers, fonts },
       {
         bookId: job.bookId,
         lang,

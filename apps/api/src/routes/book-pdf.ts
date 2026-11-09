@@ -1,4 +1,5 @@
 import { createReadStream, readFileSync } from 'node:fs';
+import { COVER_STYLE, coverMarkup } from '@dozabaneh/cover';
 import {
   API_PREFIX,
   BOOK_PAGE_MM,
@@ -14,9 +15,11 @@ import type { AppContext } from '../app';
 import { getBundle } from '../db/repo';
 import { COVER_TYPES, coverFile, outputFile, removeCover, saveCover, saveOptions } from '../export/book/build';
 import { COVER_CSS, type CoverContent, generatedCover, imageCover, THEMES } from '../export/book/cover';
+import { coverDesign } from '../export/book/cover-design';
 import { bookPdfStatus } from '../export/book/status';
 import { embeddedFonts } from '../export/offline';
 import { bookStrings, fill } from '../export/strings';
+import { coverFontFamily, fontFaceCss } from '../fonts/registry';
 import { enqueue } from '../jobs/queue';
 import { httpError } from './errors';
 import { exportFileName } from './export';
@@ -25,7 +28,7 @@ const LangQuery = z.object({ lang: z.string().min(2).max(12).optional() });
 
 const PreviewQuery = PreparerSchema.extend({
   theme: z.enum(COVER_THEMES).default('navy'),
-  cover: z.enum(['generated', 'uploaded']).default('generated'),
+  cover: z.enum(['designed', 'generated', 'uploaded']).default('generated'),
   coverText: z.enum(['0', '1']).default('1'),
   lang: z.string().min(2).max(12).optional(),
 });
@@ -124,14 +127,30 @@ export async function bookPdfRoutes(app: FastifyInstance, { ctx }: { ctx: AppCon
       preparer: { role: q.role || strings.defaultRole, name: q.name, title: q.title },
     };
     const uploaded = q.cover === 'uploaded' && coverFile(ctx.config, req.params.id);
-    const section = uploaded
-      ? imageCover(`${API_PREFIX}/books/${req.params.id}/cover`, content, q.coverText === '1', strings.defaultRole)
-      : generatedCover(content, THEMES[q.theme], strings.defaultRole);
+    let designedCss = '';
+    let section: string;
+    if (q.cover === 'designed') {
+      // The studio's design, with its fonts and images loaded from this server.
+      const { design } = coverDesign(deps(), req.params.id, lang);
+      designedCss =
+        fontFaceCss(
+          ctx.fonts.all(),
+          (font, face) => `${API_PREFIX}/fonts/${font.id}/${encodeURIComponent(face.name)}`,
+        ) + COVER_STYLE;
+      section = `<section class="cover">${coverMarkup(design, {
+        imageUrl: (id) => `${API_PREFIX}/books/${req.params.id}/cover-images/${id}`,
+        fontFamily: coverFontFamily,
+      })}</section>`;
+    } else {
+      section = uploaded
+        ? imageCover(`${API_PREFIX}/books/${req.params.id}/cover`, content, q.coverText === '1', strings.defaultRole)
+        : generatedCover(content, THEMES[q.theme], strings.defaultRole);
+    }
     const a4 = BOOK_PAGE_MM.a4;
     // The cover at its printed size (A4), scaled to whatever frame shows it.
     const html = `<!doctype html><html lang="${lang}" dir="${getLanguage(lang).dir}"><head><meta charset="utf-8">
 <style>${embeddedFonts()}:root{--f-head:"Vazirmatn Offline",sans-serif;--f-latin:"Vazirmatn Offline",sans-serif;--page-w:${a4.width}mm;--page-h:${a4.height}mm}
-html,body{margin:0;overflow:hidden;font-family:"Vazirmatn Offline",sans-serif;background:#fff}${COVER_CSS}</style>
+html,body{margin:0;overflow:hidden;font-family:"Vazirmatn Offline",sans-serif;background:#fff}${COVER_CSS}${designedCss}</style>
 </head><body>${section}<script>function fit(){document.body.style.zoom=String(innerWidth/(${a4.width}*96/25.4))}fit();addEventListener('resize',fit)</script></body></html>`;
     return reply.header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').send(html);
   });

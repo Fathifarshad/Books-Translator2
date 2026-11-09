@@ -9,6 +9,7 @@ import { type Config, repoRoot } from './config';
 import { type Db, openDb } from './db/client';
 import { ensureLocalUser, seedBundle } from './db/repo';
 import { EventBus } from './events';
+import { FontRegistry, systemFontDirs } from './fonts/registry';
 import { JobRunner, pipelineCtx } from './jobs/runner';
 import { advanceAll } from './pipeline/advance';
 import { NotificationPoller } from './pipeline/notify';
@@ -17,6 +18,7 @@ import { audioRoutes } from './routes/audio';
 import { authRoutes } from './routes/auth';
 import { bookPdfRoutes } from './routes/book-pdf';
 import { bookRoutes } from './routes/books';
+import { coverStudioRoutes } from './routes/cover-studio';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
 import { exportRoutes } from './routes/export';
@@ -40,11 +42,15 @@ export interface AppContext {
   providers: ProviderService;
   tts: TtsService;
   access: AccessControl;
+  /** Typefaces for covers: shipped with the app and installed on this computer (ADR-048). */
+  fonts: FontRegistry;
 }
 
 export interface BuildOptions {
   /** Start the inline job runner (tests drive it manually with `runner.drain()`). */
   startRunner?: boolean;
+  /** Folders searched for installed fonts (tests pass none; default: the operating system's). */
+  fontDirs?: string[];
   /** Database file name inside DATA_DIR (':memory:' for tests). */
   dbFile?: string;
 }
@@ -66,8 +72,9 @@ export async function buildApp(
   const providers = new ProviderService(db, config, secrets);
   const tts = new TtsService(db, config, secrets);
   const access = new AccessControl(db);
-  const ctx: AppContext = { config, db, bus, providers, tts, access, runner: undefined as unknown as JobRunner };
-  ctx.runner = new JobRunner({ db, bus, config, providers, tts, log: app.log });
+  const fonts = new FontRegistry(() => opts.fontDirs ?? systemFontDirs());
+  const ctx: AppContext = { config, db, bus, providers, tts, access, fonts, runner: undefined as unknown as JobRunner };
+  ctx.runner = new JobRunner({ db, bus, config, providers, tts, fonts, log: app.log });
 
   // CORS only for configured web origins (SPEC §16); the mobile app will use bearer tokens later.
   await app.register(cors, {
@@ -115,6 +122,7 @@ export async function buildApp(
   await app.register(exportRoutes, { ctx });
   await app.register(audioRoutes, { ctx });
   await app.register(bookPdfRoutes, { ctx });
+  await app.register(coverStudioRoutes, { ctx });
 
   if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
     app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');

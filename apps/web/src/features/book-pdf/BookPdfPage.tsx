@@ -191,6 +191,20 @@ export function BookPdfPage() {
               ))}
             </div>
 
+            {o.cover === 'designed' ? (
+              <div className="mt-4 flex flex-col items-start gap-3">
+                <p className="text-sm leading-7 text-muted">{t('bookPdf.studioHint')}</p>
+                <Link
+                  to={`/books/${bookId}/cover-studio`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-on-accent hover:opacity-90"
+                  data-testid="open-cover-studio"
+                >
+                  <Icon name="palette" size={16} />
+                  {t('bookPdf.openStudio')}
+                </Link>
+              </div>
+            ) : null}
+
             {o.cover === 'generated' ? (
               <div className="mt-4">
                 <p className="mb-2 text-sm font-medium">{t('bookPdf.themesLabel')}</p>

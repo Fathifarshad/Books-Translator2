@@ -46,6 +46,18 @@ const PATHS = {
   mergeUp: 'M12 20V8M7 13l5-5 5 5M5 4h14',
   mergeDown: 'M12 4v12M7 11l5 5 5-5M5 20h14',
   scissors: 'M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM7.5 7.5L20 18M7.5 16.5L20 6',
+  // cover studio (ADR-048)
+  undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3',
+  redo: 'M15 14l5-5-5-5M20 9H9a5 5 0 0 0 0 10h3',
+  lock: 'M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3',
+  unlock: 'M6 11h12v9H6zM9 11V8a3 3 0 0 1 5.8-1.1',
+  alignLeft: 'M4 6h16M4 10h10M4 14h16M4 18h10',
+  alignCenter: 'M4 6h16M7 10h10M4 14h16M7 18h10',
+  alignRight: 'M4 6h16M10 10h10M4 14h16M10 18h10',
+  grid: 'M4 4h16v16H4zM4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16',
+  layers: 'M12 4l9 5-9 5-9-5zM3 14l9 5 9-5',
+  palette:
+    'M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3.5 3H16a2 2 0 0 0-1.5 3.3c.4.5.5 1 .5 1.4 0 .8-1.3 1.3-3 1.3zM7.5 11h.01M10 7h.01M14.5 7h.01M17 11h.01',
 } as const;
 
 const DIRECTIONAL = new Set<IconName>([
@@ -56,6 +68,8 @@ const DIRECTIONAL = new Set<IconName>([
   'send',
   'indent',
   'outdent',
+  'undo',
+  'redo',
 ]);
 
 export type IconName = keyof typeof PATHS;

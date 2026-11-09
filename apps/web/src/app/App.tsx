@@ -91,6 +91,10 @@ const router = createBrowserRouter([
         lazy: async () => ({ Component: (await import('../features/book-pdf/BookPdfPage')).BookPdfPage }),
       },
       {
+        path: '/books/:bookId/cover-studio',
+        lazy: async () => ({ Component: (await import('../features/cover-studio/CoverStudioPage')).CoverStudioPage }),
+      },
+      {
         path: '/books/:bookId/review',
         lazy: async () => ({ Component: (await import('../features/review/ReviewPage')).ReviewPage }),
       },

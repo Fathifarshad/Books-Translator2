@@ -1,0 +1,17 @@
+{
+  "name": "@dozabaneh/cover",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Book covers as data: the renderer shared by the cover editor and the printed book, colour and layout maths.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dozabaneh/shared": "workspace:*",
+    "@dozabaneh/text": "workspace:*"
+  }
+}

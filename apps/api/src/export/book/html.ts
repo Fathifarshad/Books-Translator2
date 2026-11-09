@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { COVER_STYLE } from '@dozabaneh/cover';
 import { captionStart } from '@dozabaneh/pdf';
 import { BOOK_PAGE_MM, type BookPdfOptions } from '@dozabaneh/shared';
 import { escapeHtml, getLanguage, localizeDigits, markupToHtml } from '@dozabaneh/text';
@@ -30,6 +31,8 @@ export interface BookHtmlInput {
   /** URL of each figure image as the page loads it (relative to the HTML file). */
   figureSrc: (f: BookFigure) => string;
   coverImage?: string | undefined;
+  /** The cover designed in «استودیوی جلد» (ADR-048): front and back markup and the CSS of its fonts. */
+  designedCover?: { front: string; back: string; css: string } | undefined;
   editOnly: boolean;
   /** Page of each heading and figure anchor (second print); absent on the first. */
   pages?: Map<string, number> | undefined;
@@ -437,8 +440,11 @@ export function buildBookHtml(input: BookHtmlInput): string {
   };
   const parts: string[] = [];
 
-  if (options.cover === 'generated') parts.push(generatedCover(cover, theme, strings.defaultRole));
-  else if (options.cover === 'uploaded' && input.coverImage) {
+  const designed = options.cover === 'designed' ? input.designedCover : undefined;
+  if (designed) parts.push(`<section class="cover designed">${designed.front}</section>`);
+  else if (options.cover === 'generated' || options.cover === 'designed') {
+    parts.push(generatedCover(cover, theme, strings.defaultRole));
+  } else if (options.cover === 'uploaded' && input.coverImage) {
     parts.push(imageCover(input.coverImage, cover, options.coverText, strings.defaultRole));
   }
 
@@ -525,14 +531,20 @@ export function buildBookHtml(input: BookHtmlInput): string {
       `<section class="glossary" dir="${dir}"><h1 id="${glossaryId}">${escapeHtml(strings.glossary)}</h1><dl>${terms}</dl></section>`,
     );
   }
-  if (options.backCover && options.cover !== 'none') parts.push(backCover(cover, theme, strings.defaultRole));
+  if (options.backCover && options.cover !== 'none') {
+    parts.push(
+      designed
+        ? `<section class="cover designed">${designed.back}</section>`
+        : backCover(cover, theme, strings.defaultRole),
+    );
+  }
 
   return `<!doctype html>
 <html lang="${escapeHtml(tgt)}" dir="${dir}">
 <head>
 <meta charset="utf-8">
 <title>${escapeHtml(doc.title)}</title>
-<style>${embeddedFonts()}${options.font === 'naskh' ? naskhFonts() : ''}${figureFonts()}${pageCss(input)}${bookCss(input)}</style>
+<style>${embeddedFonts()}${designed ? `${designed.css}${COVER_STYLE}` : ''}${options.font === 'naskh' ? naskhFonts() : ''}${figureFonts()}${pageCss(input)}${bookCss(input)}</style>
 </head>
 <body>
 ${parts.join('\n')}

@@ -14,6 +14,7 @@
   "dependencies": {
     "@dozabaneh/ai": "workspace:*",
     "@dozabaneh/core": "workspace:*",
+    "@dozabaneh/cover": "workspace:*",
     "@dozabaneh/shared": "workspace:*",
     "@dozabaneh/text": "workspace:*",
     "@floating-ui/react": "^0.27.20",
