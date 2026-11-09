@@ -285,7 +285,9 @@ the sandbox has no access to the real services, so the first real connection is 
 - [x] Cover studio, stage 4a of 4 (2026-11-09) — ADR-048 amendment: tab «خروجی تصویر»: the front as PNG/JPG — shop (2400 px high), social
   square (1080², book standing on the cover's colours), print (300 dpi). Screens `*-cover-export.png`. 
 - [x] Cover studio, stage 4b of 4 (2026-11-09) — ADR-048 amendment: 3D mockup of the book (front, spine, page block) as PNG/JPG 1600×1200,
-  in the same tab. Sample `docs/screens/cover-studio/sample-mockup.png`. Next: dragging barcode/price/logo on the back canvas.
+  in the same tab. Sample `docs/screens/cover-studio/sample-mockup.png`. 
+- [x] Cover studio, stage 4c of 4 (2026-11-09) — ADR-048 amendment: barcode, price and logo are layers of the back cover (`kind: 'extra'`):
+  dragged, sized, hidden, undone and saved like the rest; their content still comes from «جلد چاپخانه». Cover studio complete.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

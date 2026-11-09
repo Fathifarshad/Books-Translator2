@@ -2,10 +2,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   backDesign,
-  backExtrasMarkup,
   type CoverTexts,
   DEFAULT_BLEED_MM,
   DEFAULT_PAPER,
+  ensureExtras,
+  extrasRenderer,
   isbnStatus,
   PAPERS,
   type Sheet,
@@ -82,14 +83,18 @@ function backFor(
   print: CoverPrint,
   texts: CoverTexts,
   rtl: boolean,
+  pageWidthMm: number,
 ): CoverDesign {
-  if (saved) return saved;
-  return backDesign(front, {
-    blurb: print.blurb,
-    tagline: print.tagline,
-    publisher: texts.publisher ?? '',
-    rtl,
-  });
+  const back =
+    saved ??
+    backDesign(front, {
+      blurb: print.blurb,
+      tagline: print.tagline,
+      publisher: texts.publisher ?? '',
+      rtl,
+    });
+  // The barcode, price and logo are layers of the back (stage 4c): a back saved before them gets them at their places.
+  return ensureExtras(back, pageWidthMm);
 }
 
 export function coverPrintView(deps: Deps, bookId: string, lang: string): CoverPrintView {
@@ -108,7 +113,7 @@ export function coverPrintView(deps: Deps, bookId: string, lang: string): CoverP
   const rtl = getLanguage(lang).dir === 'rtl';
   return {
     print,
-    back: backFor(view.design, saved, print, view.texts, rtl),
+    back: backFor(view.design, saved, print, view.texts, rtl, page.width),
     backSaved: Boolean(saved),
     builtPages,
     pages,
@@ -311,7 +316,7 @@ export function buildSheet(deps: Deps, fonts: FontRegistry, bookId: string, lang
   const spine = spineTextFor(front, view.print, texts.title ?? '', bundle.book.authors);
   const ink = titleLayer?.kind === 'text' ? titleLayer.color : '#ffffff';
   const family = coverFontFamily(body?.kind === 'text' ? body.font : 'vazirmatn');
-  const extras = backExtrasMarkup(view.print, page.width, env, ink, family);
+  const extras = extrasRenderer({ print: view.print, pageWidthMm: page.width, ink, font: family }, env);
   const used = sheetFonts(fonts.all(), front, view.back);
   const css =
     mode.kind === 'print'
@@ -326,7 +331,7 @@ export function buildSheet(deps: Deps, fonts: FontRegistry, bookId: string, lang
     cropMarks: view.print.cropMarks,
     rtl,
     spine,
-    backExtras: extras,
+    extra: extras,
     env,
     css,
     title: texts.title ?? '',

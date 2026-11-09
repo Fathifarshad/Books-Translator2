@@ -30,7 +30,7 @@ export function designColors(d: CoverDesign): string[] {
     d.background.patternColor,
     '#ffffff',
     '#111111',
-    ...d.layers.map((l) => l.color),
+    ...d.layers.flatMap((l) => (l.kind === 'extra' ? [] : [l.color])),
   ];
 }
 
@@ -147,14 +147,30 @@ export function LayerInspector(props: {
       <div className="flex flex-wrap items-center gap-1">
         <Toggle label={t('coverStudio.visible')} checked={layer.visible} onChange={(visible) => set({ visible })} />
         <span className="ms-auto" />
-        <Button variant="ghost" icon="copy" onClick={() => props.onDuplicate(layer.id)} data-testid="duplicate-layer">
-          {t('coverStudio.duplicate')}
-        </Button>
-        <Button variant="ghost" icon="trash" onClick={() => props.onRemove(layer.id)} data-testid="remove-layer">
-          {t('coverStudio.remove')}
-        </Button>
+        {layer.kind === 'extra' ? null : (
+          <>
+            <Button
+              variant="ghost"
+              icon="copy"
+              onClick={() => props.onDuplicate(layer.id)}
+              data-testid="duplicate-layer"
+            >
+              {t('coverStudio.duplicate')}
+            </Button>
+            <Button variant="ghost" icon="trash" onClick={() => props.onRemove(layer.id)} data-testid="remove-layer">
+              {t('coverStudio.remove')}
+            </Button>
+          </>
+        )}
       </div>
-      {layer.kind === 'text' ? (
+      {layer.kind === 'extra' ? (
+        <>
+          <p className="text-xs leading-6 text-muted" data-testid="extra-hint">
+            {t(`coverStudio.extraHint.${layer.extra}`)}
+          </p>
+          {common}
+        </>
+      ) : layer.kind === 'text' ? (
         <TextProps {...props} layer={layer} set={set} swatches={swatches} common={common} />
       ) : (
         <ShapeProps layer={layer} set={set} swatches={swatches} common={common} />

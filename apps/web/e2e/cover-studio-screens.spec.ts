@@ -48,6 +48,8 @@ test('cover studio screens', async ({ page }) => {
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-export.png`, fullPage: true });
     await page.getByTestId('side-back').click();
+    await page.getByTestId('tab-layers').click();
+    await page.getByTestId('layer-barcode').click();
     await page.waitForTimeout(700);
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-back.png`, fullPage: true });
     await page.getByTestId('side-front').click();

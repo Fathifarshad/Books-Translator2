@@ -1,6 +1,7 @@
 import {
   type CoverBackground,
   type CoverDesign,
+  type CoverExtraLayer,
   type CoverLayer,
   type CoverPattern,
   type CoverShapeLayer,
@@ -219,10 +220,17 @@ export function shapeLayerMarkup(s: CoverShapeLayer): string {
 }
 
 /** The visible layers in order (the editor repaints these alone while a layer is dragged). */
-export function layersMarkup(design: CoverDesign, env: RenderEnv): string {
+export function layersMarkup(
+  design: CoverDesign,
+  env: RenderEnv,
+  extra?: ((l: CoverExtraLayer) => string) | undefined,
+): string {
   return design.layers
     .filter((l) => l.visible)
-    .map((l) => (l.kind === 'text' ? (l.text.trim() ? textLayerMarkup(l, env) : '') : shapeLayerMarkup(l)))
+    .map((l) => {
+      if (l.kind === 'extra') return extra ? extra(l) : '';
+      return l.kind === 'text' ? (l.text.trim() ? textLayerMarkup(l, env) : '') : shapeLayerMarkup(l);
+    })
     .join('');
 }
 
@@ -241,7 +249,14 @@ export interface CoverBleed {
 export function coverMarkup(
   design: CoverDesign,
   env: RenderEnv,
-  opts: { uid?: string; className?: string; bleed?: CoverBleed; extra?: string } = {},
+  opts: {
+    uid?: string;
+    className?: string;
+    bleed?: CoverBleed;
+    extra?: string;
+    /** Draws the back's barcode, price and logo layers. */
+    extraLayer?: (l: CoverExtraLayer) => string;
+  } = {},
 ): string {
   const uid = (opts.uid ?? 'front').replace(/[^a-z0-9-]/gi, '');
   const b = opts.bleed;
@@ -251,7 +266,7 @@ export function coverMarkup(
   const cls = ['cv-cover', b ? 'cv-bleed' : '', opts.className ? escapeHtml(opts.className) : '']
     .filter(Boolean)
     .join(' ');
-  return `<div class="${cls}"${bleed}>${backgroundMarkup(design.background, env, uid)}${layersMarkup(design, env)}${opts.extra ?? ''}</div>`;
+  return `<div class="${cls}"${bleed}>${backgroundMarkup(design.background, env, uid)}${layersMarkup(design, env, opts.extraLayer)}${opts.extra ?? ''}</div>`;
 }
 
 /** The CSS family of a cover font; Vazirmatn fills any letter a face lacks (the same name in editor and book). */

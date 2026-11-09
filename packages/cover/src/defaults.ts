@@ -184,6 +184,7 @@ export function applyTheme(design: CoverDesign, theme: ThemeColors): CoverDesign
     },
     layers: design.layers.map((l) => {
       if (l.kind === 'shape') return { ...l, color: theme.ornament };
+      if (l.kind === 'extra') return l;
       if (l.role === 'badge') return l;
       const color = l.role === 'original' || l.role === 'series' ? theme.ornament : theme.ink;
       return { ...l, color, accent: theme.ornament };

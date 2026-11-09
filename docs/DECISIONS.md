@@ -891,3 +891,20 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
 - **Tests:** a unit test of the markup (spine side, minimum depth), the real shot in `cover-print.test.ts`, the export e2e.
   743 unit, 56 e2e green. Debug: `data/dbg/cover-mockup.ts`.
 - **Still to do:** stage 4c — barcode, price and logo are still fixed on the back's foot.
+
+### ADR-048 amendment — stage 4c: barcode, price and logo are layers (2026-11-09)
+
+- **Decision (owner chose «A»):** a new layer kind `extra` (`barcode` | `price` | `logo`) in the back design
+  (`CoverExtraLayerSchema`, `packages/shared/src/cover.ts`) — placement only (x, y, w, opacity, visible, locked); what it says
+  stays in `coverPrint` (ISBN, price, logo). So dragging, width, hiding, locking, undo/redo and autosave are the editor's
+  own, and the printed sheet follows the same layer: one source of position for editor, preview and PDF.
+- **Rendering (`packages/cover/src/extras.ts`, moved out of `sheet.ts`):** `layersMarkup`/`coverMarkup`/`wrapSheet` take a
+  callback that draws extra layers (`extrasRenderer`); the front never has any. Everything inside the barcode box — ISBN
+  line, white margin — scales with the layer's width; the price's type with its width; the logo fits its width. In the
+  editor an empty extra is a dashed named box, so it can still be grabbed; on paper it prints nothing.
+- **Old backs:** `ensureExtras` adds the missing layers at the former fixed places (barcode 24/87, price 24/78, logo 76/86)
+  whenever the back is read (`coverPrintView`), so a back saved before this change keeps its look and gains handles.
+- **Not removable:** an extra has no delete or duplicate (hide it instead) — otherwise `ensureExtras` would bring it back.
+- **Tests:** `sheet.test.ts` (extras at their layers' places, hidden, placeholder, sheet draws them once), e2e
+  `cover-studio.spec.ts` (drag the barcode, hide the price, server copy and printed sheet follow). 744 unit, 57 e2e green.
+- **Stage 4 and ADR-048 are complete.**

@@ -1,8 +1,8 @@
-import type { CoverDesign, CoverPrint } from '@dozabaneh/shared';
+import type { CoverDesign, CoverExtraLayer } from '@dozabaneh/shared';
 import { escapeHtml } from '@dozabaneh/text';
 import { safeHex } from './color';
 import { backgroundMarkup, COVER_STYLE, type CoverBleed, coverMarkup, type RenderEnv } from './render';
-import { ean13Svg, isbnDigits, isValidEan13, wrapLayout } from './wrap';
+import { wrapLayout } from './wrap';
 
 /**
  * The printer's sheet (ADR-048, stage 3): back, spine and front as one page in millimetres, the grounds running
@@ -10,7 +10,6 @@ import { ean13Svg, isbnDigits, isValidEan13, wrapLayout } from './wrap';
  * Pure string building: the caller supplies the fonts' CSS and how images are addressed.
  */
 
-const NOMINAL_BARCODE_MM = 37.29;
 /** Crop marks start this far outside the bleed and run this long. */
 const MARK_GAP_MM = 1.5;
 const MARK_LEN_MM = 5;
@@ -18,63 +17,6 @@ const MARK_LEN_MM = 5;
 export const MIN_SPINE_TEXT_MM = 6;
 
 const mm = (v: number) => String(Math.round(v * 100) / 100);
-
-/** The ISBN line printed above the barcode, as the owner typed it (hyphens kept). */
-export function isbnLabel(input: string): string {
-  return isbnDigits(input) ? `ISBN ${input.trim().replace(/\s+/g, ' ')}` : '';
-}
-
-export type IsbnState = 'empty' | 'valid' | 'bad-check' | 'bad-format';
-
-export function isbnStatus(input: string): { state: IsbnState; digits: string | null } {
-  if (!input.trim()) return { state: 'empty', digits: null };
-  const d = isbnDigits(input);
-  if (!d) return { state: 'bad-format', digits: null };
-  if (d.length !== 13) return { state: 'bad-format', digits: null };
-  return isValidEan13(d) ? { state: 'valid', digits: d } : { state: 'bad-check', digits: d };
-}
-
-/**
- * Barcode (with its ISBN line, on white as scanners need), price and logo for the back cover, as markup placed in
- * the back's `cv-cover` (lengths in `cqw` of the back's trim width).
- */
-export function backExtrasMarkup(
-  print: Pick<CoverPrint, 'barcode' | 'isbn' | 'price' | 'logo'>,
-  pageWidthMm: number,
-  env: RenderEnv,
-  ink: string,
-  font: string,
-): string {
-  const parts: string[] = [];
-  const status = isbnStatus(print.isbn);
-  const k = 100 / pageWidthMm;
-  const place = (x: number, y: number, w: number) => `left:${mm(x)}%;top:${mm(y)}%;width:${mm(w)}%`;
-  if (print.barcode && status.state === 'valid' && status.digits) {
-    const boxW = (NOMINAL_BARCODE_MM + 8) * k;
-    const label = escapeHtml(isbnLabel(print.isbn));
-    const svg = ean13Svg(status.digits, { widthMm: NOMINAL_BARCODE_MM }).replace(
-      / width="[^"]*mm" height="[^"]*mm"/,
-      ' style="display:block;width:100%;height:auto"',
-    );
-    parts.push(
-      `<div class="cv-l cv-barcode" style="${place(24, 87, boxW)};background:#fff;padding:${mm(2 * k)}cqw ${mm(3 * k)}cqw;border-radius:${mm(k)}cqw"><div style="font:600 ${mm(2.6 * k)}cqw/1.3 monospace;color:#000;text-align:center;direction:ltr">${label}</div>${svg}</div>`,
-    );
-  }
-  if (print.price.trim()) {
-    parts.push(
-      `<div class="cv-l cv-text" style="${place(24, 78, 38)};text-align:center;font-family:${font};font-weight:700;font-size:2.6cqw;color:${safeHex(ink, '#ffffff')}"><div class="cv-in" dir="auto">${escapeHtml(print.price.trim())}</div></div>`,
-    );
-  }
-  if (print.logo && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(print.logo)) {
-    const src = env.imageUrl(print.logo);
-    if (src) {
-      parts.push(
-        `<div class="cv-l" style="${place(76, 86, 15)}"><img alt="" src="${escapeHtml(src)}" style="display:block;width:100%;height:auto;max-height:14cqw;object-fit:contain"></div>`,
-      );
-    }
-  }
-  return parts.join('');
-}
 
 export interface SpineText {
   title: string;
@@ -146,7 +88,8 @@ export interface SheetInput {
   cropMarks: boolean;
   rtl: boolean;
   spine: SpineText | null;
-  backExtras: string;
+  /** Draws the back's barcode, price and logo layers (see `extrasRenderer`). */
+  extra?: ((l: CoverExtraLayer) => string) | undefined;
   env: RenderEnv;
   /** `@font-face` rules (embedded files for the printer, URLs for the preview). */
   css: string;
@@ -175,7 +118,7 @@ export function wrapSheet(input: SheetInput): Sheet {
     name: 'back' | 'spine' | 'front',
     box: { x: number; width: number },
     design: CoverDesign,
-    extra = '',
+    extra?: (l: CoverExtraLayer) => string,
   ) => {
     const left = box.x === leftmost ? bleed : 0;
     const right = box.x === rightmost ? bleed : 0;
@@ -184,14 +127,14 @@ export function wrapSheet(input: SheetInput): Sheet {
     const cover =
       name === 'spine'
         ? `<div class="cv-cover cv-bleed" style="--bt:${mm(b.top)}cqw;--br:0cqw;--bb:${mm(b.bottom)}cqw;--bl:0cqw">${backgroundMarkup(design.background, input.env, name)}</div>`
-        : coverMarkup(design, input.env, { uid: name, bleed: b, extra });
+        : coverMarkup(design, input.env, { uid: name, bleed: b, ...(extra ? { extraLayer: extra } : {}) });
     const lettering =
       name === 'spine' && input.spine ? spineTextMarkup(input.spine, spineMm, page.height, input.env) : '';
     return `<div class="panel" data-panel="${name}" style="left:${mm(margin + box.x - left)}mm;top:${mm(margin)}mm;width:${mm(box.width + left + right)}mm;height:${mm(layout.height)}mm"><div class="in" style="left:${mm(left)}mm;top:${mm(bleed)}mm;width:${mm(box.width)}mm;height:${mm(page.height)}mm">${cover}${lettering}</div></div>`;
   };
 
   const body = [
-    panel('back', layout.back, input.back, input.backExtras),
+    panel('back', layout.back, input.back, input.extra),
     panel('spine', layout.spine, spineDesign(input.front)),
     panel('front', layout.front, input.front),
     input.cropMarks ? cropMarks(layout, margin, W, H) : '',

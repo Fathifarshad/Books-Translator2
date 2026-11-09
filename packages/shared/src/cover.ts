@@ -104,7 +104,26 @@ export const CoverShapeLayerSchema = z.object({
 });
 export type CoverShapeLayer = z.infer<typeof CoverShapeLayerSchema>;
 
-export const CoverLayerSchema = z.discriminatedUnion('kind', [CoverTextLayerSchema, CoverShapeLayerSchema]);
+/**
+ * What the printer's back cover carries besides texts (ADR-048, stage 4c): the ISBN barcode, the price and the
+ * publisher's logo. A layer only places them — what they say comes from the printer settings (`coverPrint`).
+ */
+export const COVER_EXTRAS = ['barcode', 'price', 'logo'] as const;
+export type CoverExtra = (typeof COVER_EXTRAS)[number];
+
+export const CoverExtraLayerSchema = z.object({
+  kind: z.literal('extra'),
+  id: CoverIdSchema,
+  extra: z.enum(COVER_EXTRAS),
+  ...Placement,
+});
+export type CoverExtraLayer = z.infer<typeof CoverExtraLayerSchema>;
+
+export const CoverLayerSchema = z.discriminatedUnion('kind', [
+  CoverTextLayerSchema,
+  CoverShapeLayerSchema,
+  CoverExtraLayerSchema,
+]);
 export type CoverLayer = z.infer<typeof CoverLayerSchema>;
 
 export const COVER_BG_KINDS = ['solid', 'gradient', 'image'] as const;

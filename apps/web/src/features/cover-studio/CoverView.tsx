@@ -6,7 +6,7 @@ import {
   layersMarkup,
   type RenderEnv,
 } from '@dozabaneh/cover';
-import type { CoverDesign } from '@dozabaneh/shared';
+import type { CoverDesign, CoverExtraLayer } from '@dozabaneh/shared';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { coverImageFileUrl, fontsCssUrl } from '../../lib/api';
 
@@ -42,18 +42,20 @@ export function CoverView(props: {
   /** Width ÷ height of the page. */
   aspect: number;
   onLayout?: (boxes: LayerBoxes) => void;
+  /** Draws the back's barcode, price and logo layers. */
+  extraLayer?: ((l: CoverExtraLayer) => string) | undefined;
   className?: string;
   uid?: string;
   testId?: string;
 }) {
-  const { design, bookId, aspect, onLayout, className = '', uid = 'view', testId } = props;
+  const { design, bookId, aspect, onLayout, extraLayer, className = '', uid = 'view', testId } = props;
   const host = useRef<HTMLDivElement>(null);
   const parts = useRef<{ bg: HTMLDivElement; layers: HTMLDivElement } | null>(null);
   const layout = useRef(onLayout);
   layout.current = onLayout;
   const env = useMemo(() => coverEnv(bookId), [bookId]);
   const bg = useMemo(() => backgroundMarkup(design.background, env, uid), [design.background, env, uid]);
-  const layers = useMemo(() => layersMarkup(design, env), [design, env]);
+  const layers = useMemo(() => layersMarkup(design, env, extraLayer), [design, env, extraLayer]);
 
   useLayoutEffect(() => {
     const el = host.current;

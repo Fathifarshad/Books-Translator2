@@ -11,6 +11,7 @@ const NEW_ROLES: CoverTextRole[] = ['subtitle', 'series', 'publisher', 'badge', 
 
 export function layerName(l: CoverLayer, t: (k: string) => string): string {
   if (l.kind === 'shape') return t(`coverStudio.shapes.${l.shape}`);
+  if (l.kind === 'extra') return t(`coverStudio.extras.${l.extra}`);
   const snippet = l.text.split('\n')[0]?.trim().slice(0, 28);
   return l.role === 'text' && snippet ? snippet : t(`coverStudio.roles.${l.role}`);
 }

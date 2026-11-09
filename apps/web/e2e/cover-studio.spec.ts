@@ -271,4 +271,46 @@ test.describe('cover studio', () => {
     expect(mock.headers()['x-image-size']).toBe('1600x1200');
     await expectNoSeriousA11yViolations(page);
   });
+
+  test('back cover: the barcode, price and logo are layers — drag the barcode, hide the price, keep both', async ({
+    page,
+  }) => {
+    await openStudio(page);
+    await page.getByTestId('tab-print').click();
+    await page.getByTestId('print-pages').fill('320');
+    await page.getByTestId('print-isbn').fill('978-964-6194-33-5');
+    await page.getByTestId('print-price').fill('۱۲۰٬۰۰۰ تومان');
+    await expect(page.getByTestId('print-preview')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('side-back').click();
+    await page.getByTestId('tab-layers').click();
+
+    // They are on the canvas, in the layer list, and have a handle to grab.
+    await expect(page.getByTestId('layer-barcode')).toBeVisible();
+    const hit = page.getByTestId('hit-barcode');
+    await expect(hit).toBeVisible({ timeout: 10_000 });
+    const box = await hit.boundingBox();
+    if (!box) throw new Error('no barcode box');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 90, box.y + box.height / 2 - 120, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByTestId('extra-hint')).toBeVisible();
+    await expect(page.getByTestId('remove-layer')).toHaveCount(0);
+    const x = Number(await page.getByTestId('layer-x').inputValue());
+    expect(x).toBeGreaterThan(30);
+
+    // The price is hidden like any layer.
+    await page.getByTestId('visible-price').click();
+    await saved(page);
+
+    // Saved with the back: the server's copy has the new place and the hidden price, and the printed sheet follows.
+    const view = await (await page.request.get('/api/v1/books/bk_sample/cover-print?lang=fa')).json();
+    const layer = (id: string) => view.back.layers.find((l: { id: string }) => l.id === id);
+    expect(layer('barcode').x).toBeCloseTo(x, 0);
+    expect(layer('price').visible).toBe(false);
+    const sheet = await (await page.request.get('/api/v1/books/bk_sample/cover-print/preview?lang=fa')).text();
+    expect(sheet).toContain('ISBN 978-964-6194-33-5');
+    expect(sheet).not.toContain('۱۲۰٬۰۰۰ تومان');
+    await expectNoSeriousA11yViolations(page);
+  });
 });

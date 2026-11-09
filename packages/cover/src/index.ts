@@ -1,5 +1,6 @@
 export * from './color';
 export * from './defaults';
+export * from './extras';
 export * from './geometry';
 export * from './image';
 export * from './mockup';

@@ -1,5 +1,5 @@
 import { type Box, clamp, type Guide, nudge, round, SAFE_MARGIN, safeMarginY, snapBox } from '@dozabaneh/cover';
-import type { CoverDesign, CoverLayer } from '@dozabaneh/shared';
+import type { CoverDesign, CoverExtraLayer, CoverLayer } from '@dozabaneh/shared';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CoverView, type LayerBoxes } from './CoverView';
@@ -19,6 +19,7 @@ export const updateLayer = (d: CoverDesign, id: string, patch: Partial<CoverLaye
 export function CoverCanvas(props: {
   design: CoverDesign;
   bookId: string;
+  extraLayer?: ((l: CoverExtraLayer) => string) | undefined;
   aspect: number;
   selected: string | null;
   onSelect: (id: string | null) => void;
@@ -31,7 +32,8 @@ export function CoverCanvas(props: {
   onLayout: (boxes: LayerBoxes) => void;
 }) {
   const { t } = useTranslation();
-  const { design, bookId, aspect, selected, onSelect, update, onRemove, guides, flagged, boxes, onLayout } = props;
+  const { design, bookId, aspect, selected, onSelect, update, onRemove, guides, flagged, boxes, onLayout, extraLayer } =
+    props;
   const frame = useRef<HTMLDivElement>(null);
   const [snapGuides, setSnapGuides] = useState<Guide[]>([]);
   const drag = useRef<null | {
@@ -46,7 +48,7 @@ export function CoverCanvas(props: {
   }>(null);
 
   const visible = design.layers.filter(
-    (l) => l.visible && (l.kind === 'shape' || l.text.trim()) && boxes[l.id] !== undefined,
+    (l) => l.visible && (l.kind !== 'text' || l.text.trim()) && boxes[l.id] !== undefined,
   );
 
   const begin = (e: PointerEvent, layer: CoverLayer, mode: 'move' | 'left' | 'right') => {
@@ -125,7 +127,15 @@ export function CoverCanvas(props: {
       className="relative mx-auto w-full touch-none rounded-sm shadow-[0_8px_30px_rgb(0_0_0/0.25)] outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       data-testid="cover-canvas"
     >
-      <CoverView design={design} bookId={bookId} aspect={aspect} onLayout={onLayout} uid="edit" testId="cover-render" />
+      <CoverView
+        design={design}
+        bookId={bookId}
+        aspect={aspect}
+        onLayout={onLayout}
+        extraLayer={extraLayer}
+        uid="edit"
+        testId="cover-render"
+      />
       <div className="pointer-events-none absolute inset-0">
         {guides ? (
           <div

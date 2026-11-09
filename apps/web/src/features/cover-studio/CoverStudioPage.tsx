@@ -1,4 +1,4 @@
-import { newLayerId, withTexts } from '@dozabaneh/cover';
+import { coverFontFamily, extrasRenderer, newLayerId, withTexts } from '@dozabaneh/cover';
 import {
   BOOK_PAGE_MM,
   type CoverDesign,
@@ -20,7 +20,7 @@ import { targetOf } from '../pipeline/live';
 import { AiPanel, AiResults } from './AiDesigns';
 import { BackgroundPanel } from './BackgroundPanel';
 import { CoverCanvas, type DesignUpdate } from './CoverCanvas';
-import { CoverView, type LayerBoxes } from './CoverView';
+import { CoverView, coverEnv, type LayerBoxes } from './CoverView';
 import { type CoverIssue, useCoverIssues } from './checks';
 import { fieldClass } from './controls';
 import { ExportPanel } from './ExportPanel';
@@ -103,6 +103,27 @@ export function CoverStudioPage() {
       backHistory.reset(printView.data.back);
     }
   }, [printView.data, backHistory.reset]);
+  // The back's barcode, price and logo layers say what the printer settings say (stage 4c).
+  const extraLayer = useMemo(() => {
+    const print = printView.data?.print;
+    if (side !== 'back' || !print) return undefined;
+    const title = frontDesign?.layers.find((l) => l.kind === 'text' && l.role === 'title');
+    const body = backDesign?.layers.find((l) => l.kind === 'text' && l.visible && l.id !== 'blurb');
+    return extrasRenderer(
+      {
+        print,
+        pageWidthMm: mm.width,
+        ink: title?.kind === 'text' ? title.color : '#ffffff',
+        font: coverFontFamily(body?.kind === 'text' ? body.font : 'vazirmatn'),
+        placeholders: {
+          barcode: t('coverStudio.extras.barcode'),
+          price: t('coverStudio.extras.price'),
+          logo: t('coverStudio.extras.logo'),
+        },
+      },
+      coverEnv(bookId),
+    );
+  }, [side, printView.data?.print, frontDesign, backDesign, mm.width, bookId, t]);
   /** Bumped after each save, so the sheet preview reloads. */
   const [rev, setRev] = useState(0);
 
@@ -207,7 +228,8 @@ export function CoverStudioPage() {
 
   const remove = useCallback(
     (id: string) => {
-      update((d) => ({ ...d, layers: d.layers.filter((l) => l.id !== id) }));
+      // The barcode, price and logo are hidden, not removed (the back always has them to place).
+      update((d) => ({ ...d, layers: d.layers.filter((l) => l.id !== id || l.kind === 'extra') }));
       setSelected(null);
     },
     [update],
@@ -217,6 +239,7 @@ export function CoverStudioPage() {
     update((d) => {
       const src = d.layers.find((l) => l.id === id);
       if (!src) return d;
+      if (src.kind === 'extra') return d;
       copyId = newLayerId(d, src.kind === 'text' ? src.role : src.shape);
       const copy = { ...src, id: copyId, y: Math.min(110, src.y + 4) } as CoverLayer;
       const i = d.layers.indexOf(src);
@@ -375,6 +398,7 @@ export function CoverStudioPage() {
                   flagged={flagged}
                   boxes={boxes}
                   onLayout={setBoxes}
+                  extraLayer={extraLayer}
                 />
               </div>
             </div>

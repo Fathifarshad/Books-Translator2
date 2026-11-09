@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { defaultDesign, THEMES } from './defaults';
-import { backDesign, type RenderEnv } from './render';
-import { backExtrasMarkup, isbnStatus, spineTextMarkup, wrapSheet } from './sheet';
+import { ensureExtras, extrasRenderer, isbnStatus } from './extras';
+import { backDesign, layersMarkup, type RenderEnv } from './render';
+import { spineTextMarkup, wrapSheet } from './sheet';
 
 const env: RenderEnv = { imageUrl: (id) => `/img/${id}`, fontFamily: (id) => `'cv-${id}'` };
 const front = defaultDesign({ title: 'کتاب نمونه', original: 'Sample', preparer: 'ترجمه\nعلی' }, THEMES.navy);
@@ -21,7 +22,6 @@ const input = {
     color: '#ffffff',
     accent: '#c9a54a',
   },
-  backExtras: '',
   env,
   css: '',
   title: 'کتاب نمونه',
@@ -80,17 +80,62 @@ describe('wrap sheet', () => {
     expect(wrapSheet({ ...input, spine: null }).html).not.toContain('class="spine-text"');
   });
 
+  const extras = (print: object, design = ensureExtras(backDesign(front), 210), placeholders?: never) =>
+    layersMarkup(
+      { ...design, layers: design.layers.filter((l) => l.kind === 'extra') },
+      env,
+      extrasRenderer(
+        {
+          print: { barcode: true, isbn: '', price: '', logo: null, ...print },
+          pageWidthMm: 210,
+          ink: '#ffffff',
+          font: "'cv-vazirmatn'",
+          placeholders,
+        },
+        env,
+      ),
+    );
+
   it('shows the barcode only for a valid ISBN, with price and logo', () => {
     const print = { barcode: true, isbn: '978-964-6194-33-5', price: '۱۲۰٬۰۰۰ تومان', logo: 'img-abc' };
-    const full = backExtrasMarkup(print, 210, env, '#ffffff', "'cv-vazirmatn'");
+    const full = extras(print);
     expect(full).toContain('ISBN 978-964-6194-33-5');
     expect(full).toContain('<svg');
     expect(full).toContain('۱۲۰٬۰۰۰ تومان');
     expect(full).toContain('src="/img/img-abc"');
-    const bad = backExtrasMarkup({ ...print, isbn: '978-964-6194-33-1' }, 210, env, '#fff', 'x');
-    expect(bad).not.toContain('<svg');
-    expect(backExtrasMarkup({ ...print, barcode: false }, 210, env, '#fff', 'x')).not.toContain('<svg');
-    expect(backExtrasMarkup({ ...print, logo: '../x' }, 210, env, '#fff', 'x')).not.toContain('<img');
+    expect(extras({ ...print, isbn: '978-964-6194-33-1' })).not.toContain('<svg');
+    expect(extras({ ...print, barcode: false })).not.toContain('<svg');
+    expect(extras({ ...print, logo: '../x' })).not.toContain('<img');
+  });
+
+  it('puts the extras where their layers are, and the sheet draws them on the back only', () => {
+    const base = ensureExtras(backDesign(front), 210);
+    expect(base.layers.filter((l) => l.kind === 'extra').map((l) => l.id)).toEqual(['barcode', 'price', 'logo']);
+    expect(ensureExtras(base, 210)).toBe(base);
+    const moved = {
+      ...base,
+      layers: base.layers.map((l) => (l.kind === 'extra' && l.extra === 'price' ? { ...l, x: 61.5, y: 12 } : l)),
+    };
+    expect(extras({ price: '۵۰' }, moved)).toContain('left:61.5%;top:12%');
+    const hidden = {
+      ...base,
+      layers: base.layers.map((l) => (l.kind === 'extra' && l.extra === 'price' ? { ...l, visible: false } : l)),
+    };
+    expect(extras({ price: '۵۰' }, hidden)).not.toContain('۵۰');
+    // An empty extra says nothing on paper but is a dashed box to drag in the editor.
+    expect(extras({})).toBe('');
+    const hint = extras({}, base, { barcode: 'بارکد', price: 'قیمت', logo: 'لوگو' } as never);
+    expect(hint).toContain('بارکد');
+    expect(hint).toContain('dashed');
+    const sheet = wrapSheet({
+      ...input,
+      back: moved,
+      extra: extrasRenderer(
+        { print: { barcode: true, isbn: '', price: '۵۰', logo: null }, pageWidthMm: 210, ink: '#fff', font: 'x' },
+        env,
+      ),
+    });
+    expect(sheet.html.match(/۵۰/g)).toHaveLength(1);
   });
 
   it('judges an ISBN', () => {
