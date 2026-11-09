@@ -14,10 +14,13 @@ import {
   type ChatEvent,
   ChatEventSchema,
   type CoverAiStatus,
+  type CoverBlurbResult,
   type CoverDesign,
   type CoverDesignView,
   type CoverFont,
   type CoverImage,
+  type CoverPrint,
+  type CoverPrintView,
   type CoverTemplate,
   type GlossaryKind,
   type PainterEngine,
@@ -361,6 +364,16 @@ export const api = {
   addCoverTemplate: (name: string, design: CoverDesign) =>
     request<CoverTemplate[]>('/cover-templates', { method: 'POST', body: JSON.stringify({ name, design }) }),
   removeCoverTemplate: (id: string) => request<CoverTemplate[]>(`/cover-templates/${id}`, { method: 'DELETE' }),
+  // «جلد چاپخانه» (ADR-048, stage 3): paper, bleed, the back cover's blurb, ISBN, price, logo
+  coverPrint: (bookId: string, lang?: string) =>
+    request<CoverPrintView>(`/books/${bookId}/cover-print${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
+  saveCoverPrint: (bookId: string, print: CoverPrint, lang?: string, back?: CoverDesign | null) =>
+    request<CoverPrintView>(`/books/${bookId}/cover-print`, {
+      method: 'PUT',
+      body: JSON.stringify({ print, ...(lang ? { lang } : {}), ...(back !== undefined ? { back } : {}) }),
+    }),
+  coverBlurb: (bookId: string, body: { request?: string; lang?: string }) =>
+    request<CoverBlurbResult>(`/books/${bookId}/cover-print/blurb`, { method: 'POST', body: JSON.stringify(body) }),
   // «طراحی خودکار جلد» (ADR-048, stage 2): rounds of AI designs and the illustrator that draws their pictures
   coverAi: (bookId: string, lang?: string) =>
     request<CoverAiStatus>(`/books/${bookId}/cover-ai${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`),
@@ -425,6 +438,16 @@ export function coverImageUrl(bookId: string, v: number): string {
 /** A cover image of the book (uploaded, or drawn by AI). */
 export function coverImageFileUrl(bookId: string, imageId: string): string {
   return apiUrl(`/books/${bookId}/cover-images/${imageId}`);
+}
+
+/** The whole print sheet (back, spine, front) as the printer gets it; `v` makes the frame reload after a change. */
+export function coverPrintPreviewUrl(bookId: string, lang: string | undefined, v: number): string {
+  return apiUrl(`/books/${bookId}/cover-print/preview?${lang ? `lang=${encodeURIComponent(lang)}&` : ''}v=${v}`);
+}
+
+/** The sheet as one PDF page. */
+export function coverPrintPdfUrl(bookId: string, lang?: string): string {
+  return apiUrl(`/books/${bookId}/cover-print/pdf${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`);
 }
 
 /** `@font-face` rules of every cover font (the browser loads a file only when a face is used). */

@@ -1,13 +1,15 @@
-import type {
-  CoverBackground,
-  CoverDesign,
-  CoverLayer,
-  CoverPattern,
-  CoverShapeLayer,
-  CoverTextLayer,
+import {
+  type CoverBackground,
+  type CoverDesign,
+  type CoverLayer,
+  type CoverPattern,
+  type CoverShapeLayer,
+  type CoverTextLayer,
+  CoverTextLayerSchema,
 } from '@dozabaneh/shared';
 import { escapeHtml } from '@dozabaneh/text';
 import { rgba, safeHex } from './color';
+import { DEFAULT_COVER_FONT } from './defaults';
 
 /**
  * One cover, one picture: the markup the editor shows and the book prints. The cover element is a CSS size
@@ -40,6 +42,10 @@ export const COVER_STYLE = `
 .cv-in { display: block; }
 .cv-in > div { display: block; }
 .cv-s svg { display: block; width: 100%; height: auto; overflow: visible; }
+/* The printer's bleed (stage 3): the ground, picture and ornaments run past the trim by --bt/--br/--bb/--bl. */
+.cv-cover.cv-bleed { overflow: visible; }
+.cv-bleed .cv-g { inset: auto; left: calc(-1 * var(--bl, 0cqw)); top: calc(-1 * var(--bt, 0cqw));
+  width: calc(100% + var(--bl, 0cqw) + var(--br, 0cqw)); height: calc(100% + var(--bt, 0cqw) + var(--bb, 0cqw)); }
 `;
 
 // ── Background ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -71,7 +77,7 @@ function pattern(kind: CoverPattern, color: string, opacity: number, id: string)
     diagonal: { size: 24, body: `<path d="M-6 6L6 -6M0 24L24 0M18 30L30 18" stroke="${c}" stroke-width="1"/>` },
   };
   const t = tiles[kind];
-  return `<svg class="cv-pat" aria-hidden="true" viewBox="0 0 1000 1414" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="${id}" width="${t.size}" height="${t.size}" patternUnits="userSpaceOnUse">${t.body}</pattern></defs><rect width="1000" height="1414" fill="url(#${id})" opacity="${n(opacity)}"/></svg>`;
+  return `<svg class="cv-pat cv-g" aria-hidden="true" viewBox="0 0 1000 1414" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="${id}" width="${t.size}" height="${t.size}" patternUnits="userSpaceOnUse">${t.body}</pattern></defs><rect width="1000" height="1414" fill="url(#${id})" opacity="${n(opacity)}"/></svg>`;
 }
 
 function frame(bg: CoverBackground): string {
@@ -101,7 +107,7 @@ function dimCss(bg: CoverBackground): string {
 }
 
 export function backgroundMarkup(bg: CoverBackground, env: RenderEnv, uid: string): string {
-  const parts = [`<div class="cv-fill" style="${groundCss(bg)}"></div>`];
+  const parts = [`<div class="cv-fill cv-g" style="${groundCss(bg)}"></div>`];
   if (bg.kind === 'image' && bg.image && ID.test(bg.image)) {
     const fx = n(bg.focusX, 2);
     const fy = n(bg.focusY, 2);
@@ -109,11 +115,11 @@ export function backgroundMarkup(bg: CoverBackground, env: RenderEnv, uid: strin
     const scale = bg.zoom * (1 + bg.blur * 0.06);
     const blur = bg.blur > 0 ? `;filter:blur(${n(bg.blur, 2)}cqw)` : '';
     parts.push(
-      `<img class="cv-img" alt="" src="${escapeHtml(env.imageUrl(bg.image))}" style="object-position:${fx}% ${fy}%;transform:scale(${n(scale)});transform-origin:${fx}% ${fy}%${blur}">`,
+      `<img class="cv-img cv-g" alt="" src="${escapeHtml(env.imageUrl(bg.image))}" style="object-position:${fx}% ${fy}%;transform:scale(${n(scale)});transform-origin:${fx}% ${fy}%${blur}">`,
     );
   }
   const dim = dimCss(bg);
-  if (dim) parts.push(`<div class="cv-fill" style="${dim}"></div>`);
+  if (dim) parts.push(`<div class="cv-fill cv-g" style="${dim}"></div>`);
   parts.push(pattern(bg.pattern, bg.patternColor, bg.patternOpacity, `cv-pat-${uid}`));
   parts.push(frame(bg));
   return parts.join('');
@@ -220,14 +226,32 @@ export function layersMarkup(design: CoverDesign, env: RenderEnv): string {
     .join('');
 }
 
-/** The whole cover: background, then the visible layers in order. `uid` keeps SVG ids of two covers apart. */
+/** How far the ground runs past each edge, in % of the cover's width (the printer's bleed). */
+export interface CoverBleed {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * The whole cover: background, then the visible layers in order. `uid` keeps SVG ids of two covers apart; `bleed`
+ * lets the ground run past the trim (the layers do not move); `extra` is markup placed on top (the back's barcode).
+ */
 export function coverMarkup(
   design: CoverDesign,
   env: RenderEnv,
-  opts: { uid?: string; className?: string } = {},
+  opts: { uid?: string; className?: string; bleed?: CoverBleed; extra?: string } = {},
 ): string {
   const uid = (opts.uid ?? 'front').replace(/[^a-z0-9-]/gi, '');
-  return `<div class="cv-cover${opts.className ? ` ${escapeHtml(opts.className)}` : ''}">${backgroundMarkup(design.background, env, uid)}${layersMarkup(design, env)}</div>`;
+  const b = opts.bleed;
+  const bleed = b
+    ? ` style="--bt:${n(b.top)}cqw;--br:${n(b.right)}cqw;--bb:${n(b.bottom)}cqw;--bl:${n(b.left)}cqw"`
+    : '';
+  const cls = ['cv-cover', b ? 'cv-bleed' : '', opts.className ? escapeHtml(opts.className) : '']
+    .filter(Boolean)
+    .join(' ');
+  return `<div class="${cls}"${bleed}>${backgroundMarkup(design.background, env, uid)}${layersMarkup(design, env)}${opts.extra ?? ''}</div>`;
 }
 
 /** The CSS family of a cover font; Vazirmatn fills any letter a face lacks (the same name in editor and book). */
@@ -236,11 +260,21 @@ export function coverFontFamily(id: string): string {
   return `'cv-${ID.test(id) ? id : 'vazirmatn'}', 'cv-vazirmatn', 'Vazirmatn Offline', sans-serif`;
 }
 
+/** What the back cover carries besides the front's title: the blurb (with a line above it) and the publisher. */
+export interface BackTexts {
+  blurb?: string;
+  tagline?: string;
+  publisher?: string;
+  /** Right-to-left books set the blurb ragged-left (aligned right). */
+  rtl?: boolean;
+}
+
 /**
- * The back cover until it gets its own editor (stage 3): the front's ground and ornaments, a smaller medallion, the
- * title, the original title and the credit, centred, in the front's type.
+ * The back cover made from the front (the owner edits it in the studio): the front's ground and ornaments, a smaller
+ * medallion, the title, the original title, the blurb, the credit and the publisher, centred, in the front's type.
+ * The foot is left free for the ISBN barcode, the price and the publisher's logo.
  */
-export function backDesign(design: CoverDesign): CoverDesign {
+export function backDesign(design: CoverDesign, extra: BackTexts = {}): CoverDesign {
   const pick = (role: string) =>
     design.layers.find(
       (l): l is CoverTextLayer => l.kind === 'text' && l.role === role && l.visible && Boolean(l.text.trim()),
@@ -248,11 +282,14 @@ export function backDesign(design: CoverDesign): CoverDesign {
   const medallion = design.layers.find(
     (l): l is CoverShapeLayer => l.kind === 'shape' && l.shape === 'medallion' && l.visible,
   );
+  const withBlurb = Boolean(extra.blurb?.trim());
   const layers: CoverLayer[] = [];
-  let y = 34;
-  if (medallion) layers.push({ ...medallion, x: 50, y: 30, w: 22 });
-  else y = 40;
+  let y = withBlurb ? 20 : 34;
+  if (medallion) layers.push({ ...medallion, x: 50, y: withBlurb ? 12 : 30, w: withBlurb ? 14 : 22 });
+  else y = withBlurb ? 14 : 40;
   const title = pick('title');
+  const body = pick('preparer') ?? pick('original') ?? title;
+  const accent = body && body.kind === 'text' ? body.accent : '#c9a54a';
   if (title) {
     layers.push({
       ...title,
@@ -267,7 +304,75 @@ export function backDesign(design: CoverDesign): CoverDesign {
   const original = pick('original');
   if (original)
     layers.push({ ...original, x: 50, y: y + 19, w: 64, size: original.size * 0.88, band: null, align: 'center' });
+  if (withBlurb) {
+    const font = body?.font ?? DEFAULT_COVER_FONT;
+    const base = {
+      kind: 'text' as const,
+      role: 'text' as const,
+      x: 50,
+      font,
+      color: title?.color ?? '#ffffff',
+      accent,
+    };
+    if (extra.tagline?.trim()) {
+      layers.push(
+        CoverTextLayerSchema.parse({
+          ...base,
+          id: 'tagline',
+          text: extra.tagline.trim(),
+          y: 47,
+          w: 70,
+          size: 2.7,
+          weight: 700,
+          color: accent,
+          lineHeight: 1.5,
+          align: 'center',
+        }),
+      );
+    }
+    layers.push(
+      CoverTextLayerSchema.parse({
+        ...base,
+        id: 'blurb',
+        text: extra.blurb?.trim(),
+        y: 60,
+        w: 70,
+        size: 2.05,
+        weight: 400,
+        lineHeight: 1.95,
+        align: extra.rtl === false ? 'left' : 'right',
+      }),
+    );
+  }
   const credit = pick('preparer');
-  if (credit) layers.push({ ...credit, x: 50, y: y + 32, w: 72, band: null, align: 'center' });
+  if (credit) {
+    layers.push({
+      ...credit,
+      x: 50,
+      y: withBlurb ? 73 : y + 32,
+      w: 72,
+      size: withBlurb ? credit.size * 0.9 : credit.size,
+      band: null,
+      align: 'center',
+    });
+  }
+  if (withBlurb && extra.publisher?.trim()) {
+    layers.push(
+      CoverTextLayerSchema.parse({
+        kind: 'text',
+        id: 'publisher',
+        role: 'publisher',
+        text: extra.publisher.trim(),
+        x: 50,
+        y: 94,
+        w: 50,
+        size: 2.1,
+        weight: 600,
+        font: body?.font ?? DEFAULT_COVER_FONT,
+        color: title?.color ?? '#ffffff',
+        align: 'center',
+      }),
+    );
+  }
   return { ...design, layers };
 }

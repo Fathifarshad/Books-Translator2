@@ -2,6 +2,8 @@ import type {
   AgentBatch,
   AgentTask,
   BriefInput,
+  CoverBlurbTaskInput,
+  CoverBlurbTaskResult,
   CoverDesignTaskInput,
   CoverDesignTaskResult,
   EditInput,
@@ -225,6 +227,14 @@ function mockCoverDesign(batch: AgentBatch<CoverDesignTaskInput>): CoverDesignTa
   };
 }
 
+function mockCoverBlurb(batch: AgentBatch<CoverBlurbTaskInput>): CoverBlurbTaskResult {
+  const { title, subject, maxChars } = batch.input;
+  const body = `${title}
+
+${subject || title}`.slice(0, Math.max(40, maxChars));
+  return { blurb: body.length >= 20 ? body : `${body}${' …'.repeat(10)}`, tagline: title.slice(0, 60) };
+}
+
 export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T> {
   switch (batch.task) {
     case 'translate':
@@ -239,6 +249,8 @@ export function mockOutput<T extends AgentTask>(batch: AgentBatch): TaskResult<T
       return mockSpeech(batch as AgentBatch<SpeechInput>) as TaskResult<T>;
     case 'cover_design':
       return mockCoverDesign(batch as AgentBatch<CoverDesignTaskInput>) as TaskResult<T>;
+    case 'cover_blurb':
+      return mockCoverBlurb(batch as AgentBatch<CoverBlurbTaskInput>) as TaskResult<T>;
     default:
       throw new Error(`The mock engine does not run "${batch.task}" batches in the pipeline.`);
   }

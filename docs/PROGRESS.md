@@ -277,6 +277,11 @@ the sandbox has no access to the real services, so the first real connection is 
   FLUX (free daily allowance) or ComfyUI on this computer as illustrator, the app's own designer when no engine is
   connected; Settings → «تصویرسازی جلد» with step-by-step setup. Next: stage 3 — full wrap with spine and back cover
   (blurb, ISBN barcode); stage 4 — PNG/JPG exports and a 3D mockup.
+- [x] Cover studio, stage 3 of 4 (2026-11-09) — ADR-048 amendment: tab «جلد چاپخانه»: paper (تحریر 70 g default), pages,
+  bleed (3 mm default) → spine width; back cover as its own editable design (front/back switch on the canvas) with an
+  AI blurb (`cover_blurb` task, `prompts/cover-blurb.md`; falls back to the book's brief), ISBN → EAN-13 barcode,
+  price and publisher logo; one-sheet PDF back + spine + front with bleed, optional crop and fold marks, spine
+  lettering from 6 mm. Screens `docs/screens/cover-studio/*-cover-print.png`, `*-cover-back.png`. Next: stage 4.
 
 ## Phase 5 — Power features & polish
 - [ ] Original-PDF page viewer · figures/tables · footnote popovers

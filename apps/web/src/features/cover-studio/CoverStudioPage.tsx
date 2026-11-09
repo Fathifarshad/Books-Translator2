@@ -1,5 +1,11 @@
 import { newLayerId, withTexts } from '@dozabaneh/cover';
-import { BOOK_PAGE_MM, type CoverDesign, type CoverDesignView, type CoverLayer } from '@dozabaneh/shared';
+import {
+  BOOK_PAGE_MM,
+  type CoverDesign,
+  type CoverDesignView,
+  type CoverLayer,
+  type CoverPrintView,
+} from '@dozabaneh/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,11 +26,13 @@ import { fieldClass } from './controls';
 import { useHistory } from './history';
 import { LayerInspector } from './LayerInspector';
 import { LayersPanel, layerName } from './LayersPanel';
+import { PrintPanel } from './PrintPanel';
 
-type Tab = 'layers' | 'ai' | 'background' | 'templates';
+type Tab = 'layers' | 'ai' | 'background' | 'templates' | 'print';
 type SaveState = 'saved' | 'pending' | 'saving' | 'failed';
 
 const viewKey = (bookId: string, lang: string) => ['cover-design', bookId, lang] as const;
+const printKey = (bookId: string, lang: string) => ['cover-print', bookId, lang] as const;
 
 /**
  * «استودیوی جلد» (ADR-048): the book's cover as layers — every text editable, in any Persian face (the app's or this
@@ -61,7 +69,13 @@ export function CoverStudioPage() {
   const mm = BOOK_PAGE_MM[pdf.data?.options.pageSize ?? 'a4'];
   const aspect = mm.width / mm.height;
 
-  const history = useHistory<CoverDesign | null>(null);
+  // The front cover and the back cover are two designs with a history each; the editor shows one (stage 3).
+  const frontHistory = useHistory<CoverDesign | null>(null);
+  const backHistory = useHistory<CoverDesign | null>(null);
+  const [side, setSide] = useState<'front' | 'back'>('front');
+  const history = side === 'front' ? frontHistory : backHistory;
+  const frontDesign = frontHistory.value;
+  const backDesign = backHistory.value;
   const design = history.value;
   const loaded = useRef(false);
   const lastSaved = useRef<CoverDesign | null>(null);
@@ -69,9 +83,27 @@ export function CoverStudioPage() {
     if (view.data && !loaded.current) {
       loaded.current = true;
       lastSaved.current = view.data.design;
-      history.reset(view.data.design);
+      frontHistory.reset(view.data.design);
     }
-  }, [view.data, history.reset]);
+  }, [view.data, frontHistory.reset]);
+
+  const printView = useQuery({
+    queryKey: printKey(bookId, lang),
+    queryFn: () => api.coverPrint(bookId, lang || undefined),
+    enabled: Boolean(bookId && lang),
+    refetchOnWindowFocus: false,
+  });
+  const backLoaded = useRef(false);
+  const lastSavedBack = useRef<CoverDesign | null>(null);
+  useEffect(() => {
+    if (printView.data && !backLoaded.current) {
+      backLoaded.current = true;
+      lastSavedBack.current = printView.data.back;
+      backHistory.reset(printView.data.back);
+    }
+  }, [printView.data, backHistory.reset]);
+  /** Bumped after each save, so the sheet preview reloads. */
+  const [rev, setRev] = useState(0);
 
   const update: DesignUpdate = useCallback((fn, key) => history.set((d) => (d ? fn(d) : d), key), [history.set]);
 
@@ -85,6 +117,7 @@ export function CoverStudioPage() {
       queryClient.setQueryData<CoverDesignView>(viewKey(bookId, lang), (old) =>
         old ? { ...next, design: old.design } : next,
       );
+      setRev((r) => r + 1);
       void queryClient.invalidateQueries({ queryKey: ['book-pdf', bookId] });
       setSaveState('saved');
     },
@@ -92,15 +125,67 @@ export function CoverStudioPage() {
   });
   const pendingDesign = useRef<CoverDesign | null>(null);
   useEffect(() => {
-    if (!design || design === lastSaved.current) return;
-    pendingDesign.current = design;
+    if (!frontDesign || frontDesign === lastSaved.current) return;
+    pendingDesign.current = frontDesign;
     setSaveState('pending');
     const timer = setTimeout(() => {
       pendingDesign.current = null;
-      save.mutate(design);
+      save.mutate(frontDesign);
     }, 800);
     return () => clearTimeout(timer);
-  }, [design, save.mutate]);
+  }, [frontDesign, save.mutate]);
+
+  // The back cover is saved with the printer's settings, the same way.
+  const saveBack = useMutation({
+    mutationFn: (d: CoverDesign) => {
+      const print = queryClient.getQueryData<CoverPrintView>(printKey(bookId, lang))?.print;
+      if (!print) throw new Error('NO_PRINT');
+      return api.saveCoverPrint(bookId, print, lang || undefined, d);
+    },
+    onMutate: () => setSaveState('saving'),
+    onSuccess: (next, d) => {
+      lastSavedBack.current = d;
+      queryClient.setQueryData<CoverPrintView>(printKey(bookId, lang), next);
+      setRev((r) => r + 1);
+      setSaveState('saved');
+    },
+    onError: () => setSaveState('failed'),
+  });
+  useEffect(() => {
+    if (!backDesign || backDesign === lastSavedBack.current) return;
+    setSaveState('pending');
+    const timer = setTimeout(() => saveBack.mutate(backDesign), 800);
+    return () => clearTimeout(timer);
+  }, [backDesign, saveBack.mutate]);
+
+  /** Opening the back: a back made from the front is made again, so it follows the front's latest changes. */
+  const showSide = (next: 'front' | 'back') => {
+    setSide(next);
+    setSelected(null);
+    if (next === 'back' && !printView.data?.backSaved) {
+      void queryClient
+        .fetchQuery({
+          queryKey: printKey(bookId, lang),
+          queryFn: () => api.coverPrint(bookId, lang || undefined),
+          staleTime: 0,
+        })
+        .then((r) => {
+          queryClient.setQueryData(printKey(bookId, lang), r);
+          if (!r.backSaved) {
+            lastSavedBack.current = r.back;
+            backHistory.reset(r.back);
+          }
+        });
+    }
+  };
+
+  /** The printer's settings were saved: the back cover made from the front follows them (blurb, publisher). */
+  const onPrintSaved = (next: CoverPrintView) => {
+    queryClient.setQueryData<CoverPrintView>(printKey(bookId, lang), next);
+    setRev((r) => r + 1);
+    lastSavedBack.current = next.back;
+    backHistory.reset(next.back);
+  };
   useEffect(
     () => () => {
       // Leaving with a change not yet sent: send it now.
@@ -182,13 +267,13 @@ export function CoverStudioPage() {
     onSuccess: (next) => {
       queryClient.setQueryData(viewKey(bookId, lang), next);
       lastSaved.current = next.design;
-      history.set(next.design);
+      frontHistory.set(next.design);
       setSelected(null);
     },
   });
   const [templateName, setTemplateName] = useState('');
   const addTemplate = useMutation({
-    mutationFn: (name: string) => api.addCoverTemplate(name, design as CoverDesign),
+    mutationFn: (name: string) => api.addCoverTemplate(name, frontDesign as CoverDesign),
     onSuccess: (list) => {
       queryClient.setQueryData(['cover-templates'], list);
       setTemplateName('');
@@ -257,6 +342,21 @@ export function CoverStudioPage() {
         <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_25rem]">
           {/* Canvas, thumbnail and checks */}
           <div className="flex min-w-0 flex-col gap-4">
+            <fieldset className="m-0 flex gap-1 border-0 p-0" data-testid="side-switch">
+              <legend className="sr-only">{t('coverStudio.print.editing')}</legend>
+              {(['front', 'back'] as const).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={side === id}
+                  onClick={() => showSide(id)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted aria-pressed:border-accent aria-pressed:bg-accent/10 aria-pressed:font-bold aria-pressed:text-text"
+                  data-testid={`side-${id}`}
+                >
+                  {t(`coverStudio.print.${id}`)}
+                </button>
+              ))}
+            </fieldset>
             <div className="rounded-2xl bg-[repeating-conic-gradient(var(--color-panel)_0%_25%,var(--color-surface)_0%_50%)] bg-[length:22px_22px] p-4 sm:p-8">
               <div className="mx-auto" style={{ maxWidth: `min(100%, calc((100dvh - 10rem) * ${aspect}))` }}>
                 <CoverCanvas
@@ -278,13 +378,19 @@ export function CoverStudioPage() {
               </div>
             </div>
             <p className="text-xs leading-6 text-muted">{t('coverStudio.canvasHint')}</p>
+            {side === 'back' ? (
+              <p className="text-xs leading-6 text-muted" data-testid="back-hint">
+                {t('coverStudio.print.backCanvasHint')}
+              </p>
+            ) : null}
 
             <AiResults
               bookId={bookId}
               lang={lang}
               aspect={aspect}
               onChoose={(d) => {
-                update(() => d);
+                setSide('front');
+                frontHistory.set(d);
                 setSelected(null);
               }}
             />
@@ -292,7 +398,13 @@ export function CoverStudioPage() {
             <div className="flex flex-wrap items-start gap-5">
               <figure className="m-0 flex flex-col items-center gap-1.5">
                 <div className="w-[5.5rem] overflow-hidden rounded-[2px] shadow-md">
-                  <CoverView design={design} bookId={bookId} aspect={aspect} uid="thumb" testId="cover-thumb" />
+                  <CoverView
+                    design={frontDesign ?? design}
+                    bookId={bookId}
+                    aspect={aspect}
+                    uid="thumb"
+                    testId="cover-thumb"
+                  />
                 </div>
                 <figcaption className="max-w-[7rem] text-center text-[11px] leading-5 text-muted">
                   {t('coverStudio.thumbnail')}
@@ -305,13 +417,17 @@ export function CoverStudioPage() {
           {/* Panels */}
           <aside className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
             <div role="tablist" aria-label={t('coverStudio.panels')} className="flex gap-1 border-b border-border">
-              {(['layers', 'ai', 'background', 'templates'] as const).map((id) => (
+              {(['layers', 'ai', 'background', 'templates', 'print'] as const).map((id) => (
                 <button
                   key={id}
                   type="button"
                   role="tab"
                   aria-selected={tab === id}
-                  onClick={() => setTab(id)}
+                  onClick={() => {
+                    setTab(id);
+                    // Designs and templates are for the front cover.
+                    if (id === 'ai' || id === 'templates') setSide('front');
+                  }}
                   className="-mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted aria-selected:border-accent aria-selected:font-bold aria-selected:text-text"
                   data-testid={`tab-${id}`}
                 >
@@ -349,6 +465,20 @@ export function CoverStudioPage() {
                   <p className="border-t border-border pt-4 text-sm text-muted">{t('coverStudio.selectHint')}</p>
                 )}
               </>
+            ) : null}
+
+            {tab === 'print' ? (
+              <PrintPanel
+                bookId={bookId}
+                lang={lang}
+                view={printView.data}
+                images={view.data?.images ?? []}
+                rev={rev}
+                side={side}
+                onSide={showSide}
+                onSaved={onPrintSaved}
+                onImage={(img) => setImages([img, ...(view.data?.images ?? [])])}
+              />
             ) : null}
 
             {tab === 'ai' ? <AiPanel bookId={bookId} lang={lang} onDesigned={() => setSelected(null)} /> : null}

@@ -129,3 +129,26 @@ export interface CoverAiStatus {
   message?: string;
   startedAt?: string;
 }
+
+// ── The `cover_blurb` task (stage 3) ────────────────────────────────────────────────────────────────────────────
+
+export const CoverBlurbTaskInputSchema = z.object({
+  title: z.string(),
+  original: z.string(),
+  authors: z.string(),
+  /** What the book is about: its brief, else its chapter titles. */
+  subject: z.string(),
+  /** The owner's wishes for the text; may be empty. */
+  request: z.string(),
+  /** Upper bound for the blurb, in characters. */
+  maxChars: z.number().int().min(200).max(1500),
+});
+export type CoverBlurbTaskInput = z.infer<typeof CoverBlurbTaskInputSchema>;
+
+export const CoverBlurbTaskResultSchema = z.object({
+  /** The back cover's blurb in the book's language: paragraphs separated by a blank line. */
+  blurb: z.string().trim().min(20).max(1500),
+  /** A line to set above it («چرا این کتاب؟»); may be empty. */
+  tagline: z.string().trim().max(120),
+});
+export type CoverBlurbTaskResult = z.infer<typeof CoverBlurbTaskResultSchema>;

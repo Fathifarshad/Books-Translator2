@@ -21,6 +21,7 @@ import { authRoutes } from './routes/auth';
 import { bookPdfRoutes } from './routes/book-pdf';
 import { bookRoutes } from './routes/books';
 import { coverAiRoutes } from './routes/cover-ai';
+import { coverPrintRoutes } from './routes/cover-print';
 import { coverStudioRoutes } from './routes/cover-studio';
 import { HttpError } from './routes/errors';
 import { eventRoutes } from './routes/events';
@@ -145,6 +146,7 @@ export async function buildApp(
   await app.register(bookPdfRoutes, { ctx });
   await app.register(coverStudioRoutes, { ctx });
   await app.register(coverAiRoutes, { ctx });
+  await app.register(coverPrintRoutes, { ctx });
 
   if (config.SERVE_WEB && !serveWeb(app, join(repoRoot(), 'apps/web/dist'))) {
     app.log.warn('SERVE_WEB is on but apps/web/dist is missing: run `pnpm --filter @dozabaneh/web build`');

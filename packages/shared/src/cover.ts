@@ -197,3 +197,75 @@ export interface CoverDesignView {
   texts: Partial<Record<CoverTextRole, string>>;
   images: CoverImage[];
 }
+
+// ── The printer's wrap (ADR-048, stage 3) ───────────────────────────────────────────────────────────────────────
+
+/** Papers whose thickness sets the spine (packages/cover `PAPERS` holds the numbers). */
+export const COVER_PAPERS = ['tahrir70', 'bulk80', 'glossy115'] as const;
+export type CoverPaperId = (typeof COVER_PAPERS)[number];
+
+/**
+ * What the printer needs besides the two designs: paper and bleed, the pages that set the spine, the back cover's
+ * blurb, ISBN, price and the publisher's logo (one of the book's cover images). Saved per book and language in
+ * `books.settings.coverPrint`.
+ */
+export const CoverPrintSchema = z.object({
+  paper: z.enum(COVER_PAPERS).default('tahrir70'),
+  /** Thickness of one leaf (two pages) in mm, when the printer's paper is not one of the three. */
+  leafMm: z.number().min(0.04).max(0.4).nullable().default(null),
+  /** The book's page count when it has not been built (else the last build's count is used). */
+  pages: z.number().int().min(4).max(4000).nullable().default(null),
+  bleedMm: z.number().min(0).max(10).default(3),
+  cropMarks: z.boolean().default(false),
+  /** Title and author on the spine (drawn only when the spine is wide enough). */
+  spineText: z.boolean().default(true),
+  blurb: z.string().max(1500).default(''),
+  /** A line set above the blurb. */
+  tagline: z.string().max(160).default(''),
+  isbn: z.string().max(24).default(''),
+  price: z.string().max(60).default(''),
+  barcode: z.boolean().default(true),
+  logo: CoverIdSchema.nullable().default(null),
+});
+export type CoverPrint = z.infer<typeof CoverPrintSchema>;
+
+export const CoverPrintSaveSchema = z.object({
+  lang: z.string().min(2).max(12).optional(),
+  print: CoverPrintSchema,
+  /** The back cover's own design; omitted = keep, null = go back to the one made from the front. */
+  back: CoverDesignSchema.nullable().optional(),
+});
+
+export interface CoverBlurbResult {
+  blurb: string;
+  tagline: string;
+  /** `ai`: written by the book's engine; `brief`: cut from the book's own brief (no engine connected or it failed). */
+  source: 'ai' | 'brief' | 'none';
+  message?: string;
+}
+
+export interface CoverPrintView {
+  print: CoverPrint;
+  /** The back cover's design: the saved one, or the one made from the front and the blurb. */
+  back: CoverDesign;
+  backSaved: boolean;
+  /** Pages of the last «کتاب PDF» build, if any. */
+  builtPages: number | null;
+  /** Pages used for the spine: the owner's number, else the build's; null = unknown. */
+  pages: number | null;
+  leafMm: number;
+  spineMm: number | null;
+  /** The printed sheet in mm (bleed and crop-mark margin included); null while the spine is unknown. */
+  sheet: { width: number; height: number } | null;
+  /** The ISBN as typed: valid 13 digits, or why not. */
+  isbn: { state: 'empty' | 'valid' | 'bad-check' | 'bad-format'; digits: string | null };
+  /** The back's texts the AI can fill: the book's own brief exists. */
+  hasBrief: boolean;
+}
+
+export const CoverBlurbRequestSchema = z.object({
+  lang: z.string().min(2).max(12).optional(),
+  /** The owner's wishes («کوتاه و ساده، برای دانشجویان»). */
+  request: z.string().max(400).optional(),
+});
+export type CoverBlurbRequest = z.infer<typeof CoverBlurbRequestSchema>;

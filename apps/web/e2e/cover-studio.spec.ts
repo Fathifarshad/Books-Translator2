@@ -34,6 +34,8 @@ test.describe.configure({ mode: 'serial' });
 test.describe('cover studio', () => {
   test.afterAll(async ({ request }) => {
     await request.delete('/api/v1/books/bk_sample/cover-design?lang=fa');
+    // Back to the defaults of the printer's cover.
+    await request.put('/api/v1/books/bk_sample/cover-print', { data: { lang: 'fa', print: {}, back: null } });
   });
 
   test('from the library: write the title, choose its font, move it, undo, and keep it', async ({ page }) => {
@@ -201,5 +203,51 @@ test.describe('cover studio', () => {
     // Templates outlive the book's design; clean up.
     const list = await (await page.request.get('/api/v1/cover-templates')).json();
     for (const tpl of list) await page.request.delete(`/api/v1/cover-templates/${tpl.id}`);
+  });
+
+  test('printer cover: pages give the spine, a bad ISBN is refused, the blurb lands on the back, the sheet previews', async ({
+    page,
+  }) => {
+    await openStudio(page);
+    await page.getByTestId('tab-print').click();
+    await expect(page.getByTestId('print-panel')).toBeVisible();
+
+    await page.getByTestId('print-pages').fill('320');
+    await expect(page.getByTestId('print-spine-result')).toContainText('عرض عطف', { timeout: 10_000 });
+    await expect(page.getByTestId('print-spine-result')).toContainText('میلی‌متر');
+    await expect(page.getByTestId('print-preview')).toBeVisible();
+    await expect(page.getByTestId('print-download')).toHaveAttribute('href', /cover-print\/pdf/);
+
+    // A thicker paper widens the spine.
+    const before = await page.getByTestId('print-spine-result').innerText();
+    await page.getByTestId('print-paper').selectOption('bulk80');
+    await expect(page.getByTestId('print-spine-result')).not.toHaveText(before, { timeout: 10_000 });
+
+    // ISBN: a wrong check digit is named, a right one accepted.
+    await page.getByTestId('print-isbn').fill('978-964-6194-33-1');
+    await expect(page.getByTestId('print-isbn-note')).toContainText('نمی‌خواند');
+    await page.getByTestId('print-isbn').fill('978-964-6194-33-5');
+    await expect(page.getByTestId('print-isbn-note')).toContainText('درست است');
+
+    // The blurb is written on the back cover too.
+    await page.getByTestId('print-blurb').fill('این کتاب شما را گام‌به‌گام همراهی می‌کند.');
+    await page.getByTestId('print-price').fill('۱۲۰٬۰۰۰ تومان');
+    await page.getByTestId('side-back').click();
+    await expect(page.getByTestId('back-hint')).toBeVisible();
+    await expect(page.getByTestId('cover-render').getByText('این کتاب شما را گام‌به‌گام همراهی می‌کند.')).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Editing the blurb on the back cover feeds the setting.
+    await page.getByTestId('hit-blurb').click();
+    await page.getByTestId('layer-text').fill('متن تازه‌ی پشت جلد');
+    await saved(page);
+    await page.getByTestId('tab-print').click();
+    await expect(page.getByTestId('print-blurb')).toHaveValue('متن تازه‌ی پشت جلد', { timeout: 10_000 });
+
+    // The AI writer answers (the test server has no engine: the book's brief or a plain refusal is said).
+    await page.getByTestId('print-write-blurb').click();
+    await expect(page.getByTestId('print-blurb-note')).toBeVisible({ timeout: 20_000 });
+    await expectNoSeriousA11yViolations(page);
   });
 });

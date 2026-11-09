@@ -832,3 +832,32 @@ question). The remaining ceiling is the voice model itself; Azure fa-IR (Dilara/
   (3) a one-sheet print PDF through the existing Edge printer (`print.ts`), size = `wrapLayout`, with optional crop
   marks, spine title rotated 90° (only when the spine ≥ 6 mm); (4) tests + e2e + screenshots.
   Stage 4: PNG/JPG export of the front (shop and social-square sizes) and a 3D mockup.
+
+### ADR-048 amendment — stage 3 finished: the printer's cover (2026-11-09)
+
+- **Settings (`CoverPrint`, `packages/shared/src/cover.ts`)** — paper (تحریر 70 g / بالک 80 g / گلاسه 115 g) or a typed leaf
+  thickness, the page count (typed, else the last «کتاب PDF» build's), bleed (0–10 mm, default 3), crop marks, spine
+  lettering, blurb, tagline, ISBN, price, barcode on/off, logo (one of the book's cover images). Kept per book and
+  language in `books.settings.coverPrint`; the back's own design in `books.settings.coverBack` (kept apart from
+  `BookPdfOptions`: they are printer settings, not book-layout options — a deliberate change from the stage-3 plan).
+- **Back cover = a design** (`backDesign(front, {blurb, tagline, publisher, rtl})`): made from the front until the owner
+  edits it, then saved. The blurb lives twice — the setting and the back's `blurb` layer — and the one edited last
+  wins (`saveCoverPrint`). The studio's canvas switches between front and back, each with its own undo history.
+- **Blurb:** new task `cover_blurb` (`prompts/cover-blurb.md` v1; spec: length, language; mock for tests) on the book's
+  engine like `cover_design`; no engine or a failed answer → the start of the book's brief (never a list of chapters).
+- **The sheet (`packages/cover/src/sheet.ts`, pure)**: back | spine | front in mm (front on the right for RTL books).
+  Bleed is not a scaled design: the ground, picture and pattern (`.cv-g`) run past the trim by CSS variables in `cqw`
+  while layers and the frame stay where they were, each panel clipped to its own box so a picture never crosses a fold.
+  Spine = the front's ground (a picture becomes its colour) with the title and, from 9 mm, the author, set
+  `vertical-rl`; no text under 6 mm. Barcode (EAN-13 on white, ISBN line above), price and logo are fixed on the back's
+  foot; an ISBN with a wrong check digit prints no barcode and says so. Crop marks sit outside the bleed, with fold
+  marks at both spine edges.
+- **Output:** `GET /books/:id/cover-print/pdf` prints one page of exactly the sheet's size through the book's Edge
+  printer (`cover-wrap-<lang>.pdf` beside the book); `/preview` is the same sheet for the studio's frame; 409
+  `PAGES_UNKNOWN` until the pages are known. Colours are RGB — the printer converts to CMYK.
+- **Tests:** `packages/cover/src/sheet.test.ts` (8), `apps/api/src/cover-print.test.ts` (settings, blurb, preview and a
+  real print that reads the PDF's MediaBox), e2e `cover-studio.spec.ts` +1; 739 unit, 55 e2e green.
+  Debug: `data/dbg/cover-wrap.ts` prints a sample wrap and renders it.
+- **Still to do (stage 4):** PNG/JPG export of the front (shop and social-square sizes) and a 3D mockup; the barcode and
+  logo are not yet draggable on the back canvas.
+

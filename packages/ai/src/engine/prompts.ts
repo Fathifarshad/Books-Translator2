@@ -15,6 +15,7 @@ export const PROMPT_REFS: Record<AgentTask, string> = {
   quiz: 'prompts/quiz.md',
   tutor_answer: 'prompts/tutor.md',
   cover_design: 'prompts/cover.md',
+  cover_blurb: 'prompts/cover-blurb.md',
 };
 
 /** The style guide of a target language (registry entry `styleGuide`), if it has one. */

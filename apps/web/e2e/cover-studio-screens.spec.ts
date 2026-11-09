@@ -30,6 +30,22 @@ test('cover studio screens', async ({ page }) => {
     await page.getByTestId('tab-background').click();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-background.png`, fullPage: true });
+    // The printer's cover: paper and pages, the ISBN, the sheet, and the back cover being edited.
+    await page.getByTestId('tab-print').click();
+    await page.getByTestId('print-pages').fill('320');
+    await page.getByTestId('print-isbn').fill('978-964-6194-33-5');
+    await page.getByTestId('print-price').fill('۱۲۰٬۰۰۰ تومان');
+    await page
+      .getByTestId('print-blurb')
+      .fill('این کتاب شما را گام‌به‌گام با شیوه‌ی اندیشیدن منظم آشنا می‌کند؛ از پرسیدن پرسش درست تا رسیدن به نتیجه‌ای که بتوان از آن دفاع کرد.\n\nمناسب دانشجویان و پژوهشگران.');
+    await expect(page.getByTestId('print-preview')).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(1800);
+    await page.getByTestId('print-sheet').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-print.png`, fullPage: true });
+    await page.getByTestId('side-back').click();
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: `${OUT}${v.device}-${v.theme}-cover-back.png`, fullPage: true });
+    await page.getByTestId('side-front').click();
     // A round of designs (the app's own designer in the test server).
     await page.getByTestId('tab-ai').click();
     if (v.device === 'desktop' && v.theme === 'light') await page.getByTestId('ai-start').click();
@@ -45,4 +61,5 @@ test('cover studio screens', async ({ page }) => {
     );
     expect(overflow).toBeLessThanOrEqual(0);
   }
+  await page.request.put('/api/v1/books/bk_sample/cover-print', { data: { lang: 'fa', print: {}, back: null } });
 });

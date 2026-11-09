@@ -80,6 +80,7 @@ export const TASK_PRIORITY: Record<AgentTask, number> = {
   speech: 100,
   /** Asked for directly by the cover studio, never queued; here to complete the map. */
   cover_design: 900,
+  cover_blurb: 900,
 };
 export const PRIORITY_BOOST = 500;
 

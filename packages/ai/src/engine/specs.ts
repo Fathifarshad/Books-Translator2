@@ -461,6 +461,37 @@ const coverDesign: TaskSpec<'cover_design'> = {
   },
 };
 
+/**
+ * The back cover's blurb (ADR-048, stage 3): in the book's language, inside the length asked for, free of the
+ * claims a blurb must not invent (prizes, sales, quotations).
+ */
+const coverBlurb: TaskSpec<'cover_blurb'> = {
+  task: 'cover_blurb',
+  input: TASK_INPUT_SCHEMAS.cover_blurb,
+  output: TASK_RESULT_SCHEMAS.cover_blurb,
+  check(input, output, ctx) {
+    const issues: ValidationIssue[] = [];
+    if (output.blurb.length > input.maxChars) {
+      issues.push({
+        level: 'error',
+        rule: 'blurb_length',
+        message: `The blurb has ${output.blurb.length} characters; at most ${input.maxChars}.`,
+        fix: `Shorten it to ${input.maxChars} characters or fewer.`,
+      });
+    }
+    const script = getLanguage(ctx.targetLang).script;
+    if (script !== 'Latn' && !/\p{Script=Arabic}|\p{Script=Cyrillic}|\p{Script=Hebrew}/u.test(output.blurb)) {
+      issues.push({
+        level: 'error',
+        rule: 'target_script',
+        message: "The blurb is not in the book's language.",
+        fix: 'Write the blurb in the target language.',
+      });
+    }
+    return issues;
+  },
+};
+
 export const TASK_SPECS: { [T in AgentTask]: TaskSpec<T> } = {
   brief,
   glossary,
@@ -471,6 +502,7 @@ export const TASK_SPECS: { [T in AgentTask]: TaskSpec<T> } = {
   quiz,
   tutor_answer: tutorAnswer,
   cover_design: coverDesign,
+  cover_blurb: coverBlurb,
 };
 
 /** Input keys of a batch (for mapping schema errors on `items[i]` back to their key). */
